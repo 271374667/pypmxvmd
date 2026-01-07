@@ -7,7 +7,7 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from pymmd.common.parsers.vmd_parser import VmdParser
+from pypmxvmd.common.parsers.vmd_parser import VmdParser
 
 
 def test_vmd_parser():

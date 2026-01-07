@@ -1,4 +1,4 @@
-"""PyMMD VMD解析器 - 完全基于Nuthouse01原实现
+"""PyPMXVMD VMD解析器 - 完全基于Nuthouse01原实现
 
 完全复刻Nuthouse01的VMD解析和保存逻辑，保持数据顺序和处理流程一致。
 """
@@ -8,11 +8,11 @@ import struct
 from pathlib import Path
 from typing import List, Optional, Union, Callable
 
-from pymmd.common.models.vmd import (
+from pypmxvmd.common.models.vmd import (
     VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame, VmdCameraFrame,
     VmdLightFrame, VmdShadowFrame, VmdIkFrame, VmdIkBone, ShadowMode
 )
-from pymmd.common.io.binary_io import BinaryIOHandler
+from pypmxvmd.common.io.binary_io import BinaryIOHandler
 
 
 class VmdParserNuthouse:

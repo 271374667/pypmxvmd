@@ -1,5 +1,5 @@
 """
-PyMMD测试配置
+PyPMXVMD测试配置
 
 提供pytest测试配置和共享fixture。
 """

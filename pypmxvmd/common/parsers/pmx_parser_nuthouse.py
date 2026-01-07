@@ -1,4 +1,4 @@
-"""PyMMD PMX解析器 - 完全基于Nuthouse01原实现
+"""PyPMXVMD PMX解析器 - 完全基于Nuthouse01原实现
 
 完全复刻Nuthouse01的PMX解析和保存逻辑，保持数据顺序和处理流程一致。
 """
@@ -8,13 +8,13 @@ import struct
 from pathlib import Path
 from typing import List, Optional, Union, Callable, Tuple
 
-from pymmd.common.models.pmx import (
+from pypmxvmd.common.models.pmx import (
     PmxModel, PmxHeader, PmxVertex, PmxMaterial, PmxBone, PmxMorph,
     PmxFrame, PmxRigidBody, PmxJoint, PmxSoftBody,
     WeightMode, MaterialFlags, SphMode, MorphType, MorphPanel,
     RigidBodyShape, RigidBodyPhysMode, JointType
 )
-from pymmd.common.io.binary_io import BinaryIOHandler
+from pypmxvmd.common.io.binary_io import BinaryIOHandler
 
 
 class PmxParserNuthouse:
@@ -423,7 +423,7 @@ class PmxParserNuthouse:
                     else:
                         limit_min = limit_max = None
                     
-                    from pymmd.common.models.pmx import PmxBoneIkLink
+                    from pypmxvmd.common.models.pmx import PmxBoneIkLink
                     link = PmxBoneIkLink(
                         bone_index=ik_link_idx,
                         limit_min=limit_min,
@@ -488,17 +488,17 @@ class PmxParserNuthouse:
             for j in range(itemcount):
                 if morphtype == MorphType.GROUP:
                     (morph_idx, influence) = self._io_handler.unpack_data(f"{self.idx_morph}f", data)
-                    from pymmd.common.models.pmx import PmxMorphItemGroup
+                    from pypmxvmd.common.models.pmx import PmxMorphItemGroup
                     item = PmxMorphItemGroup(morph_index=morph_idx, value=influence)
                 elif morphtype == MorphType.VERTEX:
                     (vert_idx, transX, transY, transZ) = self._io_handler.unpack_data(f"{self.idx_vert}3f", data)
-                    from pymmd.common.models.pmx import PmxMorphItemVertex
+                    from pypmxvmd.common.models.pmx import PmxMorphItemVertex
                     item = PmxMorphItemVertex(vertex_index=vert_idx, offset=[transX, transY, transZ])
                 elif morphtype == MorphType.BONE:
                     (bone_idx, transX, transY, transZ, rotqX, rotqY, rotqZ, rotqW) = self._io_handler.unpack_data(f"{self.idx_bone}3f 4f", data)
                     # 四元数转欧拉角
                     rotX, rotY, rotZ = self._quaternion_to_euler([rotqW, rotqX, rotqY, rotqZ])
-                    from pymmd.common.models.pmx import PmxMorphItemBone
+                    from pypmxvmd.common.models.pmx import PmxMorphItemBone
                     item = PmxMorphItemBone(bone_index=bone_idx, translation=[transX, transY, transZ], rotation=[rotX, rotY, rotZ])
                 else:
                     # 其他类型暂时跳过或简单处理
@@ -575,7 +575,7 @@ class PmxParserNuthouse:
                 else:
                     idx = self._io_handler.unpack_data(self.idx_bone, data)[0]
                 
-                from pymmd.common.models.pmx import PmxFrameItem
+                from pypmxvmd.common.models.pmx import PmxFrameItem
                 item = PmxFrameItem(is_morph=bool(is_morph), index=idx)
                 items.append(item)
             

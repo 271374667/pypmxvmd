@@ -7,8 +7,8 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from pymmd.common.parsers.pmx_parser import PmxParser
-from pymmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
+from pypmxvmd.common.parsers.pmx_parser import PmxParser
+from pypmxvmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
 
 
 def create_detailed_pmx_model():

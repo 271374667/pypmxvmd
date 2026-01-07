@@ -7,8 +7,8 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from pymmd.common.parsers.vpd_parser import VpdParser
-from pymmd.common.models.vpd import VpdPose, VpdBonePose, VpdMorphPose
+from pypmxvmd.common.parsers.vpd_parser import VpdParser
+from pypmxvmd.common.models.vpd import VpdPose, VpdBonePose, VpdMorphPose
 
 
 def create_test_vpd_file():

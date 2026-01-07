@@ -1,12 +1,12 @@
 """
-PyMMD VPD数据模型
+PyPMXVMD VPD数据模型
 
 定义VPD(Vocaloid Pose Data)格式的数据结构。
 VPD是纯文本格式，用于存储单帧姿势数据。
 """
 
 from typing import List, Optional, Any
-from pymmd.common.models.base import BaseModel, is_valid_vector
+from pypmxvmd.common.models.base import BaseModel, is_valid_vector
 
 
 class VpdBonePose(BaseModel):

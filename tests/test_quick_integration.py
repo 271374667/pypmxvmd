@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PyMMD快速集成测试"""
+"""PyPMXVMD快速集成测试"""
 
 import sys
 from pathlib import Path
@@ -7,13 +7,13 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-import pymmd
+import pypmxvmd
 
 
 def test_quick_integration():
-    """快速测试PyMMD核心API功能"""
-    print("=== PyMMD快速集成测试 ===")
-    print(f"PyMMD版本: {pymmd.__version__}")
+    """快速测试PyPMXVMD核心API功能"""
+    print("=== PyPMXVMD快速集成测试 ===")
+    print(f"PyPMXVMD版本: {pypmxvmd.__version__}")
     
     success_count = 0
     total_tests = 0
@@ -29,7 +29,7 @@ def test_quick_integration():
         
         all_imported = True
         for func_name in functions:
-            if not hasattr(pymmd, func_name):
+            if not hasattr(pypmxvmd, func_name):
                 print(f"函数 {func_name} 导入失败")
                 all_imported = False
         
@@ -63,12 +63,12 @@ Bone0{センター
             f.write(vpd_content)
         
         # 测试加载和保存
-        pose = pymmd.load_vpd(vpd_file)
+        pose = pypmxvmd.load_vpd(vpd_file)
         output_vpd = Path(__file__).parent / "quick_output.vpd"
-        pymmd.save_vpd(pose, output_vpd)
+        pypmxvmd.save_vpd(pose, output_vpd)
         
         # 验证
-        pose2 = pymmd.load_vpd(output_vpd)
+        pose2 = pypmxvmd.load_vpd(output_vpd)
         if pose.model_name == pose2.model_name:
             print("VPD API测试通过")
             success_count += 1
@@ -99,7 +99,7 @@ Auto.osm;
             f.write(vpd_content)
         
         # 测试自动检测加载
-        data = pymmd.load(auto_file)
+        data = pypmxvmd.load(auto_file)
         print(f"自动检测结果: {type(data).__name__}")
         
         if hasattr(data, 'model_name'):

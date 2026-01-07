@@ -1,4 +1,4 @@
-"""PyMMD VMD解析器
+"""PyPMXVMD VMD解析器
 
 负责解析和写入VMD格式文件。
 支持VMD 1.0和2.0格式的完整解析和写入。
@@ -10,11 +10,11 @@ import struct
 from pathlib import Path
 from typing import List, Optional, Union, Callable
 
-from pymmd.common.models.vmd import (
+from pypmxvmd.common.models.vmd import (
     VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame, VmdCameraFrame,
     VmdLightFrame, VmdShadowFrame, VmdIkFrame, VmdIkBone
 )
-from pymmd.common.io.binary_io import BinaryIOHandler
+from pypmxvmd.common.io.binary_io import BinaryIOHandler
 
 
 class VmdParser:

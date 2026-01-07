@@ -1,5 +1,5 @@
 """
-PyMMD VPD解析器
+PyPMXVMD VPD解析器
 
 负责解析和写入VPD格式文件。
 VPD是纯文本格式，用于存储单帧姿势数据。
@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 from typing import Union, Optional, Callable
 
-from pymmd.common.models.vpd import VpdPose, VpdBonePose, VpdMorphPose
+from pypmxvmd.common.models.vpd import VpdPose, VpdBonePose, VpdMorphPose
 
 
 class VpdParser:

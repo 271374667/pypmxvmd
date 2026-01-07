@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PyMMD API集成测试"""
+"""PyPMXVMD API集成测试"""
 
 import sys
 from pathlib import Path
@@ -7,14 +7,14 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-import pymmd
+import pypmxvmd
 
 
 def test_api_integration():
-    """测试PyMMD核心API功能"""
-    print("=== PyMMD API集成测试 ===")
-    print(f"PyMMD版本: {pymmd.__version__}")
-    print(f"作者: {pymmd.__author__}")
+    """测试PyPMXVMD核心API功能"""
+    print("=== PyPMXVMD API集成测试 ===")
+    print(f"PyPMXVMD版本: {pypmxvmd.__version__}")
+    print(f"作者: {pypmxvmd.__author__}")
     
     success_count = 0
     total_tests = 0
@@ -32,16 +32,16 @@ def test_api_integration():
             f.write(test_data)
         
         # 测试加载
-        motion = pymmd.load_vmd(vmd_file)
+        motion = pypmxvmd.load_vmd(vmd_file)
         print(f"VMD加载成功: 版本={motion.header.version}, 模型={motion.header.model_name}")
         print(f"骨骼帧: {len(motion.bone_frames)}, 变形帧: {len(motion.morph_frames)}")
         
         # 测试保存
         output_vmd = Path(__file__).parent / "api_output.vmd"
-        pymmd.save_vmd(motion, output_vmd)
+        pypmxvmd.save_vmd(motion, output_vmd)
         
         # 验证读写一致性
-        motion2 = pymmd.load_vmd(output_vmd)
+        motion2 = pypmxvmd.load_vmd(output_vmd)
         if (motion.header.version == motion2.header.version and
             len(motion.bone_frames) == len(motion2.bone_frames)):
             print("VMD API测试通过")
@@ -76,16 +76,16 @@ Bone0{センター
             f.write(vpd_content)
         
         # 测试加载
-        pose = pymmd.load_vpd(vpd_file)
+        pose = pypmxvmd.load_vpd(vpd_file)
         print(f"VPD加载成功: 模型={pose.model_name}")
         print(f"骨骼姿势: {len(pose.bone_poses)}, 变形姿势: {len(pose.morph_poses)}")
         
         # 测试保存
         output_vpd = Path(__file__).parent / "api_output.vpd"
-        pymmd.save_vpd(pose, output_vpd)
+        pypmxvmd.save_vpd(pose, output_vpd)
         
         # 验证读写一致性
-        pose2 = pymmd.load_vpd(output_vpd)
+        pose2 = pypmxvmd.load_vpd(output_vpd)
         if (pose.model_name == pose2.model_name and
             len(pose.bone_poses) == len(pose2.bone_poses)):
             print("VPD API测试通过")
@@ -108,10 +108,10 @@ Bone0{センター
         
         # 测试保存
         pmx_file = Path(__file__).parent / "api_test.pmx"
-        pymmd.save_pmx(model, pmx_file)
+        pypmxvmd.save_pmx(model, pmx_file)
         
         # 测试加载
-        model2 = pymmd.load_pmx(pmx_file)
+        model2 = pypmxvmd.load_pmx(pmx_file)
         print(f"PMX加载成功: 版本={model2.header.version}")
         print(f"顶点: {len(model2.vertices)}, 面: {len(model2.faces)}, 材质: {len(model2.materials)}")
         
@@ -140,12 +140,12 @@ Bone0{センター
             f.write(test_data)
         
         # 测试自动加载
-        data = pymmd.load(auto_test_file)
+        data = pypmxvmd.load(auto_test_file)
         print(f"自动检测加载: {type(data).__name__}")
         
         # 测试自动保存
         auto_output = Path(__file__).parent / "auto_output.vmd"
-        pymmd.save(data, auto_output)
+        pypmxvmd.save(data, auto_output)
         
         if auto_output.exists():
             print("自动检测API测试通过")
@@ -210,7 +210,7 @@ def create_test_vmd_data():
 
 def create_test_pmx_model():
     """创建简单的测试PMX模型"""
-    from pymmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
+    from pypmxvmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
     
     # 创建头部
     header = PmxHeader(

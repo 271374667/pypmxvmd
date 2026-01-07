@@ -1,5 +1,5 @@
 """
-PyMMD PMX解析器
+PyPMXVMD PMX解析器
 
 负责解析和写入PMX格式文件。
 支持PMX 2.0和2.1格式的完整解析。
@@ -9,10 +9,10 @@ import struct
 from pathlib import Path
 from typing import List, Optional, Union
 
-from pymmd.common.models.pmx import (
+from pypmxvmd.common.models.pmx import (
     PmxModel, PmxHeader, PmxVertex, PmxMaterial, WeightMode, SphMode, MaterialFlags
 )
-from pymmd.common.io.binary_io import BinaryIOHandler
+from pypmxvmd.common.io.binary_io import BinaryIOHandler
 
 
 class PmxParser:

@@ -1,5 +1,5 @@
 """
-PyMMD PMX数据模型
+PyPMXVMD PMX数据模型
 
 定义PMX(Polygon Model eXtended)格式的所有数据结构。
 包含模型头信息、顶点、面、材质、骨骼、变形、刚体、关节等。
@@ -7,7 +7,7 @@ PyMMD PMX数据模型
 
 import enum
 from typing import List, Optional, Set, Union, Any
-from pymmd.common.models.base import BaseModel, is_valid_vector, is_valid_flag
+from pypmxvmd.common.models.base import BaseModel, is_valid_vector, is_valid_flag
 
 
 class WeightMode(enum.IntEnum):

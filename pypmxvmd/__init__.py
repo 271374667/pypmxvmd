@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PyMMD - Python MikuMikuDance File Parser
+PyPMXVMD - Python MikuMikuDance File Parser
 
 A Python library for parsing and modifying MikuMikuDance (MMD) files:
 - VMD (Vocaloid Motion Data) - Motion and animation data
@@ -8,19 +8,19 @@ A Python library for parsing and modifying MikuMikuDance (MMD) files:
 - VPD (Vocaloid Pose Data) - Pose/frame data
 
 Usage:
-    import pymmd
-    
+    import pypmxvmd
+
     # Parse VMD motion file
-    motion = pymmd.load_vmd("motion.vmd")
-    pymmd.save_vmd(motion, "modified_motion.vmd")
-    
+    motion = pypmxvmd.load_vmd("motion.vmd")
+    pypmxvmd.save_vmd(motion, "modified_motion.vmd")
+
     # Parse PMX model file
-    model = pymmd.load_pmx("model.pmx")
-    pymmd.save_pmx(model, "modified_model.pmx")
-    
+    model = pypmxvmd.load_pmx("model.pmx")
+    pypmxvmd.save_pmx(model, "modified_model.pmx")
+
     # Parse VPD pose file
-    pose = pymmd.load_vpd("pose.vpd")
-    pymmd.save_vpd(pose, "modified_pose.vpd")
+    pose = pypmxvmd.load_vpd("pose.vpd")
+    pypmxvmd.save_vpd(pose, "modified_pose.vpd")
 """
 
 from pathlib import Path
@@ -37,7 +37,7 @@ from .common.models.pmx import PmxModel
 from .common.models.vpd import VpdPose
 
 __version__ = "2.0.0"
-__author__ = "PyMMD Team"
+__author__ = "PyPMXVMD Team"
 __description__ = "Python MikuMikuDance File Parser"
 
 # Core parser instances (reused for efficiency)

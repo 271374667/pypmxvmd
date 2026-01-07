@@ -1,5 +1,5 @@
 """
-PyMMD VMD数据模型
+PyPMXVMD VMD数据模型
 
 定义VMD(Vocaloid Motion Data)格式的所有数据结构。
 包含动作头信息、骨骼关键帧、变形关键帧、相机关键帧等。
@@ -7,7 +7,7 @@ PyMMD VMD数据模型
 
 import enum
 from typing import List, Optional, Any
-from pymmd.common.models.base import BaseModel, is_valid_vector
+from pypmxvmd.common.models.base import BaseModel, is_valid_vector
 
 
 class ShadowMode(enum.IntEnum):

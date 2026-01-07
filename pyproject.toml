@@ -1,0 +1,113 @@
+[project]
+name = "pypmxvmd"
+version = "2.0.0"
+description = "Wrapper for reading and modifying VMD and PMX files"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "PyPMXVMD Team", email = "pypmxvmd@example.com"}
+]
+keywords = ["mmd", "mikumikudance", "pmx", "vmd", "vpd", "3d", "animation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers", 
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "typing-extensions>=4.0.0; python_version<'3.10'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0", 
+    "black>=22.0",
+    "isort>=5.0",
+    "flake8>=4.0",
+    "mypy>=0.900",
+]
+
+gui = [
+    # tkinter is usually part of Python standard library
+]
+
+translation = [
+    "googletrans==4.0.0rc1",
+]
+
+image = [
+    "Pillow>=8.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pypmxvmd/pypmxvmd"
+Documentation = "https://pypmxvmd.readthedocs.io/"
+Repository = "https://github.com/pypmxvmd/pypmxvmd"
+"Bug Tracker" = "https://github.com/pypmxvmd/pypmxvmd/issues"
+
+[project.scripts]
+pypmxvmd = "pypmxvmd.presentation.cli.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pypmxvmd"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # Exclude directories
+  \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["pypmxvmd"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = [
+    "tests",
+]
+python_files = [
+    "test_*.py", 
+    "*_test.py",
+]

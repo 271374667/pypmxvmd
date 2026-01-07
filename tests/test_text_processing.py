@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PyMMD文本处理功能测试"""
+"""PyPMXVMD文本处理功能测试"""
 
 import sys
 from pathlib import Path
@@ -7,12 +7,12 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-import pymmd
+import pypmxvmd
 
 
 def create_test_vmd_data():
     """创建测试VMD数据"""
-    from pymmd.common.models.vmd import VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame
+    from pypmxvmd.common.models.vmd import VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame
     
     # 创建VMD运动对象
     vmd_motion = VmdMotion()
@@ -46,7 +46,7 @@ def create_test_vmd_data():
 
 def create_test_pmx_data():
     """创建测试PMX数据"""
-    from pymmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
+    from pypmxvmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
     
     header = PmxHeader(
         version=2.0,
@@ -100,7 +100,7 @@ def create_test_pmx_data():
 
 def create_test_vpd_data():
     """创建测试VPD数据"""
-    from pymmd.common.models.vpd import VpdPose, VpdBonePose, VpdMorphPose
+    from pypmxvmd.common.models.vpd import VpdPose, VpdBonePose, VpdMorphPose
     
     bone_poses = [
         VpdBonePose(
@@ -126,8 +126,8 @@ def create_test_vpd_data():
 
 def test_text_processing():
     """测试文本处理功能"""
-    print("=== PyMMD文本处理功能测试 ===")
-    print(f"PyMMD版本: {pymmd.__version__}")
+    print("=== PyPMXVMD文本处理功能测试 ===")
+    print(f"PyPMXVMD版本: {pypmxvmd.__version__}")
     
     success_count = 0
     total_tests = 0
@@ -142,11 +142,11 @@ def test_text_processing():
         
         # 导出为文本
         vmd_text_file = Path(__file__).parent / "test_vmd.txt"
-        pymmd.save_vmd_text(original_vmd, vmd_text_file)
+        pypmxvmd.save_vmd_text(original_vmd, vmd_text_file)
         print(f"VMD文本导出成功")
         
         # 从文本加载
-        loaded_vmd = pymmd.load_vmd_text(vmd_text_file)
+        loaded_vmd = pypmxvmd.load_vmd_text(vmd_text_file)
         print(f"VMD文本加载成功: 版本={loaded_vmd.header.version}, 模型={loaded_vmd.header.model_name}")
         print(f"骨骼帧: {len(loaded_vmd.bone_frames)}, 变形帧: {len(loaded_vmd.morph_frames)}")
         
@@ -175,11 +175,11 @@ def test_text_processing():
         
         # 导出为文本
         pmx_text_file = Path(__file__).parent / "test_pmx.txt"
-        pymmd.save_pmx_text(original_pmx, pmx_text_file)
+        pypmxvmd.save_pmx_text(original_pmx, pmx_text_file)
         print(f"PMX文本导出成功")
         
         # 从文本加载
-        loaded_pmx = pymmd.load_pmx_text(pmx_text_file)
+        loaded_pmx = pypmxvmd.load_pmx_text(pmx_text_file)
         print(f"PMX文本加载成功: 版本={loaded_pmx.header.version}")
         print(f"顶点: {len(loaded_pmx.vertices)}, 面: {len(loaded_pmx.faces)}, 材质: {len(loaded_pmx.materials)}")
         
@@ -208,11 +208,11 @@ def test_text_processing():
         
         # 导出为结构化文本
         vpd_text_file = Path(__file__).parent / "test_vpd.txt"
-        pymmd.save_vpd_text(original_vpd, vpd_text_file)
+        pypmxvmd.save_vpd_text(original_vpd, vpd_text_file)
         print(f"VPD文本导出成功")
         
         # 从文本加载
-        loaded_vpd = pymmd.load_vpd_text(vpd_text_file)
+        loaded_vpd = pypmxvmd.load_vpd_text(vpd_text_file)
         print(f"VPD文本加载成功: 模型={loaded_vpd.model_name}")
         print(f"骨骼姿势: {len(loaded_vpd.bone_poses)}, 变形姿势: {len(loaded_vpd.morph_poses)}")
         
@@ -239,13 +239,13 @@ def test_text_processing():
         # 创建VMD文本文件
         vmd_data = create_test_vmd_data()
         auto_test_file = Path(__file__).parent / "auto_test.txt"
-        pymmd.save_text(vmd_data, auto_test_file)
+        pypmxvmd.save_text(vmd_data, auto_test_file)
         
         # 自动检测并加载
-        auto_loaded = pymmd.load_text(auto_test_file)
+        auto_loaded = pypmxvmd.load_text(auto_test_file)
         print(f"自动检测加载: {type(auto_loaded).__name__}")
         
-        if isinstance(auto_loaded, pymmd.VmdMotion) and auto_loaded.header.model_name == vmd_data.header.model_name:
+        if isinstance(auto_loaded, pypmxvmd.VmdMotion) and auto_loaded.header.model_name == vmd_data.header.model_name:
             print("自动检测文本功能测试通过")
             success_count += 1
         
@@ -272,7 +272,7 @@ def test_text_processing():
         
         all_available = True
         for func_name in text_functions:
-            if not hasattr(pymmd, func_name):
+            if not hasattr(pypmxvmd, func_name):
                 print(f"函数 {func_name} 不可用")
                 all_available = False
         

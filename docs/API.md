@@ -1,6 +1,6 @@
-# PyMMD API 文档
+# PyPMXVMD API 文档
 
-PyMMD 是一个用于解析和修改 MikuMikuDance (MMD) 文件的 Python 库。
+PyPMXVMD 是一个用于解析和修改 MikuMikuDance (MMD) 文件的 Python 库。
 
 **版本**: 2.0.0
 **Python要求**: >= 3.8
@@ -26,30 +26,30 @@ PyMMD 是一个用于解析和修改 MikuMikuDance (MMD) 文件的 Python 库。
 ### 安装
 
 ```bash
-pip install pymmd
+pip install pypmxvmd
 ```
 
 ### 基础用法
 
 ```python
-import pymmd
+import pypmxvmd
 
 # 自动检测文件类型并加载
-data = pymmd.load("motion.vmd")
+data = pypmxvmd.load("motion.vmd")
 
 # 保存文件
-pymmd.save(data, "output.vmd")
+pypmxvmd.save(data, "output.vmd")
 ```
 
 ---
 
 ## 顶层API
 
-PyMMD 提供了简洁的顶层函数，用于文件的加载和保存。
+PyPMXVMD 提供了简洁的顶层函数，用于文件的加载和保存。
 
 ### 二进制文件操作
 
-#### `pymmd.load(file_path, more_info=False)`
+#### `pypmxvmd.load(file_path, more_info=False)`
 
 自动检测文件类型并加载。
 
@@ -62,12 +62,12 @@ PyMMD 提供了简洁的顶层函数，用于文件的加载和保存。
 **异常**: `ValueError` - 不支持的文件类型
 
 ```python
-data = pymmd.load("model.pmx")
+data = pypmxvmd.load("model.pmx")
 ```
 
 ---
 
-#### `pymmd.save(data, file_path)`
+#### `pypmxvmd.save(data, file_path)`
 
 自动检测数据类型并保存。
 
@@ -76,12 +76,12 @@ data = pymmd.load("model.pmx")
 - `file_path` (str | Path): 输出文件路径
 
 ```python
-pymmd.save(model, "output.pmx")
+pypmxvmd.save(model, "output.pmx")
 ```
 
 ---
 
-#### `pymmd.load_vmd(file_path, more_info=False) -> VmdMotion`
+#### `pypmxvmd.load_vmd(file_path, more_info=False) -> VmdMotion`
 
 加载VMD动作文件。
 
@@ -92,13 +92,13 @@ pymmd.save(model, "output.pmx")
 **返回**: `VmdMotion` 对象
 
 ```python
-motion = pymmd.load_vmd("dance.vmd")
+motion = pypmxvmd.load_vmd("dance.vmd")
 print(f"骨骼帧数: {len(motion.bone_frames)}")
 ```
 
 ---
 
-#### `pymmd.save_vmd(motion, file_path)`
+#### `pypmxvmd.save_vmd(motion, file_path)`
 
 保存VMD动作文件。
 
@@ -107,12 +107,12 @@ print(f"骨骼帧数: {len(motion.bone_frames)}")
 - `file_path` (str | Path): 输出文件路径
 
 ```python
-pymmd.save_vmd(motion, "output.vmd")
+pypmxvmd.save_vmd(motion, "output.vmd")
 ```
 
 ---
 
-#### `pymmd.load_pmx(file_path, more_info=False) -> PmxModel`
+#### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
 
 加载PMX模型文件。
 
@@ -123,13 +123,13 @@ pymmd.save_vmd(motion, "output.vmd")
 **返回**: `PmxModel` 对象
 
 ```python
-model = pymmd.load_pmx("character.pmx")
+model = pypmxvmd.load_pmx("character.pmx")
 print(f"顶点数: {len(model.vertices)}")
 ```
 
 ---
 
-#### `pymmd.save_pmx(model, file_path)`
+#### `pypmxvmd.save_pmx(model, file_path)`
 
 保存PMX模型文件。
 
@@ -138,12 +138,12 @@ print(f"顶点数: {len(model.vertices)}")
 - `file_path` (str | Path): 输出文件路径
 
 ```python
-pymmd.save_pmx(model, "output.pmx")
+pypmxvmd.save_pmx(model, "output.pmx")
 ```
 
 ---
 
-#### `pymmd.load_vpd(file_path, more_info=False) -> VpdPose`
+#### `pypmxvmd.load_vpd(file_path, more_info=False) -> VpdPose`
 
 加载VPD姿势文件。
 
@@ -154,13 +154,13 @@ pymmd.save_pmx(model, "output.pmx")
 **返回**: `VpdPose` 对象
 
 ```python
-pose = pymmd.load_vpd("pose.vpd")
+pose = pypmxvmd.load_vpd("pose.vpd")
 print(f"骨骼姿势数: {len(pose.bone_poses)}")
 ```
 
 ---
 
-#### `pymmd.save_vpd(pose, file_path)`
+#### `pypmxvmd.save_vpd(pose, file_path)`
 
 保存VPD姿势文件。
 
@@ -169,36 +169,36 @@ print(f"骨骼姿势数: {len(pose.bone_poses)}")
 - `file_path` (str | Path): 输出文件路径
 
 ```python
-pymmd.save_vpd(pose, "output.vpd")
+pypmxvmd.save_vpd(pose, "output.vpd")
 ```
 
 ---
 
 ### 文本文件操作
 
-PyMMD 还支持文本格式的读写，便于人工编辑和查看。
+PyPMXVMD 还支持文本格式的读写，便于人工编辑和查看。
 
-#### `pymmd.load_vmd_text(file_path, more_info=False) -> VmdMotion`
+#### `pypmxvmd.load_vmd_text(file_path, more_info=False) -> VmdMotion`
 
 从文本格式加载VMD动作。
 
-#### `pymmd.save_vmd_text(motion, file_path)`
+#### `pypmxvmd.save_vmd_text(motion, file_path)`
 
 将VMD动作保存为文本格式。
 
-#### `pymmd.load_pmx_text(file_path, more_info=False) -> PmxModel`
+#### `pypmxvmd.load_pmx_text(file_path, more_info=False) -> PmxModel`
 
 从文本格式加载PMX模型。
 
-#### `pymmd.save_pmx_text(model, file_path)`
+#### `pypmxvmd.save_pmx_text(model, file_path)`
 
 将PMX模型保存为文本格式。
 
-#### `pymmd.load_vpd_text(file_path, more_info=False) -> VpdPose`
+#### `pypmxvmd.load_vpd_text(file_path, more_info=False) -> VpdPose`
 
 从文本格式加载VPD姿势。
 
-#### `pymmd.save_vpd_text(pose, file_path)`
+#### `pypmxvmd.save_vpd_text(pose, file_path)`
 
 将VPD姿势保存为文本格式。
 
@@ -697,7 +697,7 @@ morph_pose = VpdMorphPose(
 VMD文件解析器。
 
 ```python
-from pymmd.common.parsers.vmd_parser_nuthouse import VmdParserNuthouse
+from pypmxvmd.common.parsers.vmd_parser_nuthouse import VmdParserNuthouse
 
 parser = VmdParserNuthouse(progress_callback=lambda p: print(f"{p*100:.1f}%"))
 motion = parser.parse_file("motion.vmd", more_info=True)
@@ -709,7 +709,7 @@ parser.write_file(motion, "output.vmd")
 PMX文件解析器。
 
 ```python
-from pymmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
+from pypmxvmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
 
 parser = PmxParserNuthouse(progress_callback=lambda p: print(f"{p*100:.1f}%"))
 model = parser.parse_file("model.pmx", more_info=True)
@@ -721,7 +721,7 @@ parser.write_file(model, "output.pmx")
 VPD文件解析器。
 
 ```python
-from pymmd.common.parsers.vpd_parser import VpdParser
+from pypmxvmd.common.parsers.vpd_parser import VpdParser
 
 parser = VpdParser(progress_callback=lambda p: print(f"{p*100:.1f}%"))
 pose = parser.parse_file("pose.vpd", more_info=True)
@@ -848,10 +848,10 @@ parser.write_file(pose, "output.vpd")
 ### 示例1: 读取VMD动作并获取信息
 
 ```python
-import pymmd
+import pypmxvmd
 
 # 加载VMD文件
-motion = pymmd.load_vmd("dance.vmd", more_info=True)
+motion = pypmxvmd.load_vmd("dance.vmd", more_info=True)
 
 # 获取基本信息
 print(f"版本: {motion.header.version}")
@@ -867,8 +867,8 @@ for frame in motion.bone_frames[:5]:
 ### 示例2: 创建简单的PMX模型
 
 ```python
-import pymmd
-from pymmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
+import pypmxvmd
+from pypmxvmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
 
 # 创建模型
 model = PmxModel()
@@ -901,16 +901,16 @@ model.materials = [
 ]
 
 # 保存
-pymmd.save_pmx(model, "triangle.pmx")
+pypmxvmd.save_pmx(model, "triangle.pmx")
 ```
 
 ### 示例3: 修改VMD动作
 
 ```python
-import pymmd
+import pypmxvmd
 
 # 加载动作
-motion = pymmd.load_vmd("original.vmd")
+motion = pypmxvmd.load_vmd("original.vmd")
 
 # 修改所有骨骼帧的位置 - 整体抬高10个单位
 for frame in motion.bone_frames:
@@ -921,17 +921,17 @@ for frame in motion.morph_frames:
     frame.weight *= 0.5
 
 # 保存修改后的动作
-pymmd.save_vmd(motion, "modified.vmd")
+pypmxvmd.save_vmd(motion, "modified.vmd")
 ```
 
 ### 示例4: VPD姿势转VMD动作
 
 ```python
-import pymmd
-from pymmd.common.models.vmd import VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame
+import pypmxvmd
+from pypmxvmd.common.models.vmd import VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame
 
 # 加载VPD姿势
-pose = pymmd.load_vpd("pose.vpd")
+pose = pypmxvmd.load_vpd("pose.vpd")
 
 # 创建VMD动作
 motion = VmdMotion()
@@ -958,16 +958,16 @@ for morph_pose in pose.morph_poses:
     motion.morph_frames.append(frame)
 
 # 保存
-pymmd.save_vmd(motion, "pose_as_motion.vmd")
+pypmxvmd.save_vmd(motion, "pose_as_motion.vmd")
 ```
 
 ### 示例5: 数据验证
 
 ```python
-import pymmd
+import pypmxvmd
 
 # 加载模型
-model = pymmd.load_pmx("model.pmx")
+model = pypmxvmd.load_pmx("model.pmx")
 
 # 验证数据完整性
 try:
@@ -981,7 +981,7 @@ except AssertionError as e:
 
 ## 错误处理
 
-PyMMD 使用标准Python异常进行错误处理：
+PyPMXVMD 使用标准Python异常进行错误处理：
 
 | 异常类型 | 说明 |
 |----------|------|
@@ -991,10 +991,10 @@ PyMMD 使用标准Python异常进行错误处理：
 | `AssertionError` | 数据验证失败 |
 
 ```python
-import pymmd
+import pypmxvmd
 
 try:
-    model = pymmd.load_pmx("nonexistent.pmx")
+    model = pypmxvmd.load_pmx("nonexistent.pmx")
 except FileNotFoundError:
     print("文件不存在")
 except ValueError as e:
