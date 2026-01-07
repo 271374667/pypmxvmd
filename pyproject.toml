@@ -1,11 +1,11 @@
 [project]
 name = "pypmxvmd"
-version = "2.0.0"
+version = "2.0.1"
 description = "Wrapper for reading and modifying VMD and PMX files"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [
-    {name = "PyPMXVMD Team", email = "pypmxvmd@example.com"}
+    {name = "PythonImporter", email = "271374667@qq.com"}
 ]
 keywords = ["mmd", "mikumikudance", "pmx", "vmd", "vpd", "3d", "animation"]
 classifiers = [

@@ -36,8 +36,8 @@ from .common.models.vmd import VmdMotion
 from .common.models.pmx import PmxModel
 from .common.models.vpd import VpdPose
 
-__version__ = "2.0.0"
-__author__ = "PyPMXVMD Team"
+__version__ = "2.0.1"
+__author__ = "PythonImporter"
 __description__ = "Python MikuMikuDance File Parser"
 
 # Core parser instances (reused for efficiency)
