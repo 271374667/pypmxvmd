@@ -26,17 +26,17 @@ class VmdParserNuthouse:
     APPEND_SIGNATURE = True
     SIGNATURE = "Nuthouse01"
     
-    # 格式定义 - 完全匹配原项目
-    FMT_NUMBER = "I"
-    FMT_BONEFRAME_NO_INTERPCURVE = "I 7f"
-    FMT_BONEFRAME_INTERPCURVE = "bb bb 12b xbb 45x"
-    FMT_BONEFRAME_INTERPCURVE_ONELINE = "16b"
-    FMT_MORPHFRAME = "I f"
-    FMT_CAMFRAME = "I 7f 24b I ?"
-    FMT_LIGHTFRAME = "I 3f 3f"
-    FMT_SHADOWFRAME = "I b f"
-    FMT_IKDISPFRAME = "I ? I"
-    FMT_IKFRAME = "?"
+    # 格式定义 - 使用小端序打包格式(VMD文件格式)
+    FMT_NUMBER = "<I"
+    FMT_BONEFRAME_NO_INTERPCURVE = "<I 7f"
+    FMT_BONEFRAME_INTERPCURVE = "<bb bb 12b xbb 45x"
+    FMT_BONEFRAME_INTERPCURVE_ONELINE = "<16b"
+    FMT_MORPHFRAME = "<I f"
+    FMT_CAMFRAME = "<I 7f 24b I ?"
+    FMT_LIGHTFRAME = "<I 3f 3f"
+    FMT_SHADOWFRAME = "<I b f"
+    FMT_IKDISPFRAME = "<I ? I"
+    FMT_IKFRAME = "<?"
     
     def __init__(self, progress_callback: Optional[Callable[[float], None]] = None):
         """初始化VMD解析器"""
@@ -206,9 +206,9 @@ class VmdParserNuthouse:
     def _parse_vmd_boneframe(self, data: bytearray, more_info: bool) -> List[VmdBoneFrame]:
         """解析骨骼帧 - 完全复刻原实现"""
         bone_frames = []
-        
+
         # 检查是否有足够数据读取帧数
-        if (len(data) - self._io_handler._position) < struct.calcsize(self.FMT_NUMBER):
+        if len(data) < struct.calcsize(self.FMT_NUMBER):
             if more_info:
                 print("Warning: expected boneframe_ct field but file ended unexpectedly! Assuming 0 boneframes and continuing...")
             return bone_frames
@@ -278,8 +278,8 @@ class VmdParserNuthouse:
     def _parse_vmd_morphframe(self, data: bytearray, more_info: bool) -> List[VmdMorphFrame]:
         """解析变形帧 - 完全复刻原实现"""
         morph_frames = []
-        
-        if (len(data) - self._io_handler._position) < struct.calcsize(self.FMT_NUMBER):
+
+        if len(data) < struct.calcsize(self.FMT_NUMBER):
             if more_info:
                 print("Warning: expected morphframe_ct field but file ended unexpectedly! Assuming 0 morphframes and continuing...")
             return morph_frames
@@ -311,8 +311,8 @@ class VmdParserNuthouse:
     def _parse_vmd_camframe(self, data: bytearray, more_info: bool) -> List[VmdCameraFrame]:
         """解析相机帧 - 完全复刻原实现"""
         camera_frames = []
-        
-        if (len(data) - self._io_handler._position) < struct.calcsize(self.FMT_NUMBER):
+
+        if len(data) < struct.calcsize(self.FMT_NUMBER):
             if more_info:
                 print("Warning: expected camframe_ct field but file ended unexpectedly! Assuming 0 camframes and continuing...")
             return camera_frames
@@ -365,8 +365,8 @@ class VmdParserNuthouse:
     def _parse_vmd_lightframe(self, data: bytearray, more_info: bool) -> List[VmdLightFrame]:
         """解析光源帧 - 完全复刻原实现"""
         light_frames = []
-        
-        if (len(data) - self._io_handler._position) < struct.calcsize(self.FMT_NUMBER):
+
+        if len(data) < struct.calcsize(self.FMT_NUMBER):
             if more_info:
                 print("Warning: expected lightframe_ct field but file ended unexpectedly! Assuming 0 lightframes and continuing...")
             return light_frames
@@ -397,8 +397,8 @@ class VmdParserNuthouse:
     def _parse_vmd_shadowframe(self, data: bytearray, more_info: bool) -> List[VmdShadowFrame]:
         """解析阴影帧 - 完全复刻原实现"""
         shadow_frames = []
-        
-        if (len(data) - self._io_handler._position) < struct.calcsize(self.FMT_NUMBER):
+
+        if len(data) < struct.calcsize(self.FMT_NUMBER):
             if more_info:
                 print("Warning: expected shadowframe_ct field but file ended unexpectedly! Assuming 0 shadowframes and continuing...")
             return shadow_frames
@@ -433,8 +433,8 @@ class VmdParserNuthouse:
     def _parse_vmd_ikdispframe(self, data: bytearray, more_info: bool) -> List[VmdIkFrame]:
         """解析IK显示帧 - 完全复刻原实现"""
         ik_frames = []
-        
-        if (len(data) - self._io_handler._position) < struct.calcsize(self.FMT_NUMBER):
+
+        if len(data) < struct.calcsize(self.FMT_NUMBER):
             if more_info:
                 print("Warning: expected ikdispframe_ct field but file ended unexpectedly! Assuming 0 ikdispframes and continuing...")
             return ik_frames
