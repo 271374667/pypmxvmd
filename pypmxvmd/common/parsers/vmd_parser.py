@@ -111,35 +111,35 @@ class VmdParser:
         
         return [w, x, y, z]
     
-    def parse_file(self, file_path: Union[str, Path], 
+    def parse_file(self, file_path: Union[str, Path],
                   more_info: bool = False) -> VmdMotion:
         """解析VMD文件
-        
+
         Args:
             file_path: VMD文件路径
             more_info: 是否显示详细信息
-            
+
         Returns:
             解析后的VMD动作对象
-            
+
         Raises:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
         """
         file_path = Path(file_path)
         print(f"开始解析VMD文件: {file_path}")
-        
+
         # 读取文件数据
         data = self._io_handler.read_file(file_path)
         self._total_size = len(data)
         self._current_pos = 0
-        
+
         vmd_motion = VmdMotion()
-        
+
         try:
             # 解析文件头
             vmd_motion.header = self._parse_header(data, more_info)
-            
+
             # 解析各个数据段
             vmd_motion.bone_frames = self._parse_bone_frames(data, more_info)
             vmd_motion.morph_frames = self._parse_morph_frames(data, more_info)
@@ -147,15 +147,66 @@ class VmdParser:
             vmd_motion.light_frames = self._parse_light_frames(data, more_info)
             vmd_motion.shadow_frames = self._parse_shadow_frames(data, more_info)
             vmd_motion.ik_frames = self._parse_ik_frames(data, more_info)
-            
+
             print(f"VMD解析完成: {len(vmd_motion.bone_frames)}个骨骼帧, "
                   f"{len(vmd_motion.morph_frames)}个变形帧, "
                   f"{len(vmd_motion.camera_frames)}个相机帧")
-            
+
             return vmd_motion
-            
+
         except Exception as e:
             raise ValueError(f"VMD文件解析失败: {e}") from e
+
+    def parse_file_fast(self, file_path: Union[str, Path],
+                       more_info: bool = False) -> VmdMotion:
+        """快速解析VMD文件（性能优化版本）
+
+        使用内部缓冲区和偏移量追踪，避免O(n)的切片删除操作。
+        对于大型VMD文件，性能提升显著。
+
+        Args:
+            file_path: VMD文件路径
+            more_info: 是否显示详细信息
+
+        Returns:
+            解析后的VMD动作对象
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式错误
+        """
+        file_path = Path(file_path)
+        if more_info:
+            print(f"开始快速解析VMD文件: {file_path}")
+
+        # 使用快速读取方法
+        self._io_handler.read_file_fast(file_path)
+        self._total_size = self._io_handler.get_total_size()
+        self._current_pos = 0
+
+        vmd_motion = VmdMotion()
+
+        try:
+            # 解析文件头
+            vmd_motion.header = self._parse_header_fast(more_info)
+
+            # 解析各个数据段
+            vmd_motion.bone_frames = self._parse_bone_frames_fast(more_info)
+            vmd_motion.morph_frames = self._parse_morph_frames_fast(more_info)
+            vmd_motion.camera_frames = self._parse_camera_frames_fast(more_info)
+            vmd_motion.light_frames = self._parse_light_frames_fast(more_info)
+            vmd_motion.shadow_frames = self._parse_shadow_frames_fast(more_info)
+            vmd_motion.ik_frames = self._parse_ik_frames_fast(more_info)
+
+            if more_info:
+                print(f"VMD快速解析完成: {len(vmd_motion.bone_frames)}个骨骼帧, "
+                      f"{len(vmd_motion.morph_frames)}个变形帧, "
+                      f"{len(vmd_motion.camera_frames)}个相机帧")
+
+            return vmd_motion
+
+        except Exception as e:
+            raise ValueError(f"VMD文件快速解析失败: {e}") from e
     
     def _parse_header(self, data: bytearray, more_info: bool) -> VmdHeader:
         """解析VMD文件头"""
@@ -445,12 +496,306 @@ class VmdParser:
                 )
                 
                 ik_frames.append(ik_frame)
-                
+
             except Exception as e:
                 raise ValueError(f"解析第{i}个IK帧失败: {e}") from e
-        
+
         return ik_frames
-    
+
+    # ===== 快速解析方法（性能优化版本） =====
+
+    def _parse_header_fast(self, more_info: bool) -> VmdHeader:
+        """快速解析VMD文件头（使用内部缓冲区）"""
+        # 读取魔术字符串 "Vocaloid Motion Data " (21字节)
+        magic_str = self._io_handler.read_string_from_buffer(21, null_terminated=False)
+        if magic_str != "Vocaloid Motion Data ":
+            raise ValueError(f"无效的VMD魔术字符串: '{magic_str}'")
+
+        # 读取版本字符串 (4字节)
+        version_str = self._io_handler.read_string_from_buffer(4, null_terminated=False)
+
+        if version_str == "0002":
+            version = 2
+            name_length = 20
+        elif version_str == "file":
+            version = 1
+            name_length = 10
+        else:
+            raise ValueError(f"不支持的VMD版本标识: '{version_str}'")
+
+        # 跳过5字节填充
+        self._io_handler.skip_bytes(5)
+
+        # 读取模型名称
+        model_name = self._io_handler.read_string_from_buffer(name_length)
+
+        if more_info:
+            print(f"VMD版本: {version}, 模型名称: '{model_name}'")
+
+        self._current_pos = self._io_handler.get_position()
+        self._report_progress("解析文件头")
+
+        return VmdHeader(version=version, model_name=model_name)
+
+    def _parse_bone_frames_fast(self, more_info: bool) -> List[VmdBoneFrame]:
+        """快速解析骨骼关键帧（使用内部缓冲区）"""
+        if self._io_handler.get_remaining_size() < 4:
+            if more_info:
+                print("警告: 文件意外结束，假设骨骼帧数为0")
+            return []
+
+        frame_count = self._io_handler.unpack_from_buffer(self._FMT_NUMBER)[0]
+        bone_frames = []
+
+        if more_info:
+            print(f"解析 {frame_count} 个骨骼关键帧...")
+
+        for i in range(frame_count):
+            try:
+                # 读取骨骼名称
+                bone_name = self._io_handler.read_string_from_buffer(15)
+
+                # 读取基础数据
+                frame_data = self._io_handler.unpack_from_buffer(self._FMT_BONEFRAME_NO_INTERP)
+                frame_num, px, py, pz, qx, qy, qz, qw = frame_data
+
+                # 读取插值曲线数据
+                interp_data = self._io_handler.unpack_from_buffer(self._FMT_BONEFRAME_INTERP)
+                x_ax, y_ax, phys1, phys2, x_ay, y_ay, z_ay, r_ay, \
+                x_bx, y_bx, z_bx, r_bx, x_by, y_by, z_by, r_by, z_ax, r_ax = interp_data
+
+                # 四元数转欧拉角
+                euler_rotation = self._quaternion_to_euler([qw, qx, qy, qz])
+
+                # 检测物理开关状态
+                if (phys1, phys2) == (z_ax, r_ax):
+                    physics_disabled = False
+                elif (phys1, phys2) == (0, 0):
+                    physics_disabled = False
+                elif (phys1, phys2) == (99, 15):
+                    physics_disabled = True
+                else:
+                    physics_disabled = True
+
+                # 构建插值数据
+                interpolation = [
+                    x_ax, x_ay, x_bx, x_by,  # X轴插值
+                    y_ax, y_ay, y_bx, y_by,  # Y轴插值
+                    z_ax, z_ay, z_bx, z_by,  # Z轴插值
+                    r_ax, r_ay, r_bx, r_by   # 旋转插值
+                ]
+
+                bone_frame = VmdBoneFrame(
+                    bone_name=bone_name,
+                    frame_number=frame_num,
+                    position=[px, py, pz],
+                    rotation=euler_rotation,
+                    interpolation=interpolation,
+                    physics_disabled=physics_disabled
+                )
+
+                bone_frames.append(bone_frame)
+
+                if i % 1000 == 0:
+                    self._current_pos = self._io_handler.get_position()
+                    self._report_progress(f"解析骨骼帧 {i}/{frame_count}")
+
+            except Exception as e:
+                raise ValueError(f"解析第{i}个骨骼帧失败: {e}") from e
+
+        return bone_frames
+
+    def _parse_morph_frames_fast(self, more_info: bool) -> List[VmdMorphFrame]:
+        """快速解析变形关键帧（使用内部缓冲区）"""
+        if self._io_handler.get_remaining_size() < 4:
+            if more_info:
+                print("警告: 文件意外结束，假设变形帧数为0")
+            return []
+
+        frame_count = self._io_handler.unpack_from_buffer(self._FMT_NUMBER)[0]
+        morph_frames = []
+
+        if more_info:
+            print(f"解析 {frame_count} 个变形关键帧...")
+
+        for i in range(frame_count):
+            try:
+                morph_name = self._io_handler.read_string_from_buffer(15)
+                frame_num, weight = self._io_handler.unpack_from_buffer(self._FMT_MORPHFRAME)
+
+                morph_frame = VmdMorphFrame(
+                    morph_name=morph_name,
+                    frame_number=frame_num,
+                    weight=weight
+                )
+
+                morph_frames.append(morph_frame)
+
+                if i % 1000 == 0:
+                    self._current_pos = self._io_handler.get_position()
+                    self._report_progress(f"解析变形帧 {i}/{frame_count}")
+
+            except Exception as e:
+                raise ValueError(f"解析第{i}个变形帧失败: {e}") from e
+
+        return morph_frames
+
+    def _parse_camera_frames_fast(self, more_info: bool) -> List[VmdCameraFrame]:
+        """快速解析相机关键帧（使用内部缓冲区）"""
+        if self._io_handler.get_remaining_size() < 4:
+            if more_info:
+                print("警告: 文件意外结束，假设相机帧数为0")
+            return []
+
+        frame_count = self._io_handler.unpack_from_buffer(self._FMT_NUMBER)[0]
+        camera_frames = []
+
+        if more_info:
+            print(f"解析 {frame_count} 个相机关键帧...")
+
+        for i in range(frame_count):
+            try:
+                cam_data = self._io_handler.unpack_from_buffer(self._FMT_CAMFRAME)
+                (
+                    frame_num, distance, px, py, pz, rx, ry, rz,
+                    x_ax, x_bx, x_ay, x_by, y_ax, y_bx, y_ay, y_by,
+                    z_ax, z_bx, z_ay, z_by, r_ax, r_bx, r_ay, r_by,
+                    dist_ax, dist_bx, dist_ay, dist_by,
+                    fov_ax, fov_bx, fov_ay, fov_by,
+                    fov, perspective
+                ) = cam_data
+
+                # 弧度转度
+                rotation = [math.degrees(rx), math.degrees(ry), math.degrees(rz)]
+
+                # 构建插值数据
+                interpolation = [
+                    x_ax, x_ay, x_bx, x_by,      # X轴
+                    y_ax, y_ay, y_bx, y_by,      # Y轴
+                    z_ax, z_ay, z_bx, z_by,      # Z轴
+                    r_ax, r_ay, r_bx, r_by,      # 旋转
+                    dist_ax, dist_ay, dist_bx, dist_by,  # 距离
+                    fov_ax, fov_ay, fov_bx, fov_by       # FOV
+                ]
+
+                camera_frame = VmdCameraFrame(
+                    frame_number=frame_num,
+                    distance=distance,
+                    position=[px, py, pz],
+                    rotation=rotation,
+                    interpolation=interpolation,
+                    fov=fov,
+                    perspective=bool(perspective)
+                )
+
+                camera_frames.append(camera_frame)
+
+            except Exception as e:
+                raise ValueError(f"解析第{i}个相机帧失败: {e}") from e
+
+        return camera_frames
+
+    def _parse_light_frames_fast(self, more_info: bool) -> List[VmdLightFrame]:
+        """快速解析光源关键帧（使用内部缓冲区）"""
+        if self._io_handler.get_remaining_size() < 4:
+            if more_info:
+                print("警告: 文件意外结束，假设光源帧数为0")
+            return []
+
+        frame_count = self._io_handler.unpack_from_buffer(self._FMT_NUMBER)[0]
+        light_frames = []
+
+        if more_info:
+            print(f"解析 {frame_count} 个光源关键帧...")
+
+        for i in range(frame_count):
+            try:
+                frame_num, r, g, b, x, y, z = self._io_handler.unpack_from_buffer(self._FMT_LIGHTFRAME)
+
+                light_frame = VmdLightFrame(
+                    frame_number=frame_num,
+                    color=[r, g, b],
+                    position=[x, y, z]
+                )
+
+                light_frames.append(light_frame)
+
+            except Exception as e:
+                raise ValueError(f"解析第{i}个光源帧失败: {e}") from e
+
+        return light_frames
+
+    def _parse_shadow_frames_fast(self, more_info: bool) -> List[VmdShadowFrame]:
+        """快速解析阴影关键帧（使用内部缓冲区）"""
+        if self._io_handler.get_remaining_size() < 4:
+            if more_info:
+                print("警告: 文件意外结束，假设阴影帧数为0")
+            return []
+
+        frame_count = self._io_handler.unpack_from_buffer(self._FMT_NUMBER)[0]
+        shadow_frames = []
+
+        if more_info:
+            print(f"解析 {frame_count} 个阴影关键帧...")
+
+        for i in range(frame_count):
+            try:
+                frame_num, mode, distance = self._io_handler.unpack_from_buffer(self._FMT_SHADOWFRAME)
+
+                shadow_frame = VmdShadowFrame(
+                    frame_number=frame_num,
+                    shadow_mode=mode,
+                    distance=distance
+                )
+
+                shadow_frames.append(shadow_frame)
+
+            except Exception as e:
+                raise ValueError(f"解析第{i}个阴影帧失败: {e}") from e
+
+        return shadow_frames
+
+    def _parse_ik_frames_fast(self, more_info: bool) -> List[VmdIkFrame]:
+        """快速解析IK显示关键帧（使用内部缓冲区）"""
+        if self._io_handler.get_remaining_size() < 4:
+            if more_info:
+                print("警告: 文件意外结束，假设IK帧数为0")
+            return []
+
+        frame_count = self._io_handler.unpack_from_buffer(self._FMT_NUMBER)[0]
+        ik_frames = []
+
+        if more_info:
+            print(f"解析 {frame_count} 个IK关键帧...")
+
+        for i in range(frame_count):
+            try:
+                frame_num, display, ik_count = self._io_handler.unpack_from_buffer(self._FMT_IKDISPFRAME)
+
+                ik_bones = []
+                for j in range(ik_count):
+                    bone_name = self._io_handler.read_string_from_buffer(20)
+                    ik_enabled = bool(self._io_handler.unpack_from_buffer(self._FMT_IKFRAME)[0])
+
+                    ik_bone = VmdIkBone(
+                        bone_name=bone_name,
+                        ik_enabled=ik_enabled
+                    )
+                    ik_bones.append(ik_bone)
+
+                ik_frame = VmdIkFrame(
+                    frame_number=frame_num,
+                    display=bool(display),
+                    ik_bones=ik_bones
+                )
+
+                ik_frames.append(ik_frame)
+
+            except Exception as e:
+                raise ValueError(f"解析第{i}个IK帧失败: {e}") from e
+
+        return ik_frames
+
     def write_file(self, vmd_motion: VmdMotion, 
                   file_path: Union[str, Path]) -> None:
         """写入VMD文件
