@@ -24,11 +24,11 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union
 
 # Import parsers
-from .common.parsers.vmd_parser_nuthouse import VmdParserNuthouse as VmdParser
-from .common.parsers.pmx_parser_nuthouse import PmxParserNuthouse as PmxParser
+from .common.parsers.vmd_parser import VmdParser
+from .common.parsers.pmx_parser import PmxParser
 from .common.parsers.vpd_parser import VpdParser
 
 # Import models for type hints
@@ -36,7 +36,7 @@ from .common.models.vmd import VmdMotion
 from .common.models.pmx import PmxModel
 from .common.models.vpd import VpdPose
 
-__version__ = "2.5.1"
+__version__ = "2.6.0"
 __author__ = "PythonImporter"
 __description__ = "Python MikuMikuDance File Parser"
 

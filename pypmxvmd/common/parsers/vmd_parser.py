@@ -15,6 +15,7 @@ from pypmxvmd.common.models.vmd import (
     VmdLightFrame, VmdShadowFrame, VmdIkFrame, VmdIkBone
 )
 from pypmxvmd.common.io.binary_io import BinaryIOHandler
+from pypmxvmd.common.parsers.vmd_parser_nuthouse import VmdParserNuthouse
 
 # 尝试导入Cython优化模块
 try:
@@ -122,7 +123,8 @@ class VmdParser:
                   more_info: bool = False) -> VmdMotion:
         """解析VMD文件
 
-        默认使用Cython优化解析，如果Cython模块不可用则回退到纯Python版本。
+        默认使用Cython优化解析，如果不可用或失败则回退到快速解析，
+        最后回退到Nuthouse保守实现。
 
         Args:
             file_path: VMD文件路径
@@ -135,12 +137,7 @@ class VmdParser:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
         """
-        # 优先使用Cython解析
-        if _CYTHON_AVAILABLE:
-            return self.parse_file_cython(file_path, more_info)
-
-        # 回退到纯Python快速解析
-        return self._parse_file_python(file_path, more_info)
+        return self.parse_file_cython(file_path, more_info)
 
     def _parse_file_python(self, file_path: Union[str, Path],
                           more_info: bool = False) -> VmdMotion:
@@ -246,7 +243,7 @@ class VmdParser:
         """使用Cython解析VMD文件（最高性能版本）
 
         需要编译Cython模块后才能使用。
-        如果Cython模块不可用，将自动回退到parse_file_fast。
+        如果Cython模块不可用，将自动回退到parse_file_fast，再回退到Nuthouse实现。
 
         Args:
             file_path: VMD文件路径
@@ -259,25 +256,37 @@ class VmdParser:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
         """
-        if not _CYTHON_AVAILABLE:
+        if _CYTHON_AVAILABLE:
+            file_path = Path(file_path)
             if more_info:
-                print("Cython模块不可用，回退到快速解析...")
-            return self.parse_file_fast(file_path, more_info)
+                print(f"开始Cython解析VMD文件: {file_path}")
 
-        file_path = Path(file_path)
-        if more_info:
-            print(f"开始Cython解析VMD文件: {file_path}")
+            # 读取文件数据
+            with open(file_path, 'rb') as f:
+                data = f.read()
 
-        # 读取文件数据
-        with open(file_path, 'rb') as f:
-            data = f.read()
+            try:
+                # 使用Cython模块解析
+                vmd_motion = parse_vmd_cython(data, more_info)
+                return vmd_motion
+            except Exception as e:
+                if more_info:
+                    print(f"Cython解析失败，回退到快速解析: {e}")
 
+        # 回退到快速解析
         try:
-            # 使用Cython模块解析
-            vmd_motion = parse_vmd_cython(data, more_info)
-            return vmd_motion
+            return self.parse_file_fast(file_path, more_info)
         except Exception as e:
-            raise ValueError(f"VMD文件Cython解析失败: {e}") from e
+            if more_info:
+                print(f"快速解析失败，回退到Nuthouse解析: {e}")
+
+        return self._parse_file_nuthouse(file_path, more_info)
+
+    def _parse_file_nuthouse(self, file_path: Union[str, Path],
+                            more_info: bool = False) -> VmdMotion:
+        """使用Nuthouse实现解析VMD文件（保守回退）"""
+        parser = VmdParserNuthouse(self._progress_callback)
+        return parser.parse_file(file_path, more_info=more_info)
     
     def _parse_header(self, data: bytearray, more_info: bool) -> VmdHeader:
         """解析VMD文件头"""

@@ -13,6 +13,7 @@ from pypmxvmd.common.models.pmx import (
     PmxModel, PmxHeader, PmxVertex, PmxMaterial, WeightMode, SphMode, MaterialFlags
 )
 from pypmxvmd.common.io.binary_io import BinaryIOHandler
+from pypmxvmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
 
 # 尝试导入Cython优化模块
 try:
@@ -59,7 +60,8 @@ class PmxParser:
     def parse_file(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
         """解析PMX文件
 
-        默认使用Cython优化解析，如果Cython模块不可用则回退到纯Python版本。
+        默认使用Cython优化解析，如果不可用或失败则回退到快速解析，
+        最后回退到Nuthouse保守实现。
 
         Args:
             file_path: PMX文件路径
@@ -72,12 +74,7 @@ class PmxParser:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
         """
-        # 优先使用Cython解析
-        if _CYTHON_AVAILABLE:
-            return self.parse_file_cython(file_path, more_info)
-
-        # 回退到纯Python快速解析
-        return self._parse_file_python(file_path, more_info)
+        return self.parse_file_cython(file_path, more_info)
 
     def _parse_file_python(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
         """纯Python解析PMX文件（原始实现）
@@ -180,7 +177,7 @@ class PmxParser:
         """使用Cython解析PMX文件（最高性能版本）
 
         需要编译Cython模块后才能使用。
-        如果Cython模块不可用，将自动回退到parse_file_fast。
+        如果Cython模块不可用，将自动回退到parse_file_fast，再回退到Nuthouse实现。
 
         Args:
             file_path: PMX文件路径
@@ -193,25 +190,37 @@ class PmxParser:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
         """
-        if not _CYTHON_AVAILABLE:
+        if _CYTHON_AVAILABLE:
+            file_path = Path(file_path)
             if more_info:
-                print("Cython模块不可用，回退到快速解析...")
-            return self.parse_file_fast(file_path, more_info)
+                print(f"开始Cython解析PMX文件: {file_path}")
 
-        file_path = Path(file_path)
-        if more_info:
-            print(f"开始Cython解析PMX文件: {file_path}")
+            # 读取文件数据
+            with open(file_path, 'rb') as f:
+                data = f.read()
 
-        # 读取文件数据
-        with open(file_path, 'rb') as f:
-            data = f.read()
+            try:
+                # 使用Cython模块解析
+                pmx_model = parse_pmx_cython(data, more_info)
+                return pmx_model
+            except Exception as e:
+                if more_info:
+                    print(f"Cython解析失败，回退到快速解析: {e}")
 
+        # 回退到快速解析
         try:
-            # 使用Cython模块解析
-            pmx_model = parse_pmx_cython(data, more_info)
-            return pmx_model
+            return self.parse_file_fast(file_path, more_info)
         except Exception as e:
-            raise ValueError(f"PMX文件Cython解析失败: {e}")
+            if more_info:
+                print(f"快速解析失败，回退到Nuthouse解析: {e}")
+
+        return self._parse_file_nuthouse(file_path, more_info)
+
+    def _parse_file_nuthouse(self, file_path: Union[str, Path],
+                            more_info: bool = False) -> PmxModel:
+        """使用Nuthouse实现解析PMX文件（保守回退）"""
+        parser = PmxParserNuthouse(self._progress_callback)
+        return parser.parse_file(file_path, more_info=more_info)
     
     def _parse_header(self, data: bytearray) -> PmxHeader:
         """解析PMX文件头
