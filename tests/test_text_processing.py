@@ -26,7 +26,7 @@ def create_test_vmd_data():
             bone_name="センター",
             frame_number=0,
             position=[0.0, 10.0, 0.0],
-            rotation=[0.0, 0.0, 0.0, 1.0],  # 四元数格式
+            rotation=[0.0, 0.0, 0.0],  # 欧拉角格式
             physics_disabled=False,
             interpolation=[20, 20, 0, 0, 20, 20, 107, 107, 107, 107, 107, 107, 107, 107, 107, 107]
         )

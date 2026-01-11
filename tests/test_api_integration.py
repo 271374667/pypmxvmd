@@ -2,6 +2,7 @@
 """PyPMXVMD API集成测试"""
 
 import sys
+import traceback
 from pathlib import Path
 
 # 添加项目根目录到路径
@@ -53,6 +54,7 @@ def test_api_integration():
         
     except Exception as e:
         print(f"VMD API测试失败: {e}")
+        traceback.print_exc()
     
     # 测试2: VPD API
     try:
@@ -97,6 +99,7 @@ Bone0{センター
         
     except Exception as e:
         print(f"VPD API测试失败: {e}")
+        traceback.print_exc()
     
     # 测试3: PMX API（创建简单模型）
     try:
@@ -125,6 +128,7 @@ Bone0{センター
         pmx_file.unlink()
         
     except Exception as e:
+        traceback.print_exc()
         print(f"PMX API测试失败: {e}")
     
     # 测试4: 自动检测API
@@ -156,6 +160,7 @@ Bone0{センター
         auto_output.unlink()
         
     except Exception as e:
+        traceback.print_exc()
         print(f"自动检测API测试失败: {e}")
     
     # 测试结果
@@ -196,7 +201,7 @@ def create_test_vmd_data():
     data.extend(bone_bytes)
     
     # 帧数据
-    data.extend(struct.pack("<I7f", 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0))
+    data.extend(struct.pack("<I7f", 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)) # 四元数
     
     # 插值数据（64字节）
     data.extend(b'\x14\x14\x00\x00' + b'\x00' * 60)

@@ -162,10 +162,10 @@ class PmxParserNuthouse:
         self.idx_rb = conv[globalflags[7]]
         
         # 读取模型名称和注释
-        name_jp = self._io_handler.read_string(data, length=None)
-        name_en = self._io_handler.read_string(data, length=None)
-        comment_jp = self._io_handler.read_string(data, length=None)
-        comment_en = self._io_handler.read_string(data, length=None)
+        name_jp = self._io_handler.read_variable_string(data)
+        name_en = self._io_handler.read_variable_string(data)
+        comment_jp = self._io_handler.read_variable_string(data)
+        comment_en = self._io_handler.read_variable_string(data)
         
         if more_info:
             print(f"...PMX version  = v{ver}")
@@ -235,12 +235,11 @@ class PmxParserNuthouse:
                 position=[pos_x, pos_y, pos_z],
                 normal=[norm_x, norm_y, norm_z],
                 uv=[u, v],
-                weight_type=weighttype,
-                weights=weight_pairs,
-                weight_sdef=weight_sdef,
-                edge_scale=edgescale,
-                addl_vec4s=addl_vec4s
+                weight_mode=weighttype,
+                weight=weight_pairs,
+                additional_uvs=addl_vec4s
             )
+            vertex.weight_sdef = weight_sdef
             
             vertices.append(vertex)
             
@@ -287,7 +286,7 @@ class PmxParserNuthouse:
         
         textures = []
         for i in range(texture_count):
-            filepath = self._io_handler.read_string(data, length=None)
+            filepath = self._io_handler.read_variable_string(data)
             textures.append(filepath)
         
         return textures
@@ -300,8 +299,8 @@ class PmxParserNuthouse:
         
         materials = []
         for i in range(material_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             
             # 颜色和材质属性
             (diffR, diffG, diffB, diffA, specR, specG, specB, specpower) = self._io_handler.unpack_data("4f 4f", data)
@@ -314,7 +313,7 @@ class PmxParserNuthouse:
             else:
                 toon_idx = self._io_handler.unpack_data("b", data)[0]
             
-            comment = self._io_handler.read_string(data, length=None)
+            comment = self._io_handler.read_variable_string(data)
             surface_ct = self._io_handler.unpack_data("i", data)[0]
             faces_ct = int(surface_ct / 3)
             
@@ -362,8 +361,8 @@ class PmxParserNuthouse:
         
         bones = []
         for i in range(bone_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             (posX, posY, posZ, parent_idx, deform_layer, flags1, flags2) = self._io_handler.unpack_data(f"3f{self.idx_bone}i 2B", data)
             
             # 解析标志位
@@ -476,8 +475,8 @@ class PmxParserNuthouse:
         
         morphs = []
         for i in range(morph_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             (panel_int, morphtype_int, itemcount) = self._io_handler.unpack_data("b b i", data)
             
             morphtype = MorphType(morphtype_int)
@@ -563,8 +562,8 @@ class PmxParserNuthouse:
         
         frames = []
         for i in range(frame_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             (is_special, itemcount) = self._io_handler.unpack_data("b i", data)
             
             items = []
@@ -598,8 +597,8 @@ class PmxParserNuthouse:
         
         rigidbodies = []
         for i in range(rigidbody_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             (bone_idx, group, collide_mask, shape_int) = self._io_handler.unpack_data(f"{self.idx_bone}b H b", data)
             
             shape = RigidBodyShape(shape_int)
@@ -650,8 +649,8 @@ class PmxParserNuthouse:
         
         joints = []
         for i in range(joint_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             (jointtype_int, rb1_idx, rb2_idx, posX, posY, posZ) = self._io_handler.unpack_data(f"b 2{self.idx_rb}3f", data)
             
             jointtype = JointType(jointtype_int)
@@ -694,8 +693,8 @@ class PmxParserNuthouse:
         
         softbodies = []
         for i in range(softbody_count):
-            name_jp = self._io_handler.read_string(data, length=None)
-            name_en = self._io_handler.read_string(data, length=None)
+            name_jp = self._io_handler.read_variable_string(data)
+            name_en = self._io_handler.read_variable_string(data)
             # 简化处理软体数据，只是跳过不解析具体内容
             # PMX v2.1功能较少使用，这里简化实现
             pass  # 暂时跳过软体解析
@@ -711,19 +710,123 @@ class PmxParserNuthouse:
             print(f"Begin reading PMX-as-text file '{file_path.name}'")
         
         with open(file_path, 'r', encoding='utf-8') as f:
-            lines = [line.strip().split('\t') if '\t' in line else [line.strip()]
-                    for line in f.readlines() if line.strip()]
+            lines = [line.strip().split('\t') for line in f.readlines() if line.strip()]
         
         if more_info:
             print(f"...total size   = {len(lines)} lines")
             print(f"Begin parsing PMX-as-text file '{file_path.name}'")
         
-        # 按原项目格式解析文本文件
-        # 实现简化版本，主要匹配格式结构
-        
         pmx_model = PmxModel()
-        # 简化实现，添加基础解析逻辑
         
+        # Helper to safely get value from line
+        def get_val(line, idx, default=""):
+            return line[idx] if idx < len(line) else default
+
+        line_idx = 0
+        
+        while line_idx < len(lines):
+            line = lines[line_idx]
+            if not line:
+                line_idx += 1
+                continue
+                
+            key = line[0]
+            val = get_val(line, 1)
+            
+            if key == "version:":
+                pmx_model.header.version = float(val)
+            elif key == "name_jp:":
+                pmx_model.header.name_jp = val
+            elif key == "name_en:":
+                pmx_model.header.name_en = val
+            elif key == "comment_jp:":
+                pmx_model.header.comment_jp = val.replace("\\n", "\n")
+            elif key == "comment_en:":
+                pmx_model.header.comment_en = val.replace("\\n", "\n")
+                
+            elif key == "vertex_count:":
+                num_verts = int(val)
+                line_idx += 1
+                if num_verts > 0:
+                    line_idx += 1 # skip header
+                    for _ in range(num_verts):
+                        if line_idx >= len(lines): break
+                        v_line = lines[line_idx]
+                        
+                        pos = [float(x) for x in v_line[0:3]]
+                        norm = [float(x) for x in v_line[3:6]]
+                        uv = [float(x) for x in v_line[6:8]]
+                        w_type = int(v_line[8])
+                        w_str = v_line[9]
+                        edge = float(v_line[10])
+                        
+                        w_pairs = []
+                        if w_str:
+                            for pair in w_str.split(';'):
+                                if ':' in pair:
+                                    idx_s, val_s = pair.split(':')
+                                    w_pairs.append([float(idx_s or 0), float(val_s or 0)]) # bone idx is float in parser? no int.
+                        
+                        # Convert float bone indices to int if needed, model expects int/float
+                        w_pairs_fixed = [[int(p[0]), p[1]] for p in w_pairs]
+
+                        vert = PmxVertex(position=pos, normal=norm, uv=uv, 
+                                         weight_mode=WeightMode(w_type), weight=w_pairs_fixed, edge_scale=edge)
+                        pmx_model.vertices.append(vert)
+                        line_idx += 1
+                    line_idx -= 1
+                    
+            elif key == "face_count:":
+                num_faces = int(val)
+                line_idx += 1
+                if num_faces > 0:
+                    line_idx += 1 # skip header
+                    for _ in range(num_faces):
+                        if line_idx >= len(lines): break
+                        f_line = lines[line_idx]
+                        face = [int(x) for x in f_line[0:3]]
+                        pmx_model.faces.append(face)
+                        line_idx += 1
+                    line_idx -= 1
+
+            elif key == "material_count:":
+                num_mats = int(val)
+                line_idx += 1
+                if num_mats > 0:
+                    line_idx += 1 # skip header
+                    for _ in range(num_mats):
+                        if line_idx >= len(lines): break
+                        m_line = lines[line_idx]
+                        # Ensure we handle empty strings correctly if split produces them
+                        
+                        diff = [float(x) for x in m_line[2].split(',')] + [float(m_line[3])]
+                        spec = [float(x) for x in m_line[4].split(',')]
+                        spec_str = float(m_line[5])
+                        amb = [float(x) for x in m_line[6].split(',')]
+                        flags = int(m_line[7])
+                        edge = [float(x) for x in m_line[8].split(',')] + [float(m_line[9])]
+                        edge_sz = float(m_line[10])
+                        tex = get_val(m_line, 11)
+                        sph = get_val(m_line, 12)
+                        sph_mode = int(get_val(m_line, 13, "0"))
+                        toon = get_val(m_line, 14)
+                        comment = get_val(m_line, 15)
+                        face_ct = int(get_val(m_line, 16, "0"))
+                        
+                        mat = PmxMaterial(
+                            name_jp=m_line[0], name_en=m_line[1],
+                            diffuse_color=diff, specular_color=spec, specular_strength=spec_str,
+                            ambient_color=amb, flags=MaterialFlags(flags),
+                            edge_color=edge, edge_size=edge_sz,
+                            texture_path=tex, sphere_path=sph, sphere_mode=SphMode(sph_mode),
+                            toon_path=toon, comment=comment, face_count=face_ct
+                        )
+                        pmx_model.materials.append(mat)
+                        line_idx += 1
+                    line_idx -= 1
+            
+            line_idx += 1
+
         if more_info:
             print(f"Done parsing PMX-as-text file '{file_path.name}'")
         
@@ -749,16 +852,23 @@ class PmxParserNuthouse:
             # 顶点数据格式
             lines.append("pos_x\tpos_y\tpos_z\tnorm_x\tnorm_y\tnorm_z\tu\tv\tweight_type\tweight_data\tedge_scale")
             for vertex in model.vertices:
-                weight_data = ";".join([f"{w[0]}:{w[1]}" for w in vertex.weights])
+                weight_data = ";".join([f"{w[0]}:{w[1]}" for w in vertex.weight])
                 line_data = [
                     vertex.position[0], vertex.position[1], vertex.position[2],
                     vertex.normal[0], vertex.normal[1], vertex.normal[2],
                     vertex.uv[0], vertex.uv[1],
-                    vertex.weight_type.value,
+                    vertex.weight_mode.value,
                     weight_data,
                     vertex.edge_scale
                 ]
                 lines.append('\t'.join(str(x) for x in line_data))
+        
+        # 面数据
+        lines.append(f"face_count:\t{len(model.faces)}")
+        if model.faces:
+            lines.append("v1\tv2\tv3")
+            for face in model.faces:
+                lines.append(f"{face[0]}\t{face[1]}\t{face[2]}")
         
         # 材质数据
         lines.append(f"material_count:\t{len(model.materials)}")
@@ -768,13 +878,13 @@ class PmxParserNuthouse:
                 line_data = [
                     material.name_jp, material.name_en,
                     f"{material.diffuse_color[0]},{material.diffuse_color[1]},{material.diffuse_color[2]}",
-                    material.alpha,
+                    material.diffuse_color[3],
                     f"{material.specular_color[0]},{material.specular_color[1]},{material.specular_color[2]}",
                     material.specular_strength,
                     f"{material.ambient_color[0]},{material.ambient_color[1]},{material.ambient_color[2]}",
-                    material.material_flags.value,
+                    material.flags.value,
                     f"{material.edge_color[0]},{material.edge_color[1]},{material.edge_color[2]}",
-                    material.edge_alpha, material.edge_size,
+                    material.edge_color[3], material.edge_size,
                     material.texture_path, material.sphere_path, material.sphere_mode.value,
                     material.toon_path, material.comment, material.face_count
                 ]
@@ -832,7 +942,7 @@ class PmxParserNuthouse:
     
     def _encode_pmx_lookahead(self, model: PmxModel) -> Tuple[List[int], List[str]]:
         """预处理编码参数 - 复刻原项目"""
-        addl_vec4s = max(len(v.addl_vec4s) for v in model.vertices) if model.vertices else 0
+        addl_vec4s = max(len(v.additional_uvs) for v in model.vertices) if model.vertices else 0
         
         # 构建纹理列表
         tex_list = []
@@ -876,15 +986,27 @@ class PmxParserNuthouse:
         globalflags[2] = vertex_categorize(lookahead[1])
         for i in range(3, 8):
             globalflags[i] = other_categorize(lookahead[i - 1])
+            
+        # Update instance variables for encoding
+        vert_conv = {1: "B", 2: "H", 4: "i"}
+        conv = {1: "b", 2: "h", 4: "i"}
+        
+        self.addl_vertex_vec4 = globalflags[1]
+        self.idx_vert = vert_conv[globalflags[2]]
+        self.idx_tex = conv[globalflags[3]]
+        self.idx_mat = conv[globalflags[4]]
+        self.idx_bone = conv[globalflags[5]]
+        self.idx_morph = conv[globalflags[6]]
+        self.idx_rb = conv[globalflags[7]]
         
         output += struct.pack("8b", *globalflags)
         
         # 设置编码并写入字符串
         self._io_handler.set_encoding("utf_16_le")
-        output += self._io_handler.write_string(header.name_jp, None)
-        output += self._io_handler.write_string(header.name_en, None)
-        output += self._io_handler.write_string(header.comment_jp, None)
-        output += self._io_handler.write_string(header.comment_en, None)
+        output += self._io_handler.write_variable_string(header.name_jp)
+        output += self._io_handler.write_variable_string(header.name_en)
+        output += self._io_handler.write_variable_string(header.comment_jp)
+        output += self._io_handler.write_variable_string(header.comment_en)
         
         return output
     
@@ -902,26 +1024,28 @@ class PmxParserNuthouse:
             
             # 额外vec4数据
             for i in range(self.addl_vertex_vec4):
-                if i < len(vertex.addl_vec4s):
-                    output += struct.pack("4f", *vertex.addl_vec4s[i])
+                if i < len(vertex.additional_uvs):
+                    output += struct.pack("4f", *vertex.additional_uvs[i])
                 else:
                     output += struct.pack("4f", 0, 0, 0, 0)
             
             # 权重数据
-            output += struct.pack("b", vertex.weight_type.value)
+            output += struct.pack("b", vertex.weight_mode.value)
             
             # 根据权重类型编码权重数据
-            weights = self._weightpairs_to_weightbinary(vertex.weight_type, vertex.weights)
+            weights = self._weightpairs_to_weightbinary(vertex.weight_mode, vertex.weight)
             
-            if vertex.weight_type == WeightMode.BDEF1:
+            if vertex.weight_mode == WeightMode.BDEF1:
                 output += struct.pack(self.idx_bone, weights[0])
-            elif vertex.weight_type == WeightMode.BDEF2:
+            elif vertex.weight_mode == WeightMode.BDEF2:
                 output += struct.pack(f"2{self.idx_bone}f", *weights)
-            elif vertex.weight_type == WeightMode.BDEF4:
+            elif vertex.weight_mode == WeightMode.BDEF4:
                 output += struct.pack(f"4{self.idx_bone}4f", *weights)
-            elif vertex.weight_type == WeightMode.SDEF:
+            elif vertex.weight_mode == WeightMode.SDEF:
                 output += struct.pack(f"2{self.idx_bone}f", weights[0], weights[1], weights[2])
-                flat_sdef = [x for sublist in vertex.weight_sdef for x in sublist]
+                # 注意：weight_sdef在vertex.__init__中没有设置，需要额外处理
+                # 这里假设vertex对象有这个属性
+                flat_sdef = [x for sublist in getattr(vertex, 'weight_sdef', [[0]*3]*3) for x in sublist]
                 output += struct.pack("9f", *flat_sdef)
             
             # 边缘缩放
@@ -959,7 +1083,7 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(textures))
         
         for texture in textures:
-            output += self._io_handler.write_string(texture, None)
+            output += self._io_handler.write_variable_string(texture)
         
         return output
     
@@ -969,8 +1093,8 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(materials))
         
         for material in materials:
-            output += self._io_handler.write_string(material.name_jp, None)
-            output += self._io_handler.write_string(material.name_en, None)
+            output += self._io_handler.write_variable_string(material.name_jp)
+            output += self._io_handler.write_variable_string(material.name_en)
             
             # 转换纹理路径为索引
             tex_idx = tex_list.index(material.texture_path) if material.texture_path in tex_list else -1
@@ -985,10 +1109,10 @@ class PmxParserNuthouse:
             
             # 打包材质数据
             mat_data = [
-                *material.diffuse_color, material.alpha,
+                *material.diffuse_color,
                 *material.specular_color, material.specular_strength,
-                *material.ambient_color, material.material_flags.value,
-                *material.edge_color, material.edge_alpha, material.edge_size,
+                *material.ambient_color, material.flags.value,
+                *material.edge_color, material.edge_size,
                 tex_idx, sph_idx, material.sphere_mode.value, builtin_toon
             ]
             
@@ -999,7 +1123,7 @@ class PmxParserNuthouse:
                 fmt = f"4f 4f 3f B 5f 2{self.idx_tex} b b {self.idx_tex}"
                 output += struct.pack(fmt, *mat_data, toon_idx)
             
-            output += self._io_handler.write_string(material.comment, None)
+            output += self._io_handler.write_variable_string(material.comment)
             output += struct.pack("i", material.face_count * 3)
         
         return output
@@ -1010,8 +1134,8 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(bones))
         
         for bone in bones:
-            output += self._io_handler.write_string(bone.name_jp, None)
-            output += self._io_handler.write_string(bone.name_en, None)
+            output += self._io_handler.write_variable_string(bone.name_jp)
+            output += self._io_handler.write_variable_string(bone.name_en)
             
             # 构建标志位
             flags1 = 0
@@ -1075,8 +1199,8 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(morphs))
         
         for morph in morphs:
-            output += self._io_handler.write_string(morph.name_jp, None)
-            output += self._io_handler.write_string(morph.name_en, None)
+            output += self._io_handler.write_variable_string(morph.name_jp)
+            output += self._io_handler.write_variable_string(morph.name_en)
             output += struct.pack("b b i", morph.panel.value, morph.morph_type.value, len(morph.items))
             
             # 编码变形项目
@@ -1118,8 +1242,8 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(frames))
         
         for frame in frames:
-            output += self._io_handler.write_string(frame.name_jp, None)
-            output += self._io_handler.write_string(frame.name_en, None)
+            output += self._io_handler.write_variable_string(frame.name_jp)
+            output += self._io_handler.write_variable_string(frame.name_en)
             output += struct.pack("b i", int(frame.is_special), len(frame.items))
             
             for item in frame.items:
@@ -1136,8 +1260,8 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(rigidbodies))
         
         for rb in rigidbodies:
-            output += self._io_handler.write_string(rb.name_jp, None)
-            output += self._io_handler.write_string(rb.name_en, None)
+            output += self._io_handler.write_variable_string(rb.name_jp)
+            output += self._io_handler.write_variable_string(rb.name_en)
             
             # 转换碰撞组和掩码
             group = rb.group - 1  # 转换为0-15范围
@@ -1165,8 +1289,8 @@ class PmxParserNuthouse:
         output += struct.pack("i", len(joints))
         
         for joint in joints:
-            output += self._io_handler.write_string(joint.name_jp, None)
-            output += self._io_handler.write_string(joint.name_en, None)
+            output += self._io_handler.write_variable_string(joint.name_jp)
+            output += self._io_handler.write_variable_string(joint.name_en)
             
             # 度转弧度
             rot_rads = [math.radians(r) for r in joint.rotation]
