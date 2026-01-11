@@ -12,8 +12,8 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pymmd.common.parsers.pmx_parser import PmxParser
-from pymmd.common.parsers.vmd_parser import VmdParser
+from pypmxvmd.common.parsers.pmx_parser import PmxParser
+from pypmxvmd.common.parsers.vmd_parser import VmdParser
 
 
 def compare_pmx_results(original, fast, tolerance=1e-6):
@@ -275,7 +275,7 @@ def test_vmd_parser_correctness():
 def main():
     """运行所有优化验证测试"""
     print("="*60)
-    print("PyMMD 解析器优化验证测试")
+    print("PyPMXVMD 解析器优化验证测试")
     print("="*60)
 
     pmx_passed = test_pmx_parser_correctness()
