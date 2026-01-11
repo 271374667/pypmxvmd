@@ -58,14 +58,37 @@ class PmxParser:
     
     def parse_file(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
         """解析PMX文件
-        
+
+        默认使用Cython优化解析，如果Cython模块不可用则回退到纯Python版本。
+
         Args:
             file_path: PMX文件路径
             more_info: 是否显示更多解析信息
-            
+
         Returns:
             解析后的PMX模型对象
-            
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式错误
+        """
+        # 优先使用Cython解析
+        if _CYTHON_AVAILABLE:
+            return self.parse_file_cython(file_path, more_info)
+
+        # 回退到纯Python快速解析
+        return self._parse_file_python(file_path, more_info)
+
+    def _parse_file_python(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
+        """纯Python解析PMX文件（原始实现）
+
+        Args:
+            file_path: PMX文件路径
+            more_info: 是否显示更多解析信息
+
+        Returns:
+            解析后的PMX模型对象
+
         Raises:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
@@ -73,34 +96,35 @@ class PmxParser:
         file_path = Path(file_path)
         if more_info:
             print(f"开始解析PMX文件: {file_path}")
-        
+
         # 读取文件数据
         data = self._io_handler.read_file(file_path)
-        
+
         # 创建PMX模型对象
         pmx_model = PmxModel()
-        
+
         try:
             # 解析文件头
             pmx_model.header = self._parse_header(data)
-            
+
             # 根据头信息设置解析参数
             self._setup_parsing_parameters(data)
-            
+
             # 解析各个数据段
             pmx_model.vertices = self._parse_vertices(data)
             pmx_model.faces = self._parse_faces(data)
             pmx_model.materials = self._parse_materials(data)
-            
+
             # TODO: 解析其他数据段（骨骼、变形等）
             # pmx_model.bones = self._parse_bones(data)
             # pmx_model.morphs = self._parse_morphs(data)
-            
-            print(f"PMX解析完成: {len(pmx_model.vertices)}个顶点, "
-                  f"{len(pmx_model.faces)}个面, {len(pmx_model.materials)}个材质")
-            
+
+            if more_info:
+                print(f"PMX解析完成: {len(pmx_model.vertices)}个顶点, "
+                      f"{len(pmx_model.faces)}个面, {len(pmx_model.materials)}个材质")
+
             return pmx_model
-            
+
         except Exception as e:
             raise ValueError(f"PMX文件解析失败: {e}")
 

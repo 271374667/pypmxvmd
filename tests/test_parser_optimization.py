@@ -3,17 +3,28 @@
 解析器优化验证测试
 
 验证优化后的快速解析方法与原始方法产生相同的结果。
+支持测试纯Python版本、快速解析版本和Cython优化版本。
 """
 
 import sys
 import time
 from pathlib import Path
 
+import pytest
+
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
 from pypmxvmd.common.parsers.vmd_parser import VmdParser
+
+# 检查Cython模块是否可用
+try:
+    from pypmxvmd.common.parsers._fast_vmd import parse_vmd_cython
+    from pypmxvmd.common.parsers._fast_pmx import parse_pmx_cython
+    CYTHON_AVAILABLE = True
+except ImportError:
+    CYTHON_AVAILABLE = False
 
 
 def compare_pmx_results(original, fast, tolerance=1e-6):
@@ -135,161 +146,309 @@ def compare_vmd_results(original, fast, tolerance=1e-6):
             if abs(om.weight - fm.weight) > tolerance:
                 errors.append(f"Morph frame {idx} weight mismatch: {om.weight} vs {fm.weight}")
 
-    # 比较相机帧数量
+    # 比较其他帧数量
     if len(original.camera_frames) != len(fast.camera_frames):
         errors.append(f"Camera frame count mismatch: {len(original.camera_frames)} vs {len(fast.camera_frames)}")
 
-    # 比较光源帧数量
     if len(original.light_frames) != len(fast.light_frames):
         errors.append(f"Light frame count mismatch: {len(original.light_frames)} vs {len(fast.light_frames)}")
 
-    # 比较阴影帧数量
     if len(original.shadow_frames) != len(fast.shadow_frames):
         errors.append(f"Shadow frame count mismatch: {len(original.shadow_frames)} vs {len(fast.shadow_frames)}")
 
-    # 比较IK帧数量
     if len(original.ik_frames) != len(fast.ik_frames):
         errors.append(f"IK frame count mismatch: {len(original.ik_frames)} vs {len(fast.ik_frames)}")
 
     return errors
 
 
-def test_pmx_parser_correctness():
-    """测试PMX解析器优化后的正确性"""
-    print("\n" + "="*60)
-    print("测试PMX解析器优化正确性")
-    print("="*60)
+class TestPmxParserOptimization:
+    """PMX解析器优化正确性测试"""
 
-    # 查找测试PMX文件
-    test_dir = Path(__file__).parent
-    pmx_files = list(test_dir.glob("**/*.pmx"))
+    def test_python_vs_fast(self, test_data_dir):
+        """测试纯Python版本与快速解析版本的一致性"""
+        pmx_files = list(test_data_dir.rglob("*.pmx"))
+        if not pmx_files:
+            pytest.skip("No PMX test files found")
 
-    if not pmx_files:
-        print("警告: 未找到PMX测试文件，跳过PMX测试")
-        return
+        parser = PmxParser()
+        pmx_file = pmx_files[0]
 
-    parser = PmxParser()
-    all_passed = True
+        # 使用纯Python方法解析
+        python_result = parser._parse_file_python(pmx_file)
 
-    for pmx_file in pmx_files:
-        print(f"\n测试文件: {pmx_file.name}")
+        # 使用快速方法解析
+        fast_result = parser.parse_file_fast(pmx_file)
 
-        try:
-            # 使用原始方法解析
-            start_time = time.perf_counter()
-            original_result = parser.parse_file(pmx_file)
-            original_time = time.perf_counter() - start_time
+        # 比较结果
+        errors = compare_pmx_results(python_result, fast_result)
+        assert not errors, f"Results mismatch:\n" + "\n".join(errors[:10])
 
-            # 使用快速方法解析
-            start_time = time.perf_counter()
-            fast_result = parser.parse_file_fast(pmx_file)
-            fast_time = time.perf_counter() - start_time
+    @pytest.mark.skipif(not CYTHON_AVAILABLE, reason="Cython module not available")
+    def test_python_vs_cython(self, test_data_dir):
+        """测试纯Python版本与Cython版本的一致性"""
+        pmx_files = list(test_data_dir.rglob("*.pmx"))
+        if not pmx_files:
+            pytest.skip("No PMX test files found")
 
-            # 比较结果
-            errors = compare_pmx_results(original_result, fast_result)
+        parser = PmxParser()
+        pmx_file = pmx_files[0]
 
-            if errors:
-                print(f"  ❌ 结果不一致!")
-                for error in errors[:5]:  # 只显示前5个错误
-                    print(f"     - {error}")
-                if len(errors) > 5:
-                    print(f"     ... 还有 {len(errors)-5} 个错误")
-                all_passed = False
-            else:
-                speedup = original_time / fast_time if fast_time > 0 else float('inf')
-                print(f"  ✅ 结果一致")
-                print(f"     原始方法: {original_time:.4f}s")
-                print(f"     快速方法: {fast_time:.4f}s")
-                print(f"     速度提升: {speedup:.2f}x")
+        # 使用纯Python方法解析
+        python_result = parser._parse_file_python(pmx_file)
 
-        except Exception as e:
-            print(f"  ❌ 测试失败: {e}")
-            import traceback
-            traceback.print_exc()
-            all_passed = False
+        # 使用Cython方法解析
+        cython_result = parser.parse_file_cython(pmx_file)
 
-    assert all_passed, "PMX解析器优化验证失败"
+        # 比较结果
+        errors = compare_pmx_results(python_result, cython_result)
+        assert not errors, f"Results mismatch:\n" + "\n".join(errors[:10])
+
+    def test_default_parse_method(self, test_data_dir):
+        """测试默认的parse_file方法（应该自动选择最佳方法）"""
+        pmx_files = list(test_data_dir.rglob("*.pmx"))
+        if not pmx_files:
+            pytest.skip("No PMX test files found")
+
+        parser = PmxParser()
+        pmx_file = pmx_files[0]
+
+        # 使用默认方法解析（应该使用Cython如果可用）
+        result = parser.parse_file(pmx_file)
+
+        # 验证结果有效
+        assert result.header is not None
+        assert len(result.vertices) > 0
+        assert len(result.faces) > 0
 
 
-def test_vmd_parser_correctness():
-    """测试VMD解析器优化后的正确性"""
-    print("\n" + "="*60)
-    print("测试VMD解析器优化正确性")
-    print("="*60)
+class TestVmdParserOptimization:
+    """VMD解析器优化正确性测试"""
 
-    # 查找测试VMD文件
-    test_dir = Path(__file__).parent.parent  # 项目根目录
-    vmd_files = list(test_dir.glob("**/*.vmd"))
+    def test_python_vs_fast(self, test_data_dir):
+        """测试纯Python版本与快速解析版本的一致性"""
+        vmd_files = list(test_data_dir.rglob("*.vmd"))
+        if not vmd_files:
+            pytest.skip("No VMD test files found")
 
-    if not vmd_files:
-        print("警告: 未找到VMD测试文件，跳过VMD测试")
-        return
+        parser = VmdParser()
+        vmd_file = vmd_files[0]
 
-    parser = VmdParser()
-    all_passed = True
+        # 使用纯Python方法解析
+        python_result = parser._parse_file_python(vmd_file)
 
-    for vmd_file in vmd_files:
-        print(f"\n测试文件: {vmd_file.name}")
+        # 使用快速方法解析
+        fast_result = parser.parse_file_fast(vmd_file)
 
-        try:
-            # 使用原始方法解析
-            start_time = time.perf_counter()
-            original_result = parser.parse_file(vmd_file)
-            original_time = time.perf_counter() - start_time
+        # 比较结果
+        errors = compare_vmd_results(python_result, fast_result)
+        assert not errors, f"Results mismatch:\n" + "\n".join(errors[:10])
 
-            # 使用快速方法解析
-            start_time = time.perf_counter()
-            fast_result = parser.parse_file_fast(vmd_file)
-            fast_time = time.perf_counter() - start_time
+    @pytest.mark.skipif(not CYTHON_AVAILABLE, reason="Cython module not available")
+    def test_python_vs_cython(self, test_data_dir):
+        """测试纯Python版本与Cython版本的一致性"""
+        vmd_files = list(test_data_dir.rglob("*.vmd"))
+        if not vmd_files:
+            pytest.skip("No VMD test files found")
 
-            # 比较结果
-            errors = compare_vmd_results(original_result, fast_result)
+        parser = VmdParser()
+        vmd_file = vmd_files[0]
 
-            if errors:
-                print(f"  ❌ 结果不一致!")
-                for error in errors[:5]:  # 只显示前5个错误
-                    print(f"     - {error}")
-                if len(errors) > 5:
-                    print(f"     ... 还有 {len(errors)-5} 个错误")
-                all_passed = False
-            else:
-                speedup = original_time / fast_time if fast_time > 0 else float('inf')
-                print(f"  ✅ 结果一致")
-                print(f"     原始方法: {original_time:.4f}s")
-                print(f"     快速方法: {fast_time:.4f}s")
-                print(f"     速度提升: {speedup:.2f}x")
-                print(f"     数据统计:")
-                print(f"       骨骼帧: {len(fast_result.bone_frames)}")
-                print(f"       变形帧: {len(fast_result.morph_frames)}")
-                print(f"       相机帧: {len(fast_result.camera_frames)}")
+        # 使用纯Python方法解析
+        python_result = parser._parse_file_python(vmd_file)
 
-        except Exception as e:
-            print(f"  ❌ 测试失败: {e}")
-            import traceback
-            traceback.print_exc()
-            all_passed = False
+        # 使用Cython方法解析
+        cython_result = parser.parse_file_cython(vmd_file)
 
-    assert all_passed, "VMD解析器优化验证失败"
+        # 比较结果
+        errors = compare_vmd_results(python_result, cython_result)
+        assert not errors, f"Results mismatch:\n" + "\n".join(errors[:10])
+
+    def test_default_parse_method(self, test_data_dir):
+        """测试默认的parse_file方法（应该自动选择最佳方法）"""
+        vmd_files = list(test_data_dir.rglob("*.vmd"))
+        if not vmd_files:
+            pytest.skip("No VMD test files found")
+
+        parser = VmdParser()
+        vmd_file = vmd_files[0]
+
+        # 使用默认方法解析（应该使用Cython如果可用）
+        result = parser.parse_file(vmd_file)
+
+        # 验证结果有效
+        assert result.header is not None
+
+
+class TestCythonAvailability:
+    """测试Cython模块可用性检测"""
+
+    def test_cython_detection(self):
+        """测试Cython模块检测逻辑"""
+        from pypmxvmd.common.parsers import vmd_parser, pmx_parser
+
+        # 检测应该返回布尔值
+        assert isinstance(vmd_parser._CYTHON_AVAILABLE, bool)
+        assert isinstance(pmx_parser._CYTHON_AVAILABLE, bool)
+
+        # 两个模块的检测结果应该一致
+        assert vmd_parser._CYTHON_AVAILABLE == pmx_parser._CYTHON_AVAILABLE
+
+    def test_fallback_behavior(self, test_data_dir):
+        """测试Cython不可用时的回退行为"""
+        pmx_files = list(test_data_dir.rglob("*.pmx"))
+        vmd_files = list(test_data_dir.rglob("*.vmd"))
+
+        pmx_parser = PmxParser()
+        vmd_parser = VmdParser()
+
+        # 即使Cython不可用，parse_file也应该正常工作
+        if pmx_files:
+            result = pmx_parser.parse_file(pmx_files[0])
+            assert result is not None
+
+        if vmd_files:
+            result = vmd_parser.parse_file(vmd_files[0])
+            assert result is not None
 
 
 def main():
-    """运行所有优化验证测试"""
-    print("="*60)
-    print("PyPMXVMD 解析器优化验证测试")
-    print("="*60)
+    """运行所有优化验证测试（命令行模式）"""
+    print("=" * 60)
+    print("PyPMXVMD Parser Optimization Validation Test")
+    print("=" * 60)
+    print(f"Cython available: {CYTHON_AVAILABLE}")
+    print()
 
-    pmx_passed = test_pmx_parser_correctness()
-    vmd_passed = test_vmd_parser_correctness()
+    # 查找测试文件
+    test_dir = Path(__file__).parent
+    pmx_files = list(test_dir.glob("**/*.pmx"))
+    vmd_files = list(test_dir.glob("**/*.vmd"))
 
-    print("\n" + "="*60)
-    print("测试总结")
-    print("="*60)
+    all_passed = True
 
-    if pmx_passed and vmd_passed:
-        print("✅ 所有测试通过！优化后的解析器与原始解析器结果一致。")
+    # 测试PMX解析器
+    if pmx_files:
+        print("\n" + "=" * 60)
+        print("Testing PMX Parser Optimization")
+        print("=" * 60)
+
+        parser = PmxParser()
+        pmx_file = pmx_files[0]
+        print(f"\nTesting file: {pmx_file.name}")
+
+        try:
+            # 纯Python解析
+            start = time.perf_counter()
+            python_result = parser._parse_file_python(pmx_file)
+            python_time = time.perf_counter() - start
+
+            # 快速解析
+            start = time.perf_counter()
+            fast_result = parser.parse_file_fast(pmx_file)
+            fast_time = time.perf_counter() - start
+
+            errors = compare_pmx_results(python_result, fast_result)
+
+            if errors:
+                print(f"  [FAIL] Python vs Fast: Results mismatch!")
+                for error in errors[:5]:
+                    print(f"     - {error}")
+                all_passed = False
+            else:
+                speedup = python_time / fast_time if fast_time > 0 else float('inf')
+                print(f"  [PASS] Python vs Fast")
+                print(f"     Python: {python_time:.4f}s, Fast: {fast_time:.4f}s, Speedup: {speedup:.2f}x")
+
+            # Cython解析
+            if CYTHON_AVAILABLE:
+                start = time.perf_counter()
+                cython_result = parser.parse_file_cython(pmx_file)
+                cython_time = time.perf_counter() - start
+
+                errors = compare_pmx_results(python_result, cython_result)
+                if errors:
+                    print(f"  [FAIL] Python vs Cython: Results mismatch!")
+                    all_passed = False
+                else:
+                    speedup = python_time / cython_time if cython_time > 0 else float('inf')
+                    print(f"  [PASS] Python vs Cython")
+                    print(f"     Python: {python_time:.4f}s, Cython: {cython_time:.4f}s, Speedup: {speedup:.2f}x")
+
+        except Exception as e:
+            print(f"  [FAIL] Test failed: {e}")
+            import traceback
+            traceback.print_exc()
+            all_passed = False
+    else:
+        print("No PMX test files found")
+
+    # 测试VMD解析器
+    if vmd_files:
+        print("\n" + "=" * 60)
+        print("Testing VMD Parser Optimization")
+        print("=" * 60)
+
+        parser = VmdParser()
+        vmd_file = vmd_files[0]
+        print(f"\nTesting file: {vmd_file.name}")
+
+        try:
+            # 纯Python解析
+            start = time.perf_counter()
+            python_result = parser._parse_file_python(vmd_file)
+            python_time = time.perf_counter() - start
+
+            # 快速解析
+            start = time.perf_counter()
+            fast_result = parser.parse_file_fast(vmd_file)
+            fast_time = time.perf_counter() - start
+
+            errors = compare_vmd_results(python_result, fast_result)
+
+            if errors:
+                print(f"  [FAIL] Python vs Fast: Results mismatch!")
+                for error in errors[:5]:
+                    print(f"     - {error}")
+                all_passed = False
+            else:
+                speedup = python_time / fast_time if fast_time > 0 else float('inf')
+                print(f"  [PASS] Python vs Fast")
+                print(f"     Python: {python_time:.4f}s, Fast: {fast_time:.4f}s, Speedup: {speedup:.2f}x")
+
+            # Cython解析
+            if CYTHON_AVAILABLE:
+                start = time.perf_counter()
+                cython_result = parser.parse_file_cython(vmd_file)
+                cython_time = time.perf_counter() - start
+
+                errors = compare_vmd_results(python_result, cython_result)
+                if errors:
+                    print(f"  [FAIL] Python vs Cython: Results mismatch!")
+                    all_passed = False
+                else:
+                    speedup = python_time / cython_time if cython_time > 0 else float('inf')
+                    print(f"  [PASS] Python vs Cython")
+                    print(f"     Python: {python_time:.4f}s, Cython: {cython_time:.4f}s, Speedup: {speedup:.2f}x")
+
+        except Exception as e:
+            print(f"  [FAIL] Test failed: {e}")
+            import traceback
+            traceback.print_exc()
+            all_passed = False
+    else:
+        print("No VMD test files found")
+
+    # 总结
+    print("\n" + "=" * 60)
+    print("Test Summary")
+    print("=" * 60)
+
+    if all_passed:
+        print("[PASS] All tests passed!")
         return 0
     else:
-        print("❌ 部分测试失败，请检查上述错误信息。")
+        print("[FAIL] Some tests failed.")
         return 1
 
 

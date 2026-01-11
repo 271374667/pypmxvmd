@@ -122,6 +122,30 @@ class VmdParser:
                   more_info: bool = False) -> VmdMotion:
         """解析VMD文件
 
+        默认使用Cython优化解析，如果Cython模块不可用则回退到纯Python版本。
+
+        Args:
+            file_path: VMD文件路径
+            more_info: 是否显示详细信息
+
+        Returns:
+            解析后的VMD动作对象
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式错误
+        """
+        # 优先使用Cython解析
+        if _CYTHON_AVAILABLE:
+            return self.parse_file_cython(file_path, more_info)
+
+        # 回退到纯Python快速解析
+        return self._parse_file_python(file_path, more_info)
+
+    def _parse_file_python(self, file_path: Union[str, Path],
+                          more_info: bool = False) -> VmdMotion:
+        """纯Python解析VMD文件（原始实现）
+
         Args:
             file_path: VMD文件路径
             more_info: 是否显示详细信息
@@ -134,7 +158,8 @@ class VmdParser:
             ValueError: 文件格式错误
         """
         file_path = Path(file_path)
-        print(f"开始解析VMD文件: {file_path}")
+        if more_info:
+            print(f"开始解析VMD文件: {file_path}")
 
         # 读取文件数据
         data = self._io_handler.read_file(file_path)
@@ -155,9 +180,10 @@ class VmdParser:
             vmd_motion.shadow_frames = self._parse_shadow_frames(data, more_info)
             vmd_motion.ik_frames = self._parse_ik_frames(data, more_info)
 
-            print(f"VMD解析完成: {len(vmd_motion.bone_frames)}个骨骼帧, "
-                  f"{len(vmd_motion.morph_frames)}个变形帧, "
-                  f"{len(vmd_motion.camera_frames)}个相机帧")
+            if more_info:
+                print(f"VMD解析完成: {len(vmd_motion.bone_frames)}个骨骼帧, "
+                      f"{len(vmd_motion.morph_frames)}个变形帧, "
+                      f"{len(vmd_motion.camera_frames)}个相机帧")
 
             return vmd_motion
 
