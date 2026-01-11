@@ -1,6 +1,6 @@
 [project]
 name = "pypmxvmd"
-version = "2.6.0"
+version = "2.6.1"
 description = "Wrapper for reading and modifying VMD and PMX files"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -35,7 +35,7 @@ Repository = "https://github.com/pypmxvmd/pypmxvmd"
 pypmxvmd = "pypmxvmd.presentation.cli.main:main"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "cython>=3.2.4"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -46,7 +46,7 @@ include = ["pypmxvmd*"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-pypmxvmd = ["**/*.pyd", "**/*.so", "**/*.dylib", "**/*.c", "**/*.pyx"]
+pypmxvmd = ["**/*.c", "**/*.pyx", "**/*.pyi"]
 
 [tool.black]
 line-length = 88
@@ -99,7 +99,12 @@ python_files = [
 
 [dependency-groups]
 dev = [
+    "cibuildwheel>=2.23.3",
     "cython>=3.2.4",
     "pytest>=8.3.5",
     "setuptools>=75.3.2",
 ]
+
+[tool.cibuildwheel]
+build = "cp38-win_amd64 cp39-win_amd64 cp310-win_amd64 cp311-win_amd64 cp312-win_amd64 cp313-win_amd64"
+skip = "*-win32"
