@@ -118,10 +118,9 @@ Auto.osm;
     
     if success_count == total_tests:
         print("所有快速集成测试通过！")
-        return True
     else:
         print("部分测试失败")
-        return False
+        assert False, f"快速集成测试失败: 通过 {success_count}/{total_tests}"
 
 
 if __name__ == "__main__":

@@ -199,6 +199,8 @@ class TextIOHandler:
             # 解析模型名称
             if line.startswith('Vocaloid Pose Data file'):
                 i += 1
+                while i < len(lines) and not lines[i].strip():
+                    i += 1
                 if i < len(lines):
                     data['model_name'] = lines[i].strip().rstrip(';')
                 i += 1

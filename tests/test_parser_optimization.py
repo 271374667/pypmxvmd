@@ -166,7 +166,7 @@ def test_pmx_parser_correctness():
 
     if not pmx_files:
         print("警告: 未找到PMX测试文件，跳过PMX测试")
-        return True
+        return
 
     parser = PmxParser()
     all_passed = True
@@ -208,7 +208,7 @@ def test_pmx_parser_correctness():
             traceback.print_exc()
             all_passed = False
 
-    return all_passed
+    assert all_passed, "PMX解析器优化验证失败"
 
 
 def test_vmd_parser_correctness():
@@ -223,7 +223,7 @@ def test_vmd_parser_correctness():
 
     if not vmd_files:
         print("警告: 未找到VMD测试文件，跳过VMD测试")
-        return True
+        return
 
     parser = VmdParser()
     all_passed = True
@@ -269,7 +269,7 @@ def test_vmd_parser_correctness():
             traceback.print_exc()
             all_passed = False
 
-    return all_passed
+    assert all_passed, "VMD解析器优化验证失败"
 
 
 def main():

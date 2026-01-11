@@ -196,7 +196,6 @@ def test_vmd_comprehensive():
         output_file.unlink()
         
         print("VMD全面测试完成")
-        return True
         
     except Exception as e:
         print(f"测试失败: {e}")
@@ -206,7 +205,7 @@ def test_vmd_comprehensive():
         # 清理测试文件
         if test_file.exists():
             test_file.unlink()
-        return False
+        assert False, f"测试失败: {e}"
 
 
 if __name__ == "__main__":

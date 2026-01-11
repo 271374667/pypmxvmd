@@ -164,10 +164,9 @@ Bone0{センター
     
     if success_count == total_tests:
         print("所有API集成测试通过！")
-        return True
     else:
         print("部分测试失败")
-        return False
+        assert False, f"API集成测试失败: 通过 {success_count}/{total_tests}"
 
 
 def create_test_vmd_data():

@@ -163,7 +163,7 @@ def test_pmx_comprehensive():
                     print(f"警告: 无效的魔术字符串: {magic}")
         else:
             print("错误: 输出文件未创建")
-            return False
+            assert False, "输出文件未创建"
         
         # 尝试创建更大的模型来测试索引大小
         print("\n测试大型模型索引处理...")
@@ -181,13 +181,12 @@ def test_pmx_comprehensive():
         large_output_file.unlink()
         
         print("PMX全面测试完成")
-        return True
         
     except Exception as e:
         print(f"测试失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        assert False, f"测试失败: {e}"
 
 
 def create_large_pmx_model():
