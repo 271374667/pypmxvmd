@@ -1,6 +1,6 @@
 [project]
 name = "pypmxvmd"
-version = "2.0.1"
+version = "2.5.1"
 description = "Wrapper for reading and modifying VMD and PMX files"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -23,28 +23,6 @@ classifiers = [
 
 dependencies = [
     "typing-extensions>=4.0.0; python_version<'3.10'",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=6.0",
-    "pytest-cov>=2.0", 
-    "black>=22.0",
-    "isort>=5.0",
-    "flake8>=4.0",
-    "mypy>=0.900",
-]
-
-gui = [
-    # tkinter is usually part of Python standard library
-]
-
-translation = [
-    "googletrans==4.0.0rc1",
-]
-
-image = [
-    "Pillow>=8.0.0",
 ]
 
 [project.urls]
@@ -110,4 +88,11 @@ testpaths = [
 python_files = [
     "test_*.py", 
     "*_test.py",
+]
+
+[dependency-groups]
+dev = [
+    "cython>=3.2.4",
+    "pytest>=8.3.5",
+    "setuptools>=75.3.2",
 ]
