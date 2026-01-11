@@ -16,6 +16,13 @@ from pypmxvmd.common.models.vmd import (
 )
 from pypmxvmd.common.io.binary_io import BinaryIOHandler
 
+# 尝试导入Cython优化模块
+try:
+    from pypmxvmd.common.parsers._fast_vmd import parse_vmd_cython
+    _CYTHON_AVAILABLE = True
+except ImportError:
+    _CYTHON_AVAILABLE = False
+
 
 class VmdParser:
     """VMD文件解析器
@@ -207,6 +214,44 @@ class VmdParser:
 
         except Exception as e:
             raise ValueError(f"VMD文件快速解析失败: {e}") from e
+
+    def parse_file_cython(self, file_path: Union[str, Path],
+                          more_info: bool = False) -> VmdMotion:
+        """使用Cython解析VMD文件（最高性能版本）
+
+        需要编译Cython模块后才能使用。
+        如果Cython模块不可用，将自动回退到parse_file_fast。
+
+        Args:
+            file_path: VMD文件路径
+            more_info: 是否显示详细信息
+
+        Returns:
+            解析后的VMD动作对象 (VmdMotion)
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式错误
+        """
+        if not _CYTHON_AVAILABLE:
+            if more_info:
+                print("Cython模块不可用，回退到快速解析...")
+            return self.parse_file_fast(file_path, more_info)
+
+        file_path = Path(file_path)
+        if more_info:
+            print(f"开始Cython解析VMD文件: {file_path}")
+
+        # 读取文件数据
+        with open(file_path, 'rb') as f:
+            data = f.read()
+
+        try:
+            # 使用Cython模块解析
+            vmd_motion = parse_vmd_cython(data, more_info)
+            return vmd_motion
+        except Exception as e:
+            raise ValueError(f"VMD文件Cython解析失败: {e}") from e
     
     def _parse_header(self, data: bytearray, more_info: bool) -> VmdHeader:
         """解析VMD文件头"""

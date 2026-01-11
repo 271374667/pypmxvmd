@@ -14,6 +14,13 @@ from pypmxvmd.common.models.pmx import (
 )
 from pypmxvmd.common.io.binary_io import BinaryIOHandler
 
+# 尝试导入Cython优化模块
+try:
+    from pypmxvmd.common.parsers._fast_pmx import parse_pmx_cython
+    _CYTHON_AVAILABLE = True
+except ImportError:
+    _CYTHON_AVAILABLE = False
+
 
 class PmxParser:
     """PMX文件解析器
@@ -144,6 +151,43 @@ class PmxParser:
 
         except Exception as e:
             raise ValueError(f"PMX文件快速解析失败: {e}")
+
+    def parse_file_cython(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
+        """使用Cython解析PMX文件（最高性能版本）
+
+        需要编译Cython模块后才能使用。
+        如果Cython模块不可用，将自动回退到parse_file_fast。
+
+        Args:
+            file_path: PMX文件路径
+            more_info: 是否显示更多解析信息
+
+        Returns:
+            解析后的PMX模型对象
+
+        Raises:
+            FileNotFoundError: 文件不存在
+            ValueError: 文件格式错误
+        """
+        if not _CYTHON_AVAILABLE:
+            if more_info:
+                print("Cython模块不可用，回退到快速解析...")
+            return self.parse_file_fast(file_path, more_info)
+
+        file_path = Path(file_path)
+        if more_info:
+            print(f"开始Cython解析PMX文件: {file_path}")
+
+        # 读取文件数据
+        with open(file_path, 'rb') as f:
+            data = f.read()
+
+        try:
+            # 使用Cython模块解析
+            pmx_model = parse_pmx_cython(data, more_info)
+            return pmx_model
+        except Exception as e:
+            raise ValueError(f"PMX文件Cython解析失败: {e}")
     
     def _parse_header(self, data: bytearray) -> PmxHeader:
         """解析PMX文件头
