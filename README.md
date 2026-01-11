@@ -4,7 +4,7 @@ Python MikuMikuDance File Parser Library
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.0-orange.svg)](https://github.com/pypmxvmd/pypmxvmd)
+[![Version](https://img.shields.io/badge/version-2.5.1-orange.svg)](https://github.com/pypmxvmd/pypmxvmd)
 
 PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files, supporting the following formats:
 
@@ -18,6 +18,7 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 - Conversion between binary and text formats
 - Object-oriented API design, easy to use
 - Complete type annotation support
+- Optional Cython acceleration for core parsing and binary I/O (average 3.7x faster than the previous path)
 - No external dependencies (core functionality)
 - Supports Python 3.8+
 
@@ -31,6 +32,18 @@ pip install -e .
 
 # Install development dependencies
 pip install -e ".[dev]"
+```
+
+### Optional: Build Cython Accelerators
+
+The core parsing path supports Cython-accelerated modules for VMD/PMX and binary I/O.
+In typical workloads, the Cython implementation is ~3.7x faster on average than the previous implementation.
+Prebuilt Cython binaries are only provided for Python 3.11; other Python versions need to compile locally.
+If the compiled modules are not available, the library automatically falls back to pure Python.
+
+```bash
+pip install cython
+python scripts/build_cython.py
 ```
 
 ## Quick Start
@@ -243,6 +256,10 @@ flake8 pypmxvmd/
 ```
 
 ## Version History
+
+### v2.5.1
+- Added optional Cython acceleration for core parsing and binary I/O
+- Cython path averages ~3.7x faster than the previous implementation
 
 ### v2.0.0 (2024)
 - Complete refactor to object-oriented architecture
