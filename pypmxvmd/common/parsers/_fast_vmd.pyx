@@ -2,6 +2,7 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 # cython: cdivision=True
+# cython: initializedcheck=False
 """
 PyPMXVMD VMD快速解析模块 (Cython优化)
 
@@ -9,9 +10,10 @@ PyPMXVMD VMD快速解析模块 (Cython优化)
 返回与原有API兼容的VmdBoneFrame, VmdMorphFrame等对象。
 """
 
-from libc.string cimport memcpy
+from libc.string cimport memcpy, memchr
 from libc.math cimport atan2, asin, cos, sin, M_PI
 from cpython.bytes cimport PyBytes_AS_STRING
+from cpython.unicode cimport PyUnicode_Decode
 
 # 导入原有数据模型
 from pypmxvmd.common.models.vmd import (
@@ -62,43 +64,45 @@ cdef class FastVmdReader:
         return result
 
     cdef str read_string_fixed(self, int length):
-        """读取固定长度Shift-JIS字符串"""
-        cdef bytes raw = self._data[self._pos:self._pos + length]
+        """读取固定长度Shift-JIS字符串（零拷贝优化）"""
+        cdef const unsigned char* start = self._ptr + self._pos
+        cdef const unsigned char* end_ptr
+        cdef int actual_len
+        
+        # 立即推进位置指针
         self._pos += length
+        
+        # 在 [start, start + length) 范围内查找 null 终止符
+        end_ptr = <const unsigned char*>memchr(start, 0, length)
+        
+        if end_ptr != NULL:
+            actual_len = end_ptr - start
+        else:
+            actual_len = length
+            
+        # 使用 C-API 直接从指针解码，避免创建临时 bytes 对象
+        return PyUnicode_Decode(<const char*>start, actual_len, "shift_jis", "ignore")
 
-        # 查找null终止符
-        cdef int null_pos = raw.find(b'\x00')
-        if null_pos != -1:
-            raw = raw[:null_pos]
 
-        try:
-            return raw.decode('shift_jis')
-        except:
-            return raw.decode('shift_jis', errors='ignore')
-
-
-cdef inline tuple quaternion_to_euler(double qx, double qy, double qz, double qw):
-    """四元数转欧拉角 (内联优化)"""
+cdef inline void quaternion_to_euler_ptr(double qx, double qy, double qz, double qw, double* out_r, double* out_p, double* out_y):
+    """四元数转欧拉角 (指针返回，避免元组开销)"""
     cdef double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp
-    cdef double roll, pitch, yaw
-
+    
     sinr_cosp = 2.0 * (qw * qx + qy * qz)
     cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
-    roll = atan2(sinr_cosp, cosr_cosp)
+    out_r[0] = atan2(sinr_cosp, cosr_cosp) * RAD_TO_DEG
 
     sinp = 2.0 * (qw * qy - qz * qx)
     if sinp >= 1.0:
-        pitch = M_PI / 2.0
+        out_p[0] = 90.0 # M_PI / 2.0 * RAD_TO_DEG
     elif sinp <= -1.0:
-        pitch = -M_PI / 2.0
+        out_p[0] = -90.0 # -M_PI / 2.0 * RAD_TO_DEG
     else:
-        pitch = asin(sinp)
+        out_p[0] = asin(sinp) * RAD_TO_DEG
 
     siny_cosp = 2.0 * (qw * qz + qx * qy)
     cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
-    yaw = atan2(siny_cosp, cosy_cosp)
-
-    return (roll * RAD_TO_DEG, pitch * RAD_TO_DEG, yaw * RAD_TO_DEG)
+    out_y[0] = atan2(siny_cosp, cosy_cosp) * RAD_TO_DEG
 
 
 cpdef parse_vmd_cython(bytes data, bint more_info=False):
@@ -136,22 +140,12 @@ cpdef parse_vmd_cython(bytes data, bint more_info=False):
     cdef object vmd = VmdMotion()
     vmd.header = VmdHeader(version=version, model_name=model_name)
 
-    # 解析骨骼帧
+    # 解析各个部分
     vmd.bone_frames = _parse_bone_frames_cython(reader, more_info)
-
-    # 解析变形帧
     vmd.morph_frames = _parse_morph_frames_cython(reader, more_info)
-
-    # 解析相机帧
     vmd.camera_frames = _parse_camera_frames_cython(reader, more_info)
-
-    # 解析光源帧
     vmd.light_frames = _parse_light_frames_cython(reader, more_info)
-
-    # 解析阴影帧
     vmd.shadow_frames = _parse_shadow_frames_cython(reader, more_info)
-
-    # 解析IK帧
     vmd.ik_frames = _parse_ik_frames_cython(reader, more_info)
 
     if more_info:
@@ -167,7 +161,8 @@ cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    cdef list bone_frames = []
+    # 预分配列表，避免 append 开销
+    cdef list bone_frames = [None] * frame_count
 
     if more_info:
         print(f"解析 {frame_count} 个骨骼帧...")
@@ -176,8 +171,7 @@ cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
     cdef str bone_name
     cdef unsigned int frame_num
     cdef float px, py, pz, qx, qy, qz, qw
-    cdef tuple euler
-    cdef list position, rotation, interpolation
+    cdef double r_val, p_val, y_val
     cdef bint physics_disabled
 
     # 插值数据相关变量
@@ -206,11 +200,11 @@ cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
         memcpy(&qw, reader._ptr + reader._pos + 12, 4)
         reader._pos += 16
 
-        # 四元数转欧拉角
-        euler = quaternion_to_euler(qx, qy, qz, qw)
+        # 四元数转欧拉角 (直接写入变量，避免元组解包)
+        quaternion_to_euler_ptr(qx, qy, qz, qw, &r_val, &p_val, &y_val)
 
         # 读取插值数据 (64字节)
-        # 格式: "<bb bb 12b xbb 45x" 总共64字节
+        # 直接访问指针读取
         x_ax = <signed char>reader._ptr[reader._pos]
         y_ax = <signed char>reader._ptr[reader._pos + 1]
         phys1 = <signed char>reader._ptr[reader._pos + 2]
@@ -232,33 +226,30 @@ cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
         r_ax = <signed char>reader._ptr[reader._pos + 18]
         reader._pos += 64
 
-        # 检测物理开关状态
-        if (phys1, phys2) == (z_ax, r_ax):
+        # 检测物理开关状态 (避免元组创建，直接比较)
+        if phys1 == z_ax and phys2 == r_ax:
             physics_disabled = False
-        elif (phys1, phys2) == (0, 0):
+        elif phys1 == 0 and phys2 == 0:
             physics_disabled = False
-        elif (phys1, phys2) == (99, 15):
+        elif phys1 == 99 and phys2 == 15:
             physics_disabled = True
         else:
             physics_disabled = True
 
-        # 构建插值数据
-        interpolation = [
+        # 创建骨骼帧对象 (直接使用列表推导和变量，减少中间步骤)
+        bone_frames[i] = VmdBoneFrame(
+            bone_name=bone_name,
+            frame_number=frame_num,
+            position=[px, py, pz],
+            rotation=[r_val, p_val, y_val],
+            interpolation=[
             x_ax, x_ay, x_bx, x_by,  # X轴
             y_ax, y_ay, y_bx, y_by,  # Y轴
             z_ax, z_ay, z_bx, z_by,  # Z轴
             r_ax, r_ay, r_bx, r_by   # 旋转
-        ]
-
-        # 创建骨骼帧对象
-        bone_frames.append(VmdBoneFrame(
-            bone_name=bone_name,
-            frame_number=frame_num,
-            position=[px, py, pz],
-            rotation=list(euler),
-            interpolation=interpolation,
+            ],
             physics_disabled=physics_disabled
-        ))
+        )
 
     return bone_frames
 
@@ -269,7 +260,7 @@ cdef list _parse_morph_frames_cython(FastVmdReader reader, bint more_info):
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    cdef list morph_frames = []
+    cdef list morph_frames = [None] * frame_count
 
     if more_info:
         print(f"解析 {frame_count} 个变形帧...")
@@ -288,11 +279,11 @@ cdef list _parse_morph_frames_cython(FastVmdReader reader, bint more_info):
         memcpy(&weight, reader._ptr + reader._pos + 4, 4)
         reader._pos += 8
 
-        morph_frames.append(VmdMorphFrame(
+        morph_frames[i] = VmdMorphFrame(
             morph_name=morph_name,
             frame_number=frame_num,
             weight=weight
-        ))
+        )
 
     return morph_frames
 
@@ -303,7 +294,7 @@ cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    cdef list camera_frames = []
+    cdef list camera_frames = [None] * frame_count
 
     if more_info:
         print(f"解析 {frame_count} 个相机帧...")
@@ -313,7 +304,8 @@ cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
     cdef float distance, px, py, pz, rx, ry, rz
     cdef unsigned int fov
     cdef unsigned char perspective
-    cdef list position, rotation, interpolation
+    cdef list interpolation
+    cdef int j
 
     for i in range(frame_count):
         # 帧号
@@ -332,14 +324,16 @@ cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
 
         # 旋转 (弧度)
         memcpy(&rx, reader._ptr + reader._pos, 4)
-        memcpy(&ry, reader._ptr + reader._pos + 4, 4)
+        memcpy(&ry, reader._ptr + reader._pos+ 4, 4)
         memcpy(&rz, reader._ptr + reader._pos + 8, 4)
         reader._pos += 12
 
         # 插值数据 (24字节)
-        interpolation = []
+        # 用列表推导式可能不如预分配快，但对于小列表（24）差异不大
+        # 这里用显式循环读取优化
+        interpolation = [0] * 24
         for j in range(24):
-            interpolation.append(<signed char>reader._ptr[reader._pos + j])
+            interpolation[j] = <signed char>reader._ptr[reader._pos + j]
         reader._pos += 24
 
         # FOV和透视
@@ -347,7 +341,7 @@ cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
         perspective = reader._ptr[reader._pos + 4]
         reader._pos += 5
 
-        camera_frames.append(VmdCameraFrame(
+        camera_frames[i] = VmdCameraFrame(
             frame_number=frame_num,
             distance=distance,
             position=[px, py, pz],
@@ -355,7 +349,7 @@ cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
             interpolation=interpolation,
             fov=fov,
             perspective=bool(perspective)
-        ))
+        )
 
     return camera_frames
 
@@ -366,7 +360,7 @@ cdef list _parse_light_frames_cython(FastVmdReader reader, bint more_info):
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    cdef list light_frames = []
+    cdef list light_frames = [None] * frame_count
 
     if more_info:
         print(f"解析 {frame_count} 个光源帧...")
@@ -385,11 +379,11 @@ cdef list _parse_light_frames_cython(FastVmdReader reader, bint more_info):
         memcpy(&z, reader._ptr + reader._pos + 24, 4)
         reader._pos += 28
 
-        light_frames.append(VmdLightFrame(
+        light_frames[i] = VmdLightFrame(
             frame_number=frame_num,
             color=[r, g, b],
             position=[x, y, z]
-        ))
+        )
 
     return light_frames
 
@@ -400,7 +394,7 @@ cdef list _parse_shadow_frames_cython(FastVmdReader reader, bint more_info):
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    cdef list shadow_frames = []
+    cdef list shadow_frames = [None] * frame_count
 
     if more_info:
         print(f"解析 {frame_count} 个阴影帧...")
@@ -416,11 +410,11 @@ cdef list _parse_shadow_frames_cython(FastVmdReader reader, bint more_info):
         memcpy(&distance, reader._ptr + reader._pos + 5, 4)
         reader._pos += 9
 
-        shadow_frames.append(VmdShadowFrame(
+        shadow_frames[i] = VmdShadowFrame(
             frame_number=frame_num,
             shadow_mode=mode,
             distance=distance
-        ))
+        )
 
     return shadow_frames
 
@@ -431,7 +425,7 @@ cdef list _parse_ik_frames_cython(FastVmdReader reader, bint more_info):
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    cdef list ik_frames = []
+    cdef list ik_frames = [None] * frame_count
 
     if more_info:
         print(f"解析 {frame_count} 个IK帧...")
@@ -448,6 +442,7 @@ cdef list _parse_ik_frames_cython(FastVmdReader reader, bint more_info):
         memcpy(&ik_count, reader._ptr + reader._pos + 5, 4)
         reader._pos += 9
 
+        # IK bones 数量通常很少，这里不做预分配优化，保持 append
         ik_bones = []
         for j in range(ik_count):
             bone_name = reader.read_string_fixed(20)
@@ -459,10 +454,10 @@ cdef list _parse_ik_frames_cython(FastVmdReader reader, bint more_info):
                 ik_enabled=bool(ik_enabled)
             ))
 
-        ik_frames.append(VmdIkFrame(
+        ik_frames[i] = VmdIkFrame(
             frame_number=frame_num,
             display=bool(display),
             ik_bones=ik_bones
-        ))
+        )
 
     return ik_frames

@@ -2,6 +2,7 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 # cython: cdivision=True
+# cython: initializedcheck=False
 """
 PyPMXVMD PMX快速解析模块 (Cython优化)
 
@@ -10,7 +11,9 @@ PyPMXVMD PMX快速解析模块 (Cython优化)
 """
 
 from libc.string cimport memcpy
+from libc.math cimport round
 from cpython.bytes cimport PyBytes_AS_STRING
+from cpython.unicode cimport PyUnicode_Decode
 
 # 导入原有数据模型
 from pypmxvmd.common.models.pmx import (
@@ -25,6 +28,9 @@ cdef class FastPmxReader:
     cdef int _pos
     cdef int _size
     cdef str _encoding
+    
+    # 编码查找优化
+    cdef const char* _encoding_c_str
 
     # 索引大小
     cdef int _additional_uv_count
@@ -41,6 +47,7 @@ cdef class FastPmxReader:
         self._pos = 0
         self._size = len(data)
         self._encoding = "utf-16le"
+        self._encoding_c_str = "utf-16le"
 
         # 默认索引大小
         self._additional_uv_count = 0
@@ -109,24 +116,19 @@ cdef class FastPmxReader:
         return result
 
     cdef str read_variable_string(self):
-        """读取变长字符串"""
-        cdef unsigned int length = self.read_uint()
+        """读取变长字符串 (零拷贝优化)"""
+        cdef unsigned int length
+        memcpy(&length, self._ptr + self._pos, 4)
+        self._pos += 4
+        
         if length == 0:
             return ""
 
-        cdef bytes raw = self._data[self._pos:self._pos + length]
+        cdef const char* start = <const char*>(self._ptr + self._pos)
         self._pos += length
 
-        try:
-            if self._encoding == "utf-16le":
-                return raw.decode('utf-16le')
-            else:
-                return raw.decode('utf-8')
-        except:
-            if self._encoding == "utf-16le":
-                return raw.decode('utf-16le', errors='ignore')
-            else:
-                return raw.decode('utf-8', errors='ignore')
+        # 直接使用C API解码，避免创建临时bytes对象
+        return PyUnicode_Decode(start, length, self._encoding_c_str, "ignore")
 
     cdef int read_vertex_index(self):
         """读取顶点索引（无符号）"""
@@ -136,6 +138,20 @@ cdef class FastPmxReader:
             return self.read_ushort()
         else:
             return self.read_uint()
+    
+    # 内联优化的专用读取函数，避免函数调用开销
+    cdef inline int _read_bone_index_fast(self, int size):
+        cdef int val
+        if size == 1:
+            val = <signed char>self._ptr[self._pos]
+            self._pos += 1
+            return val
+        elif size == 2:
+            return self.read_short() # 还是调这个吧，memcpy安全点
+        else:
+            memcpy(&val, self._ptr + self._pos, 4)
+            self._pos += 4
+            return val
 
     cdef int read_bone_index(self):
         """读取骨骼索引（有符号）"""
@@ -175,7 +191,7 @@ cpdef parse_pmx_cython(bytes data, bint more_info=False):
 
     # 读取版本号
     cdef float version = reader.read_float()
-    version = round(version, 5)  # 修正浮点精度
+    version = round(version * 100000.0) / 100000.0  # 修正浮点精度
 
     # 读取全局标志
     cdef unsigned char flag_count = reader.read_byte()
@@ -195,8 +211,10 @@ cpdef parse_pmx_cython(bytes data, bint more_info=False):
     # 设置编码
     if text_encoding == 0:
         reader._encoding = "utf-16le"
+        reader._encoding_c_str = "utf-16le"
     else:
         reader._encoding = "utf-8"
+        reader._encoding_c_str = "utf-8"
 
     # 读取模型信息
     cdef str name_jp = reader.read_variable_string()
@@ -235,20 +253,23 @@ cpdef parse_pmx_cython(bytes data, bint more_info=False):
 cdef list _parse_vertices_cython(FastPmxReader reader, bint more_info):
     """解析顶点数据 (Cython优化)"""
     cdef unsigned int vertex_count = reader.read_uint()
-    cdef list vertices = []
+    # 预分配列表
+    cdef list vertices = [None] * vertex_count
 
     if more_info:
         print(f"解析 {vertex_count} 个顶点...")
 
-    cdef unsigned int i, j
+    cdef unsigned int i
     cdef float px, py, pz, nx, ny, nz, u, v, edge_scale
     cdef float weight1, weight2
     cdef unsigned char weight_mode
     cdef int bone1, bone2, bone3, bone4
     cdef float w1, w2, w3, w4
-    cdef list position, normal, uv, weight_data
+    cdef list weight_data
     cdef int additional_uv_count = reader._additional_uv_count
-    cdef int bone_index_size = reader._bone_index_size
+    
+    # 缓存索引大小变量以减少属性访问
+    cdef int bone_idx_size_local = reader._bone_index_size
 
     for i in range(vertex_count):
         # 位置
@@ -273,63 +294,71 @@ cdef list _parse_vertices_cython(FastPmxReader reader, bint more_info):
             reader._pos += additional_uv_count * 16  # 每个附加UV 4个float
 
         # 权重模式
-        weight_mode = reader.read_byte()
+        weight_mode = reader._ptr[reader._pos]
+        reader._pos += 1
 
         # 权重数据
-        weight_data = []
         if weight_mode == 0:  # BDEF1
-            bone1 = reader.read_bone_index()
+            bone1 = reader._read_bone_index_fast(bone_idx_size_local)
             weight_data = [[bone1, 1.0]]
         elif weight_mode == 1:  # BDEF2
-            bone1 = reader.read_bone_index()
-            bone2 = reader.read_bone_index()
+            bone1 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone2 = reader._read_bone_index_fast(bone_idx_size_local)
+            # 浮点数读取优化
             memcpy(&weight1, reader._ptr + reader._pos, 4)
             reader._pos += 4
             weight_data = [[bone1, weight1], [bone2, 1.0 - weight1]]
         elif weight_mode == 2:  # BDEF4
-            bone1 = reader.read_bone_index()
-            bone2 = reader.read_bone_index()
-            bone3 = reader.read_bone_index()
-            bone4 = reader.read_bone_index()
+            bone1 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone2 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone3 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone4 = reader._read_bone_index_fast(bone_idx_size_local)
+            
             memcpy(&w1, reader._ptr + reader._pos, 4)
             memcpy(&w2, reader._ptr + reader._pos + 4, 4)
             memcpy(&w3, reader._ptr + reader._pos + 8, 4)
             memcpy(&w4, reader._ptr + reader._pos + 12, 4)
             reader._pos += 16
+            
             weight_data = [[bone1, w1], [bone2, w2], [bone3, w3], [bone4, w4]]
         elif weight_mode == 3:  # SDEF
-            bone1 = reader.read_bone_index()
-            bone2 = reader.read_bone_index()
+            bone1 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone2 = reader._read_bone_index_fast(bone_idx_size_local)
             memcpy(&weight1, reader._ptr + reader._pos, 4)
             reader._pos += 4
             # 跳过SDEF参数 (C, R0, R1向量)
             reader._pos += 36  # 9 floats = 36 bytes
             weight_data = [[bone1, weight1], [bone2, 1.0 - weight1]]
         elif weight_mode == 4:  # QDEF
-            bone1 = reader.read_bone_index()
-            bone2 = reader.read_bone_index()
-            bone3 = reader.read_bone_index()
-            bone4 = reader.read_bone_index()
+            bone1 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone2 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone3 = reader._read_bone_index_fast(bone_idx_size_local)
+            bone4 = reader._read_bone_index_fast(bone_idx_size_local)
+            
             memcpy(&w1, reader._ptr + reader._pos, 4)
             memcpy(&w2, reader._ptr + reader._pos + 4, 4)
             memcpy(&w3, reader._ptr + reader._pos + 8, 4)
             memcpy(&w4, reader._ptr + reader._pos + 12, 4)
             reader._pos += 16
+            
             weight_data = [[bone1, w1], [bone2, w2], [bone3, w3], [bone4, w4]]
+        else:
+             weight_data = [] # 防止未初始化
 
         # 边缘倍率
         memcpy(&edge_scale, reader._ptr + reader._pos, 4)
         reader._pos += 4
 
         # 创建顶点对象
-        vertices.append(PmxVertex(
+        # 直接使用列表预分配
+        vertices[i] = PmxVertex(
             position=[px, py, pz],
             normal=[nx, ny, nz],
             uv=[u, v],
             weight_mode=WeightMode(weight_mode),
             weight=weight_data,
             edge_scale=edge_scale
-        ))
+        )
 
     return vertices
 
@@ -338,30 +367,42 @@ cdef list _parse_faces_cython(FastPmxReader reader, bint more_info):
     """解析面数据 (Cython优化)"""
     cdef unsigned int index_count = reader.read_uint()
     cdef unsigned int face_count = index_count // 3
-    cdef list faces = []
+    # 预分配
+    cdef list faces = [None] * face_count
 
     if more_info:
         print(f"解析 {face_count} 个面...")
 
     cdef unsigned int i
     cdef int v0, v1, v2
+    # 增加 unsigned short 变量用于正确读取 2 字节索引
+    cdef unsigned short us0, us1, us2
     cdef int vertex_index_size = reader._vertex_index_size
+    cdef const unsigned char* ptr = reader._ptr
 
-    for i in range(face_count):
-        if vertex_index_size == 1:
-            v0 = reader.read_byte()
-            v1 = reader.read_byte()
-            v2 = reader.read_byte()
-        elif vertex_index_size == 2:
-            v0 = reader.read_ushort()
-            v1 = reader.read_ushort()
-            v2 = reader.read_ushort()
-        else:
-            v0 = reader.read_uint()
-            v1 = reader.read_uint()
-            v2 = reader.read_uint()
-
-        faces.append([v0, v1, v2])
+    # 将常用判断提出来分三种循环处理，避免每次循环都判断一次if/else
+    if vertex_index_size == 1:
+        for i in range(face_count):
+            v0 = ptr[reader._pos]
+            v1 = ptr[reader._pos + 1]
+            v2 = ptr[reader._pos + 2]
+            reader._pos += 3
+            faces[i] = [v0, v1, v2]
+    elif vertex_index_size == 2:
+        for i in range(face_count):
+            # 修正: 使用 unsigned short 过渡，避免直接 memcpy 到 int 导致高位垃圾数据
+            memcpy(&us0, ptr + reader._pos, 2)
+            memcpy(&us1, ptr + reader._pos + 2, 2)
+            memcpy(&us2, ptr + reader._pos + 4, 2)
+            reader._pos += 6
+            faces[i] = [us0, us1, us2]
+    else: # 4 bytes
+        for i in range(face_count):
+            memcpy(&v0, ptr + reader._pos, 4)
+            memcpy(&v1, ptr + reader._pos + 4, 4)
+            memcpy(&v2, ptr + reader._pos + 8, 4)
+            reader._pos += 12
+            faces[i] = [v0, v1, v2]
 
     return faces
 
@@ -369,17 +410,15 @@ cdef list _parse_faces_cython(FastPmxReader reader, bint more_info):
 cdef list _parse_textures_cython(FastPmxReader reader, bint more_info):
     """解析纹理列表 (Cython优化)"""
     cdef unsigned int texture_count = reader.read_uint()
-    cdef list textures = []
+    cdef list textures = [None] * texture_count
 
     if more_info:
         print(f"解析 {texture_count} 个纹理...")
 
     cdef unsigned int i
-    cdef str texture_path
-
+    
     for i in range(texture_count):
-        texture_path = reader.read_variable_string()
-        textures.append(texture_path)
+        textures[i] = reader.read_variable_string()
 
     return textures
 
@@ -387,7 +426,7 @@ cdef list _parse_textures_cython(FastPmxReader reader, bint more_info):
 cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more_info):
     """解析材质数据 (Cython优化)"""
     cdef unsigned int material_count = reader.read_uint()
-    cdef list materials = []
+    cdef list materials = [None] * material_count
 
     if more_info:
         print(f"解析 {material_count} 个材质...")
@@ -401,8 +440,10 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
     cdef float edge_r, edge_g, edge_b, edge_a, edge_size
     cdef int tex_index, sphere_index, toon_index
     cdef unsigned int face_count
-    cdef list flags_list, diffuse_color, specular_color, ambient_color, edge_color
+    cdef list flags_list
     cdef int texture_count = len(textures)
+    
+    cdef int texture_index_size = reader._texture_index_size
 
     for i in range(material_count):
         # 材质名称
@@ -415,14 +456,12 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
         memcpy(&diff_b, reader._ptr + reader._pos + 8, 4)
         memcpy(&diff_a, reader._ptr + reader._pos + 12, 4)
         reader._pos += 16
-        diffuse_color = [diff_r, diff_g, diff_b, diff_a]
 
         # 镜面反射颜色
         memcpy(&spec_r, reader._ptr + reader._pos, 4)
         memcpy(&spec_g, reader._ptr + reader._pos + 4, 4)
         memcpy(&spec_b, reader._ptr + reader._pos + 8, 4)
         reader._pos += 12
-        specular_color = [spec_r, spec_g, spec_b]
 
         # 镜面反射强度
         memcpy(&spec_strength, reader._ptr + reader._pos, 4)
@@ -433,10 +472,10 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
         memcpy(&amb_g, reader._ptr + reader._pos + 4, 4)
         memcpy(&amb_b, reader._ptr + reader._pos + 8, 4)
         reader._pos += 12
-        ambient_color = [amb_r, amb_g, amb_b]
 
         # 材质标志
-        flag_byte = reader.read_byte()
+        flag_byte = reader._ptr[reader._pos]
+        reader._pos += 1
         flags_list = [(flag_byte >> j) & 1 == 1 for j in range(8)]
 
         # 边缘颜色和大小
@@ -445,37 +484,61 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
         memcpy(&edge_b, reader._ptr + reader._pos + 8, 4)
         memcpy(&edge_a, reader._ptr + reader._pos + 12, 4)
         reader._pos += 16
-        edge_color = [edge_r, edge_g, edge_b, edge_a]
 
         memcpy(&edge_size, reader._ptr + reader._pos, 4)
         reader._pos += 4
 
-        # 纹理索引
-        tex_index = reader.read_texture_index()
+        # 纹理索引 (直接内联读取逻辑)
+        if texture_index_size == 1:
+            tex_index = <signed char>reader._ptr[reader._pos]
+            reader._pos += 1
+        elif texture_index_size == 2:
+            tex_index = reader.read_short()
+        else:
+            tex_index = reader.read_int()
+
         if 0 <= tex_index < texture_count:
             texture_path = textures[tex_index]
         else:
             texture_path = ""
 
         # 球面纹理索引
-        sphere_index = reader.read_texture_index()
+        if texture_index_size == 1:
+            sphere_index = <signed char>reader._ptr[reader._pos]
+            reader._pos += 1
+        elif texture_index_size == 2:
+            sphere_index = reader.read_short()
+        else:
+            sphere_index = reader.read_int()
+
         if 0 <= sphere_index < texture_count:
             sphere_path = textures[sphere_index]
         else:
             sphere_path = ""
 
         # 球面纹理模式
-        sphere_mode_val = reader.read_byte()
+        sphere_mode_val = reader._ptr[reader._pos]
+        reader._pos += 1
 
         # Toon渲染
-        toon_flag = reader.read_byte()
+        toon_flag = reader._ptr[reader._pos]
+        reader._pos += 1
+        
         if toon_flag == 0:
             # 使用内置Toon纹理
-            toon_index_builtin = reader.read_byte()
+            toon_index_builtin = reader._ptr[reader._pos]
+            reader._pos += 1
             toon_path = f"toon{toon_index_builtin:02d}.bmp"
         else:
             # 使用自定义Toon纹理
-            toon_index = reader.read_texture_index()
+            if texture_index_size == 1:
+                toon_index = <signed char>reader._ptr[reader._pos]
+                reader._pos += 1
+            elif texture_index_size == 2:
+                toon_index = reader.read_short()
+            else:
+                toon_index = reader.read_int()
+
             if 0 <= toon_index < texture_count:
                 toon_path = textures[toon_index]
             else:
@@ -485,16 +548,16 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
         comment = reader.read_variable_string()
         face_count = reader.read_uint()
 
-        # 创建材质对象
-        materials.append(PmxMaterial(
+        # 创建材质对象 (尽量减少中间列表变量)
+        materials[i] = PmxMaterial(
             name_jp=name_jp,
             name_en=name_en,
-            diffuse_color=diffuse_color,
-            specular_color=specular_color,
+            diffuse_color=[diff_r, diff_g, diff_b, diff_a],
+            specular_color=[spec_r, spec_g, spec_b],
             specular_strength=spec_strength,
-            ambient_color=ambient_color,
+            ambient_color=[amb_r, amb_g, amb_b],
             flags=MaterialFlags(flags_list),
-            edge_color=edge_color,
+            edge_color=[edge_r, edge_g, edge_b, edge_a],
             edge_size=edge_size,
             texture_path=texture_path,
             sphere_path=sphere_path,
@@ -502,6 +565,6 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
             toon_path=toon_path,
             comment=comment,
             face_count=face_count
-        ))
+        )
 
     return materials
