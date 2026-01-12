@@ -46,7 +46,7 @@ include = ["pypmxvmd*"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-pypmxvmd = ["**/*.c", "**/*.pyx", "**/*.pyi"]
+pypmxvmd = ["**/*.pyx", "**/*.pyi"]
 
 [tool.black]
 line-length = 88
