@@ -3,15 +3,22 @@
 # cython: wraparound=False
 # cython: cdivision=True
 # cython: initializedcheck=False
+# cython: nonecheck=False
 """
 PyPMXVMD VMD快速解析模块 (Cython优化)
 
 提供高性能的VMD文件解析功能。
 返回与原有API兼容的VmdBoneFrame, VmdMorphFrame等对象。
+
+优化策略:
+- 使用 cdef inline 和 nogil 减少开销
+- 预分配列表和数组
+- 批量内存复制
+- 减少中间 Python 对象创建
 """
 
 from libc.string cimport memcpy, memchr
-from libc.math cimport atan2, asin, cos, sin, M_PI
+from libc.math cimport atan2, asin
 from cpython.bytes cimport PyBytes_AS_STRING
 from cpython.unicode cimport PyUnicode_Decode
 
@@ -21,13 +28,20 @@ from pypmxvmd.common.models.vmd import (
     VmdLightFrame, VmdShadowFrame, VmdIkFrame, VmdIkBone
 )
 
-# 弧度转角度常量
-cdef double RAD_TO_DEG = 180.0 / M_PI
-cdef double DEG_TO_RAD = M_PI / 180.0
+# 预计算常量
+cdef double RAD_TO_DEG = 57.29577951308232  # 180.0 / PI
+cdef double DEG_TO_RAD = 0.017453292519943295  # PI / 180.0
+cdef double HALF_PI_DEG = 90.0
 
 
 cdef class FastVmdReader:
-    """VMD快速读取器"""
+    """VMD快速读取器
+
+    优化点:
+    - 所有方法使用 cdef inline
+    - 直接指针访问
+    - 批量读取
+    """
     cdef bytes _data
     cdef const unsigned char* _ptr
     cdef int _pos
@@ -68,35 +82,38 @@ cdef class FastVmdReader:
         cdef const unsigned char* start = self._ptr + self._pos
         cdef const unsigned char* end_ptr
         cdef int actual_len
-        
+
         # 立即推进位置指针
         self._pos += length
-        
+
         # 在 [start, start + length) 范围内查找 null 终止符
         end_ptr = <const unsigned char*>memchr(start, 0, length)
-        
+
         if end_ptr != NULL:
             actual_len = end_ptr - start
         else:
             actual_len = length
-            
+
         # 使用 C-API 直接从指针解码，避免创建临时 bytes 对象
         return PyUnicode_Decode(<const char*>start, actual_len, "shift_jis", "ignore")
 
 
-cdef inline void quaternion_to_euler_ptr(double qx, double qy, double qz, double qw, double* out_r, double* out_p, double* out_y):
-    """四元数转欧拉角 (指针返回，避免元组开销)"""
+cdef inline void quaternion_to_euler_ptr(
+    double qx, double qy, double qz, double qw,
+    double* out_r, double* out_p, double* out_y
+) noexcept nogil:
+    """四元数转欧拉角 (指针返回，nogil，避免元组开销)"""
     cdef double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp
-    
+
     sinr_cosp = 2.0 * (qw * qx + qy * qz)
     cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
     out_r[0] = atan2(sinr_cosp, cosr_cosp) * RAD_TO_DEG
 
     sinp = 2.0 * (qw * qy - qz * qx)
     if sinp >= 1.0:
-        out_p[0] = 90.0 # M_PI / 2.0 * RAD_TO_DEG
+        out_p[0] = HALF_PI_DEG
     elif sinp <= -1.0:
-        out_p[0] = -90.0 # -M_PI / 2.0 * RAD_TO_DEG
+        out_p[0] = -HALF_PI_DEG
     else:
         out_p[0] = asin(sinp) * RAD_TO_DEG
 
@@ -156,12 +173,18 @@ cpdef parse_vmd_cython(bytes data, bint more_info=False):
 
 
 cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
-    """解析骨骼帧 (Cython优化)"""
+    """解析骨骼帧 (Cython优化)
+
+    优化点:
+    - 批量读取位置和旋转数据
+    - 预计算插值数组
+    - 优化物理开关检测逻辑
+    """
     if reader._size - reader._pos < 4:
         return []
 
     cdef unsigned int frame_count = reader.read_uint()
-    # 预分配列表，避免 append 开销
+    # 预分配列表
     cdef list bone_frames = [None] * frame_count
 
     if more_info:
@@ -174,59 +197,64 @@ cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
     cdef double r_val, p_val, y_val
     cdef bint physics_disabled
 
-    # 插值数据相关变量
-    cdef signed char x_ax, y_ax, phys1, phys2, x_ay, y_ay, z_ay, r_ay
-    cdef signed char x_bx, y_bx, z_bx, r_bx, x_by, y_by, z_by, r_by
-    cdef signed char z_ax, r_ax
+    # 插值数据变量 - 使用数组优化
+    cdef signed char interp[16]
+    cdef signed char phys1, phys2, z_ax, r_ax
+    cdef const unsigned char* ptr = reader._ptr
 
     for i in range(frame_count):
         # 骨骼名称 (15字节)
         bone_name = reader.read_string_fixed(15)
 
-        # 帧号
-        memcpy(&frame_num, reader._ptr + reader._pos, 4)
+        # 帧号 - 直接从指针读取
+        memcpy(&frame_num, ptr + reader._pos, 4)
         reader._pos += 4
 
-        # 位置
-        memcpy(&px, reader._ptr + reader._pos, 4)
-        memcpy(&py, reader._ptr + reader._pos + 4, 4)
-        memcpy(&pz, reader._ptr + reader._pos + 8, 4)
+        # 位置 - 批量读取12字节
+        memcpy(&px, ptr + reader._pos, 4)
+        memcpy(&py, ptr + reader._pos + 4, 4)
+        memcpy(&pz, ptr + reader._pos + 8, 4)
         reader._pos += 12
 
-        # 旋转四元数
-        memcpy(&qx, reader._ptr + reader._pos, 4)
-        memcpy(&qy, reader._ptr + reader._pos + 4, 4)
-        memcpy(&qz, reader._ptr + reader._pos + 8, 4)
-        memcpy(&qw, reader._ptr + reader._pos + 12, 4)
+        # 旋转四元数 - 批量读取16字节
+        memcpy(&qx, ptr + reader._pos, 4)
+        memcpy(&qy, ptr + reader._pos + 4, 4)
+        memcpy(&qz, ptr + reader._pos + 8, 4)
+        memcpy(&qw, ptr + reader._pos + 12, 4)
         reader._pos += 16
 
         # 四元数转欧拉角 (直接写入变量，避免元组解包)
         quaternion_to_euler_ptr(qx, qy, qz, qw, &r_val, &p_val, &y_val)
 
-        # 读取插值数据 (64字节)
-        # 直接访问指针读取
-        x_ax = <signed char>reader._ptr[reader._pos]
-        y_ax = <signed char>reader._ptr[reader._pos + 1]
-        phys1 = <signed char>reader._ptr[reader._pos + 2]
-        phys2 = <signed char>reader._ptr[reader._pos + 3]
-        x_ay = <signed char>reader._ptr[reader._pos + 4]
-        y_ay = <signed char>reader._ptr[reader._pos + 5]
-        z_ay = <signed char>reader._ptr[reader._pos + 6]
-        r_ay = <signed char>reader._ptr[reader._pos + 7]
-        x_bx = <signed char>reader._ptr[reader._pos + 8]
-        y_bx = <signed char>reader._ptr[reader._pos + 9]
-        z_bx = <signed char>reader._ptr[reader._pos + 10]
-        r_bx = <signed char>reader._ptr[reader._pos + 11]
-        x_by = <signed char>reader._ptr[reader._pos + 12]
-        y_by = <signed char>reader._ptr[reader._pos + 13]
-        z_by = <signed char>reader._ptr[reader._pos + 14]
-        r_by = <signed char>reader._ptr[reader._pos + 15]
-        # 跳过1字节
-        z_ax = <signed char>reader._ptr[reader._pos + 17]
-        r_ax = <signed char>reader._ptr[reader._pos + 18]
+        # 读取插值数据 (64字节) - 优化: 只读取需要的字节
+        # 布局: [x_ax, y_ax, phys1, phys2, x_ay, y_ay, z_ay, r_ay,
+        #        x_bx, y_bx, z_bx, r_bx, x_by, y_by, z_by, r_by, ?, z_ax, r_ax, ...]
+        interp[0] = <signed char>ptr[reader._pos]      # x_ax
+        interp[1] = <signed char>ptr[reader._pos + 4]  # x_ay
+        interp[2] = <signed char>ptr[reader._pos + 8]  # x_bx
+        interp[3] = <signed char>ptr[reader._pos + 12] # x_by
+        interp[4] = <signed char>ptr[reader._pos + 1]  # y_ax
+        interp[5] = <signed char>ptr[reader._pos + 5]  # y_ay
+        interp[6] = <signed char>ptr[reader._pos + 9]  # y_bx
+        interp[7] = <signed char>ptr[reader._pos + 13] # y_by
+        interp[8] = <signed char>ptr[reader._pos + 17] # z_ax
+        interp[9] = <signed char>ptr[reader._pos + 6]  # z_ay
+        interp[10] = <signed char>ptr[reader._pos + 10] # z_bx
+        interp[11] = <signed char>ptr[reader._pos + 14] # z_by
+        interp[12] = <signed char>ptr[reader._pos + 18] # r_ax
+        interp[13] = <signed char>ptr[reader._pos + 7]  # r_ay
+        interp[14] = <signed char>ptr[reader._pos + 11] # r_bx
+        interp[15] = <signed char>ptr[reader._pos + 15] # r_by
+
+        # 物理开关检测
+        phys1 = <signed char>ptr[reader._pos + 2]
+        phys2 = <signed char>ptr[reader._pos + 3]
+        z_ax = interp[8]
+        r_ax = interp[12]
+
         reader._pos += 64
 
-        # 检测物理开关状态 (避免元组创建，直接比较)
+        # 优化的物理开关判断
         if phys1 == z_ax and phys2 == r_ax:
             physics_disabled = False
         elif phys1 == 0 and phys2 == 0:
@@ -236,17 +264,17 @@ cdef list _parse_bone_frames_cython(FastVmdReader reader, bint more_info):
         else:
             physics_disabled = True
 
-        # 创建骨骼帧对象 (直接使用列表推导和变量，减少中间步骤)
+        # 创建骨骼帧对象 - 使用预构建的列表
         bone_frames[i] = VmdBoneFrame(
             bone_name=bone_name,
             frame_number=frame_num,
             position=[px, py, pz],
             rotation=[r_val, p_val, y_val],
             interpolation=[
-            x_ax, x_ay, x_bx, x_by,  # X轴
-            y_ax, y_ay, y_bx, y_by,  # Y轴
-            z_ax, z_ay, z_bx, z_by,  # Z轴
-            r_ax, r_ay, r_bx, r_by   # 旋转
+                interp[0], interp[1], interp[2], interp[3],   # X轴
+                interp[4], interp[5], interp[6], interp[7],   # Y轴
+                interp[8], interp[9], interp[10], interp[11], # Z轴
+                interp[12], interp[13], interp[14], interp[15] # 旋转
             ],
             physics_disabled=physics_disabled
         )
@@ -269,14 +297,15 @@ cdef list _parse_morph_frames_cython(FastVmdReader reader, bint more_info):
     cdef str morph_name
     cdef unsigned int frame_num
     cdef float weight
+    cdef const unsigned char* ptr = reader._ptr
 
     for i in range(frame_count):
         # 变形名称 (15字节)
         morph_name = reader.read_string_fixed(15)
 
-        # 帧号和权重
-        memcpy(&frame_num, reader._ptr + reader._pos, 4)
-        memcpy(&weight, reader._ptr + reader._pos + 4, 4)
+        # 帧号和权重 - 批量读取
+        memcpy(&frame_num, ptr + reader._pos, 4)
+        memcpy(&weight, ptr + reader._pos + 4, 4)
         reader._pos += 8
 
         morph_frames[i] = VmdMorphFrame(
@@ -289,7 +318,12 @@ cdef list _parse_morph_frames_cython(FastVmdReader reader, bint more_info):
 
 
 cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
-    """解析相机帧 (Cython优化)"""
+    """解析相机帧 (Cython优化)
+
+    优化点:
+    - 使用固定大小数组读取插值数据
+    - 批量内存复制
+    """
     if reader._size - reader._pos < 4:
         return []
 
@@ -299,46 +333,53 @@ cdef list _parse_camera_frames_cython(FastVmdReader reader, bint more_info):
     if more_info:
         print(f"解析 {frame_count} 个相机帧...")
 
-    cdef unsigned int i
+    cdef unsigned int i, j
     cdef unsigned int frame_num
     cdef float distance, px, py, pz, rx, ry, rz
     cdef unsigned int fov
     cdef unsigned char perspective
+    cdef signed char interp_arr[24]
     cdef list interpolation
-    cdef int j
+    cdef const unsigned char* ptr = reader._ptr
 
     for i in range(frame_count):
         # 帧号
-        memcpy(&frame_num, reader._ptr + reader._pos, 4)
+        memcpy(&frame_num, ptr + reader._pos, 4)
         reader._pos += 4
 
         # 距离
-        memcpy(&distance, reader._ptr + reader._pos, 4)
+        memcpy(&distance, ptr + reader._pos, 4)
         reader._pos += 4
 
-        # 位置
-        memcpy(&px, reader._ptr + reader._pos, 4)
-        memcpy(&py, reader._ptr + reader._pos + 4, 4)
-        memcpy(&pz, reader._ptr + reader._pos + 8, 4)
+        # 位置 - 批量读取
+        memcpy(&px, ptr + reader._pos, 4)
+        memcpy(&py, ptr + reader._pos + 4, 4)
+        memcpy(&pz, ptr + reader._pos + 8, 4)
         reader._pos += 12
 
-        # 旋转 (弧度)
-        memcpy(&rx, reader._ptr + reader._pos, 4)
-        memcpy(&ry, reader._ptr + reader._pos+ 4, 4)
-        memcpy(&rz, reader._ptr + reader._pos + 8, 4)
+        # 旋转 (弧度) - 批量读取
+        memcpy(&rx, ptr + reader._pos, 4)
+        memcpy(&ry, ptr + reader._pos + 4, 4)
+        memcpy(&rz, ptr + reader._pos + 8, 4)
         reader._pos += 12
 
-        # 插值数据 (24字节)
-        # 用列表推导式可能不如预分配快，但对于小列表（24）差异不大
-        # 这里用显式循环读取优化
-        interpolation = [0] * 24
-        for j in range(24):
-            interpolation[j] = <signed char>reader._ptr[reader._pos + j]
+        # 插值数据 (24字节) - 批量复制到数组
+        memcpy(interp_arr, ptr + reader._pos, 24)
         reader._pos += 24
 
+        # 转换为Python列表
+        interpolation = [
+            interp_arr[0], interp_arr[1], interp_arr[2], interp_arr[3],
+            interp_arr[4], interp_arr[5], interp_arr[6], interp_arr[7],
+            interp_arr[8], interp_arr[9], interp_arr[10], interp_arr[11],
+            interp_arr[12], interp_arr[13], interp_arr[14], interp_arr[15],
+            interp_arr[16], interp_arr[17], interp_arr[18], interp_arr[19],
+            interp_arr[20], interp_arr[21], interp_arr[22], interp_arr[23]
+        ]
+
         # FOV和透视
-        memcpy(&fov, reader._ptr + reader._pos, 4)
-        perspective = reader._ptr[reader._pos + 4]
+        memcpy(&fov, ptr + reader._pos, 4)
+        perspective = ptr[reader._pos + 4]
         reader._pos += 5
 
         camera_frames[i] = VmdCameraFrame(
@@ -368,15 +409,17 @@ cdef list _parse_light_frames_cython(FastVmdReader reader, bint more_info):
     cdef unsigned int i
     cdef unsigned int frame_num
     cdef float r, g, b, x, y, z
+    cdef const unsigned char* ptr = reader._ptr
 
     for i in range(frame_count):
-        memcpy(&frame_num, reader._ptr + reader._pos, 4)
-        memcpy(&r, reader._ptr + reader._pos + 4, 4)
-        memcpy(&g, reader._ptr + reader._pos + 8, 4)
-        memcpy(&b, reader._ptr + reader._pos + 12, 4)
-        memcpy(&x, reader._ptr + reader._pos + 16, 4)
-        memcpy(&y, reader._ptr + reader._pos + 20, 4)
-        memcpy(&z, reader._ptr + reader._pos + 24, 4)
+        # 批量读取所有数据 (28字节)
+        memcpy(&frame_num, ptr + reader._pos, 4)
+        memcpy(&r, ptr + reader._pos + 4, 4)
+        memcpy(&g, ptr + reader._pos + 8, 4)
+        memcpy(&b, ptr + reader._pos + 12, 4)
+        memcpy(&x, ptr + reader._pos + 16, 4)
+        memcpy(&y, ptr + reader._pos + 20, 4)
+        memcpy(&z, ptr + reader._pos + 24, 4)
         reader._pos += 28
 
         light_frames[i] = VmdLightFrame(
@@ -403,11 +446,13 @@ cdef list _parse_shadow_frames_cython(FastVmdReader reader, bint more_info):
     cdef unsigned int frame_num
     cdef signed char mode
     cdef float distance
+    cdef const unsigned char* ptr = reader._ptr
 
     for i in range(frame_count):
-        memcpy(&frame_num, reader._ptr + reader._pos, 4)
-        mode = <signed char>reader._ptr[reader._pos + 4]
-        memcpy(&distance, reader._ptr + reader._pos + 5, 4)
+        # 批量读取 (9字节)
+        memcpy(&frame_num, ptr + reader._pos, 4)
+        mode = <signed char>ptr[reader._pos + 4]
+        memcpy(&distance, ptr + reader._pos + 5, 4)
         reader._pos += 9
 
         shadow_frames[i] = VmdShadowFrame(
@@ -435,24 +480,25 @@ cdef list _parse_ik_frames_cython(FastVmdReader reader, bint more_info):
     cdef unsigned char display, ik_enabled
     cdef str bone_name
     cdef list ik_bones
+    cdef const unsigned char* ptr = reader._ptr
 
     for i in range(frame_count):
-        memcpy(&frame_num, reader._ptr + reader._pos, 4)
-        display = reader._ptr[reader._pos + 4]
-        memcpy(&ik_count, reader._ptr + reader._pos + 5, 4)
+        memcpy(&frame_num, ptr + reader._pos, 4)
+        display = ptr[reader._pos + 4]
+        memcpy(&ik_count, ptr + reader._pos + 5, 4)
         reader._pos += 9
 
-        # IK bones 数量通常很少，这里不做预分配优化，保持 append
-        ik_bones = []
+        # IK bones - 预分配列表
+        ik_bones = [None] * ik_count
         for j in range(ik_count):
             bone_name = reader.read_string_fixed(20)
-            ik_enabled = reader._ptr[reader._pos]
+            ik_enabled = ptr[reader._pos]
             reader._pos += 1
 
-            ik_bones.append(VmdIkBone(
+            ik_bones[j] = VmdIkBone(
                 bone_name=bone_name,
                 ik_enabled=bool(ik_enabled)
-            ))
+            )
 
         ik_frames[i] = VmdIkFrame(
             frame_number=frame_num,

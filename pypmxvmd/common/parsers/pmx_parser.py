@@ -942,11 +942,11 @@ class PmxParser:
         # 全局配置标志
         global_flags = bytearray([
             1 if self._use_utf8 else 0,  # 文本编码
-            4,  # 附加UV数量（固定为4）
+            0,  # 附加UV数量（设为0，不写入附加UV）
             lookahead_data['vertex_index_size'],    # 顶点索引大小
             1,   # 纹理索引大小（固定为1字节）
             lookahead_data['material_index_size'],  # 材质索引大小
-            1,   # 骨骼索引大小（固定为1字节）
+            2,   # 骨骼索引大小（2字节有符号short）
             1,   # 变形索引大小（固定为1字节）
             1    # 刚体索引大小（固定为1字节）
         ])
@@ -978,14 +978,12 @@ class PmxParser:
             
             # UV坐标
             data.extend(self._io_handler.pack_data("<2f", *vertex.uv))
-            
-            # 附加UV（暂时写入零值）
-            for _ in range(4):  # 4个附加UV
-                data.extend(self._io_handler.pack_data("<4f", 0.0, 0.0, 0.0, 0.0))
-            
+
+            # 不写入附加UV（已在header中设为0）
+
             # 权重类型（简化处理，使用BDEF1）
             data.extend(self._io_handler.pack_data("<B", 0))  # BDEF1
-            data.extend(self._io_handler.pack_data("<I", 0))  # 骨骼索引0
+            data.extend(self._io_handler.pack_data("<h", 0))  # 骨骼索引0（2字节有符号）
             
             # 边缘倍率
             data.extend(self._io_handler.pack_data("<f", getattr(vertex, 'edge_scale', 1.0)))
@@ -1044,10 +1042,11 @@ class PmxParser:
                 diffuse = [diffuse[0], diffuse[1], diffuse[2], 1.0]
             data.extend(self._io_handler.pack_data("<4f", diffuse[0], diffuse[1], diffuse[2], diffuse[3]))
             
-            # 镜面反射颜色和强度
+            # 镜面反射颜色和强度（分开写入：3f + f）
             specular = getattr(material, 'specular_color', [1.0, 1.0, 1.0])
             specular_strength = getattr(material, 'specular_strength', 0.0)
-            data.extend(self._io_handler.pack_data("<4f", specular[0], specular[1], specular[2], specular_strength))
+            data.extend(self._io_handler.pack_data("<3f", specular[0], specular[1], specular[2]))
+            data.extend(self._io_handler.pack_data("<f", specular_strength))
             
             # 环境光颜色
             ambient = getattr(material, 'ambient_color', [1.0, 1.0, 1.0])

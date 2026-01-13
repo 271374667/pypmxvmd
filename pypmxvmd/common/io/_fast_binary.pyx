@@ -2,28 +2,45 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 # cython: cdivision=True
+# cython: initializedcheck=False
+# cython: nonecheck=False
 """
 PyPMXVMD 快速二进制读取模块 (Cython优化)
 
 提供高性能的二进制数据解析功能。
 编译后无需额外依赖即可运行。
+
+优化策略:
+- 使用 cdef inline 减少函数调用开销
+- 使用 memchr 快速查找 null 终止符
+- 使用 PyUnicode_Decode 零拷贝字符串解码
+- 预计算常量避免运行时计算
 """
 
-from libc.string cimport memcpy
-from libc.math cimport atan2, asin, cos, sin, sqrt, M_PI
+from libc.string cimport memcpy, memchr
+from libc.math cimport atan2, asin, cos, sin, sqrt
 from cpython.bytes cimport PyBytes_AS_STRING
-from cpython cimport array
-import struct
+from cpython.unicode cimport PyUnicode_Decode
 
 
-# 弧度转角度常量
-cdef double RAD_TO_DEG = 180.0 / M_PI
+# 预计算常量 (避免运行时除法)
+cdef double _PI = 3.14159265358979323846
+cdef double RAD_TO_DEG = 57.29577951308232  # 180.0 / PI
+cdef double DEG_TO_RAD = 0.017453292519943295  # PI / 180.0
+
+# 预计算常用角度
+cdef double HALF_PI_DEG = 90.0
 
 
 cdef class FastBinaryReader:
     """快速二进制读取器
 
     使用Cython优化的二进制数据读取，避免Python层面的开销。
+
+    优化点:
+    - 所有内部方法使用 cdef inline
+    - 直接指针访问，避免Python切片
+    - 批量读取优化
     """
     cdef bytes _data
     cdef const unsigned char* _ptr
@@ -40,6 +57,8 @@ cdef class FastBinaryReader:
         self._ptr = <const unsigned char*>PyBytes_AS_STRING(data)
         self._pos = 0
         self._size = len(data)
+
+    # ===== 公共API方法 (cpdef) =====
 
     cpdef int get_position(self):
         """获取当前读取位置"""
@@ -130,7 +149,7 @@ cdef class FastBinaryReader:
         return result
 
     cpdef str read_string_fixed(self, int length, str encoding='shift_jis'):
-        """读取固定长度字符串
+        """读取固定长度字符串 (零拷贝优化)
 
         Args:
             length: 字符串长度
@@ -139,18 +158,29 @@ cdef class FastBinaryReader:
         Returns:
             解码后的字符串
         """
-        cdef bytes raw = self._data[self._pos:self._pos + length]
+        cdef const unsigned char* start = self._ptr + self._pos
+        cdef const unsigned char* end_ptr
+        cdef int actual_len
+        cdef bytes enc_bytes
+        cdef const char* enc_c_str
+
+        # 立即推进位置指针
         self._pos += length
 
-        # 查找null终止符
-        cdef int null_pos = raw.find(b'\x00')
-        if null_pos != -1:
-            raw = raw[:null_pos]
+        # 使用 memchr 快速查找 null 终止符
+        end_ptr = <const unsigned char*>memchr(start, 0, length)
 
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            return raw.decode(encoding, errors='ignore')
+        if end_ptr != NULL:
+            actual_len = end_ptr - start
+        else:
+            actual_len = length
+
+        # 转换编码字符串为C字符串
+        enc_bytes = encoding.encode('ascii')
+        enc_c_str = <const char*>PyBytes_AS_STRING(enc_bytes)
+
+        # 使用 C-API 直接从指针解码，避免创建临时 bytes 对象
+        return PyUnicode_Decode(<const char*>start, actual_len, enc_c_str, "ignore")
 
     cpdef str read_string_variable(self, str encoding='utf-16le'):
         """读取变长字符串 (前4字节为长度)
@@ -161,17 +191,27 @@ cdef class FastBinaryReader:
         Returns:
             解码后的字符串
         """
-        cdef unsigned int length = self.read_uint()
+        cdef unsigned int length
+        cdef const char* start
+        cdef bytes enc_bytes
+        cdef const char* enc_c_str
+
+        # 读取长度
+        memcpy(&length, self._ptr + self._pos, 4)
+        self._pos += 4
+
         if length == 0:
             return ""
 
-        cdef bytes raw = self._data[self._pos:self._pos + length]
+        start = <const char*>(self._ptr + self._pos)
         self._pos += length
 
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            return raw.decode(encoding, errors='ignore')
+        # 转换编码字符串
+        enc_bytes = encoding.encode('ascii')
+        enc_c_str = <const char*>PyBytes_AS_STRING(enc_bytes)
+
+        # 直接使用C API解码
+        return PyUnicode_Decode(start, length, enc_c_str, "ignore")
 
     cpdef int read_index(self, int size, bint signed=True):
         """读取索引值
@@ -183,24 +223,99 @@ cdef class FastBinaryReader:
         Returns:
             索引值
         """
+        cdef int value
+        cdef unsigned int uvalue
+
         if size == 1:
             if signed:
-                return self.read_sbyte()
+                return <signed char>self._ptr[self._pos]
             else:
-                return self.read_byte()
+                value = self._ptr[self._pos]
+            self._pos += 1
+            return value
         elif size == 2:
             if signed:
-                return self.read_short()
+                memcpy(&value, self._ptr + self._pos, 2)
+                self._pos += 2
+                return <short>value
             else:
-                return self.read_ushort()
+                memcpy(&uvalue, self._ptr + self._pos, 2)
+                self._pos += 2
+                return <unsigned short>uvalue
         else:  # size == 4
             if signed:
-                return self.read_int()
+                memcpy(&value, self._ptr + self._pos, 4)
             else:
-                return self.read_uint()
+                memcpy(&uvalue, self._ptr + self._pos, 4)
+                value = uvalue
+            self._pos += 4
+            return value
+
+    # ===== 内部优化方法 (cdef inline) =====
+
+    cdef inline unsigned char _read_byte_fast(self):
+        """内部快速读取单字节"""
+        cdef unsigned char value = self._ptr[self._pos]
+        self._pos += 1
+        return value
+
+    cdef inline unsigned int _read_uint_fast(self):
+        """内部快速读取无符号整数"""
+        cdef unsigned int value
+        memcpy(&value, self._ptr + self._pos, 4)
+        self._pos += 4
+        return value
+
+    cdef inline float _read_float_fast(self):
+        """内部快速读取浮点数"""
+        cdef float value
+        memcpy(&value, self._ptr + self._pos, 4)
+        self._pos += 4
+        return value
+
+    cdef inline void _read_float3_into(self, float* out):
+        """内部快速读取3个浮点数到指针"""
+        memcpy(out, self._ptr + self._pos, 12)
+        self._pos += 12
+
+    cdef inline void _read_float4_into(self, float* out):
+        """内部快速读取4个浮点数到指针"""
+        memcpy(out, self._ptr + self._pos, 16)
+        self._pos += 16
 
 
-# 四元数到欧拉角转换 (Cython优化)
+# ===== 四元数/欧拉角转换函数 =====
+
+cdef inline void _quaternion_to_euler_ptr(
+    double qx, double qy, double qz, double qw,
+    double* out_r, double* out_p, double* out_y
+) noexcept nogil:
+    """四元数转欧拉角 (内部版本，指针返回，nogil)
+
+    使用指针避免元组创建开销，nogil 允许并行化
+    """
+    cdef double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp
+
+    # Roll (x-axis rotation)
+    sinr_cosp = 2.0 * (qw * qx + qy * qz)
+    cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+    out_r[0] = atan2(sinr_cosp, cosr_cosp) * RAD_TO_DEG
+
+    # Pitch (y-axis rotation) - 使用预计算常量
+    sinp = 2.0 * (qw * qy - qz * qx)
+    if sinp >= 1.0:
+        out_p[0] = HALF_PI_DEG
+    elif sinp <= -1.0:
+        out_p[0] = -HALF_PI_DEG
+    else:
+        out_p[0] = asin(sinp) * RAD_TO_DEG
+
+    # Yaw (z-axis rotation)
+    siny_cosp = 2.0 * (qw * qz + qx * qy)
+    cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+    out_y[0] = atan2(siny_cosp, cosy_cosp) * RAD_TO_DEG
+
+
 cpdef tuple quaternion_to_euler_fast(double qx, double qy, double qz, double qw):
     """将四元数转换为欧拉角 (度)
 
@@ -210,30 +325,33 @@ cpdef tuple quaternion_to_euler_fast(double qx, double qy, double qz, double qw)
     Returns:
         (roll, pitch, yaw) 欧拉角 (度)
     """
-    cdef double sinr_cosp, cosr_cosp, sinp, siny_cosp, cosy_cosp
     cdef double roll, pitch, yaw
 
-    # Roll (x-axis rotation)
-    sinr_cosp = 2.0 * (qw * qx + qy * qz)
-    cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
-    roll = atan2(sinr_cosp, cosr_cosp)
+    _quaternion_to_euler_ptr(qx, qy, qz, qw, &roll, &pitch, &yaw)
 
-    # Pitch (y-axis rotation)
-    sinp = 2.0 * (qw * qy - qz * qx)
-    if sinp >= 1.0:
-        pitch = M_PI / 2.0
-    elif sinp <= -1.0:
-        pitch = -M_PI / 2.0
-    else:
-        pitch = asin(sinp)
+    return (roll, pitch, yaw)
 
-    # Yaw (z-axis rotation)
-    siny_cosp = 2.0 * (qw * qz + qx * qy)
-    cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
-    yaw = atan2(siny_cosp, cosy_cosp)
 
-    # 转换为度
-    return (roll * RAD_TO_DEG, pitch * RAD_TO_DEG, yaw * RAD_TO_DEG)
+cdef inline void _euler_to_quaternion_ptr(
+    double roll_deg, double pitch_deg, double yaw_deg,
+    double* out_w, double* out_x, double* out_y, double* out_z
+) noexcept nogil:
+    """欧拉角转四元数 (内部版本，指针返回，nogil)"""
+    cdef double roll = roll_deg * DEG_TO_RAD
+    cdef double pitch = pitch_deg * DEG_TO_RAD
+    cdef double yaw = yaw_deg * DEG_TO_RAD
+
+    cdef double cy = cos(yaw * 0.5)
+    cdef double sy = sin(yaw * 0.5)
+    cdef double cp = cos(pitch * 0.5)
+    cdef double sp = sin(pitch * 0.5)
+    cdef double cr = cos(roll * 0.5)
+    cdef double sr = sin(roll * 0.5)
+
+    out_w[0] = cr * cp * cy + sr * sp * sy
+    out_x[0] = sr * cp * cy - cr * sp * sy
+    out_y[0] = cr * sp * cy + sr * cp * sy
+    out_z[0] = cr * cp * sy - sr * sp * cy
 
 
 cpdef tuple euler_to_quaternion_fast(double roll_deg, double pitch_deg, double yaw_deg):
@@ -245,20 +363,8 @@ cpdef tuple euler_to_quaternion_fast(double roll_deg, double pitch_deg, double y
     Returns:
         (qw, qx, qy, qz) 四元数
     """
-    cdef double roll = roll_deg / RAD_TO_DEG
-    cdef double pitch = pitch_deg / RAD_TO_DEG
-    cdef double yaw = yaw_deg / RAD_TO_DEG
+    cdef double w, x, y, z
 
-    cdef double cy = cos(yaw * 0.5)
-    cdef double sy = sin(yaw * 0.5)
-    cdef double cp = cos(pitch * 0.5)
-    cdef double sp = sin(pitch * 0.5)
-    cdef double cr = cos(roll * 0.5)
-    cdef double sr = sin(roll * 0.5)
-
-    cdef double w = cr * cp * cy + sr * sp * sy
-    cdef double x = sr * cp * cy - cr * sp * sy
-    cdef double y = cr * sp * cy + sr * cp * sy
-    cdef double z = cr * cp * sy - sr * sp * cy
+    _euler_to_quaternion_ptr(roll_deg, pitch_deg, yaw_deg, &w, &x, &y, &z)
 
     return (w, x, y, z)
