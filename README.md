@@ -1,10 +1,14 @@
 # PyPMXVMD
 
+![pypmxvmd](https://socialify.git.ci/271374667/pypmxvmd/image?description=1&font=Inter&language=1&name=1&owner=1&theme=Auto)
+
+[English API](docs/API.md) | [中文 API](docs/API_CN.md)
+
 Python MikuMikuDance File Parser Library
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.5.1-orange.svg)](https://github.com/pypmxvmd/pypmxvmd)
+[![Version](https://img.shields.io/badge/version-2.7.1-orange.svg)](https://github.com/pypmxvmd/pypmxvmd)
 
 PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files, supporting the following formats:
 
@@ -18,13 +22,16 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 - Conversion between binary and text formats
 - Object-oriented API design, easy to use
 - Complete type annotation support
-- Optional Cython acceleration for core parsing and binary I/O (average 3.7x faster than the previous path)
+- Optional Cython acceleration for core parsing and binary I/O (VMD/PMX, binary read/write)
 - No external dependencies (core functionality)
 - Supports Python 3.8+
 
 ## Installation
 
 ```bash
+# Install from PyPI
+pip install pypmxvmd
+
 # Install from source
 git clone https://github.com/pypmxvmd/pypmxvmd.git
 cd pypmxvmd
@@ -38,7 +45,7 @@ pip install -e ".[dev]"
 
 The core parsing path supports Cython-accelerated modules for VMD/PMX and binary I/O.
 In typical workloads, the Cython implementation is ~3.7x faster on average than the previous implementation.
-Prebuilt Cython binaries are only provided for Python 3.11; other Python versions need to compile locally.
+Prebuilt wheels are provided for Windows (cp38-cp313). Other platforms or versions compile locally.
 If the compiled modules are not available, the library automatically falls back to pure Python.
 
 ```bash
@@ -205,25 +212,22 @@ class VpdPose:
 ## Project Structure
 
 ```
-pypmxvmd/
-├── pypmxvmd/                      # Main package
-│   ├── __init__.py            # Public API
-│   ├── common/                # Common components
-│   │   ├── models/            # Data models
-│   │   │   ├── vmd.py        # VMD data structures
-│   │   │   ├── pmx.py        # PMX data structures
-│   │   │   └── vpd.py        # VPD data structures
-│   │   └── parsers/           # Parsers
-│   │       ├── vmd_parser_nuthouse.py
-│   │       ├── pmx_parser_nuthouse.py
-│   │       └── vpd_parser.py
-│   └── presentation/          # Presentation layer
-│       ├── cli/               # Command-line interface
-│       └── gui/               # Graphical interface
-├── tests/                     # Tests
-├── docs/                      # Documentation
-└── mmd_scripting/             # Legacy code (reference)
+pypmxvmd/                     # Main package
+  __init__.py                 # Public API (load/save helpers)
+  common/                     # Core implementation
+    io/                       # Binary/text IO (+ Cython accel)
+    models/                   # Data models (VMD/PMX/VPD)
+    parsers/                  # Parsers (+ fast modules)
+    validators/               # Validation helpers
+docs/                         # Documentation
+  API.md                      # English API
+  API_CN.md                   # 中文 API
+scripts/                      # Build helpers
+  build_cython.py
+  build_wheels.py
+tests/                        # Tests + fixtures
 ```
+
 
 ## Testing
 
@@ -255,7 +259,12 @@ mypy pypmxvmd/
 flake8 pypmxvmd/
 ```
 
-## Version History
+## Changelog
+
+### v2.7.1
+- Updated core parsers and binary I/O with Cython fast paths
+- Added/expanded Windows wheel builds (cp38-cp313)
+- Improved text format auto-detection and test coverage
 
 ### v2.5.1
 - Added optional Cython acceleration for core parsing and binary I/O

@@ -1,79 +1,83 @@
-# PyPMXVMD API 文档
+# PyPMXVMD API Documentation
 
-PyPMXVMD 是一个用于解析和修改 MikuMikuDance (MMD) 文件的 Python 库。
+PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files.
 
-**版本**: 2.0.0
-**Python要求**: >= 3.8
-
----
-
-## 目录
-
-- [快速开始](#快速开始)
-- [顶层API](#顶层api)
-- [数据模型](#数据模型)
-  - [VMD模型](#vmd模型)
-  - [PMX模型](#pmx模型)
-  - [VPD模型](#vpd模型)
-- [解析器](#解析器)
-- [枚举类型](#枚举类型)
-- [使用示例](#使用示例)
+**Version**: 2.7.1
+**Python**: >= 3.8
+**Acceleration**: Optional Cython fast path for parsing and binary I/O with automatic fallback.
 
 ---
 
-## 快速开始
+## Table of Contents
 
-### 安装
+- [Quick Start](#quick-start)
+- [Top-Level API](#top-level-api)
+- [Data Models](#data-models)
+  - [VMD Models](#vmd-models)
+  - [PMX Models](#pmx-models)
+  - [VPD Models](#vpd-models)
+- [Parsers](#parsers)
+- [Enums](#enums)
+- [Examples](#examples)
+- [Error Handling](#error-handling)
+- [Compatibility](#compatibility)
+- [License](#license)
+
+---
+
+## Quick Start
+
+### Install
 
 ```bash
 pip install pypmxvmd
 ```
 
-### 基础用法
+### Basic Usage
 
 ```python
 import pypmxvmd
 
-# 自动检测文件类型并加载
-data = pypmxvmd.load("motion.vmd")
+# Auto-detect file type and load
+model = pypmxvmd.load("model.pmx")
 
-# 保存文件
-pypmxvmd.save(data, "output.vmd")
+# Save
+pypmxvmd.save(model, "output.pmx")
 ```
 
 ---
 
-## 顶层API
+## Top-Level API
 
-PyPMXVMD 提供了简洁的顶层函数，用于文件的加载和保存。
+PyPMXVMD provides concise top-level helpers for loading and saving files.
 
-### 二进制文件操作
+### Binary Files
 
 #### `pypmxvmd.load(file_path, more_info=False)`
 
-自动检测文件类型并加载。
+Auto-detect the file type and load it.
 
-**参数**:
-- `file_path` (str | Path): 文件路径
-- `more_info` (bool): 是否显示详细解析信息
+**Args**:
+- `file_path` (str | Path): File path
+- `more_info` (bool): Whether to print detailed parsing info
 
-**返回**: `VmdMotion` | `PmxModel` | `VpdPose`
+**Returns**: `VmdMotion` | `PmxModel` | `VpdPose`
 
-**异常**: `ValueError` - 不支持的文件类型
+**Raises**: `ValueError` - Unsupported file type
 
 ```python
-data = pypmxvmd.load("model.pmx")
+data = pypmxvmd.load("motion.vmd")
 ```
 
 ---
 
 #### `pypmxvmd.save(data, file_path)`
 
-自动检测数据类型并保存。
+Auto-detect the data type and save it.
 
-**参数**:
-- `data`: `VmdMotion` | `PmxModel` | `VpdPose` 对象
-- `file_path` (str | Path): 输出文件路径
+**Args**:
+- `data`: `VmdMotion` | `PmxModel` | `VpdPose`
+- `file_path` (str | Path): Output path
 
 ```python
 pypmxvmd.save(model, "output.pmx")
@@ -83,642 +87,420 @@ pypmxvmd.save(model, "output.pmx")
 
 #### `pypmxvmd.load_vmd(file_path, more_info=False) -> VmdMotion`
 
-加载VMD动作文件。
-
-**参数**:
-- `file_path` (str | Path): VMD文件路径
-- `more_info` (bool): 是否显示详细解析信息
-
-**返回**: `VmdMotion` 对象
-
-```python
-motion = pypmxvmd.load_vmd("dance.vmd")
-print(f"骨骼帧数: {len(motion.bone_frames)}")
-```
+Load a VMD motion file.
 
 ---
 
 #### `pypmxvmd.save_vmd(motion, file_path)`
 
-保存VMD动作文件。
-
-**参数**:
-- `motion` (VmdMotion): VMD动作对象
-- `file_path` (str | Path): 输出文件路径
-
-```python
-pypmxvmd.save_vmd(motion, "output.vmd")
-```
+Save a VMD motion file.
 
 ---
 
 #### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
 
-加载PMX模型文件。
-
-**参数**:
-- `file_path` (str | Path): PMX文件路径
-- `more_info` (bool): 是否显示详细解析信息
-
-**返回**: `PmxModel` 对象
-
-```python
-model = pypmxvmd.load_pmx("character.pmx")
-print(f"顶点数: {len(model.vertices)}")
-```
+Load a PMX model file.
 
 ---
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
-保存PMX模型文件。
-
-**参数**:
-- `model` (PmxModel): PMX模型对象
-- `file_path` (str | Path): 输出文件路径
-
-```python
-pypmxvmd.save_pmx(model, "output.pmx")
-```
+Save a PMX model file.
 
 ---
 
 #### `pypmxvmd.load_vpd(file_path, more_info=False) -> VpdPose`
 
-加载VPD姿势文件。
-
-**参数**:
-- `file_path` (str | Path): VPD文件路径
-- `more_info` (bool): 是否显示详细解析信息
-
-**返回**: `VpdPose` 对象
-
-```python
-pose = pypmxvmd.load_vpd("pose.vpd")
-print(f"骨骼姿势数: {len(pose.bone_poses)}")
-```
+Load a VPD pose file.
 
 ---
 
 #### `pypmxvmd.save_vpd(pose, file_path)`
 
-保存VPD姿势文件。
-
-**参数**:
-- `pose` (VpdPose): VPD姿势对象
-- `file_path` (str | Path): 输出文件路径
-
-```python
-pypmxvmd.save_vpd(pose, "output.vpd")
-```
+Save a VPD pose file.
 
 ---
 
-### 文本文件操作
+### Text Files
 
-PyPMXVMD 还支持文本格式的读写，便于人工编辑和查看。
+PyPMXVMD also supports structured text format for viewing and editing.
 
 #### `pypmxvmd.load_vmd_text(file_path, more_info=False) -> VmdMotion`
 
-从文本格式加载VMD动作。
-
-#### `pypmxvmd.save_vmd_text(motion, file_path)`
-
-将VMD动作保存为文本格式。
-
-#### `pypmxvmd.load_pmx_text(file_path, more_info=False) -> PmxModel`
-
-从文本格式加载PMX模型。
-
-#### `pypmxvmd.save_pmx_text(model, file_path)`
-
-将PMX模型保存为文本格式。
-
-#### `pypmxvmd.load_vpd_text(file_path, more_info=False) -> VpdPose`
-
-从文本格式加载VPD姿势。
-
-#### `pypmxvmd.save_vpd_text(pose, file_path)`
-
-将VPD姿势保存为文本格式。
+Load a VMD motion from text.
 
 ---
 
-## 数据模型
+#### `pypmxvmd.save_vmd_text(motion, file_path)`
 
-### VMD模型
+Save a VMD motion as text.
 
-VMD (Vocaloid Motion Data) 用于存储动作和相机数据。
+---
+
+#### `pypmxvmd.load_pmx_text(file_path, more_info=False) -> PmxModel`
+
+Load a PMX model from text.
+
+---
+
+#### `pypmxvmd.save_pmx_text(model, file_path)`
+
+Save a PMX model as text.
+
+---
+
+#### `pypmxvmd.load_vpd_text(file_path, more_info=False) -> VpdPose`
+
+Load a VPD pose from text.
+
+---
+
+#### `pypmxvmd.save_vpd_text(pose, file_path)`
+
+Save a VPD pose as text.
+
+---
+
+#### `pypmxvmd.load_text(file_path, more_info=False) -> VmdMotion | PmxModel | VpdPose`
+
+Auto-detect the text format and load.
+
+---
+
+#### `pypmxvmd.save_text(data, file_path)`
+
+Auto-detect the data type and save in the corresponding text format.
+
+---
+
+## Data Models
+
+### VMD Models
+
+VMD (Vocaloid Motion Data) stores motion and camera data.
 
 #### `VmdMotion`
 
-VMD动作主类，包含所有动作数据。
+**Attributes**:
 
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `header` | `VmdHeader` | 文件头信息 |
-| `bone_frames` | `List[VmdBoneFrame]` | 骨骼关键帧列表 |
-| `morph_frames` | `List[VmdMorphFrame]` | 变形关键帧列表 |
-| `camera_frames` | `List[VmdCameraFrame]` | 相机关键帧列表 |
-| `light_frames` | `List[VmdLightFrame]` | 光照关键帧列表 |
-| `shadow_frames` | `List[VmdShadowFrame]` | 阴影关键帧列表 |
-| `ik_frames` | `List[VmdIkFrame]` | IK显示关键帧列表 |
-
-**方法**:
-
-```python
-motion.get_bone_frame_count() -> int      # 获取骨骼帧数
-motion.get_morph_frame_count() -> int     # 获取变形帧数
-motion.get_total_frame_count() -> int     # 获取总帧数
-motion.is_camera_motion() -> bool         # 是否为相机动作
-motion.validate()                         # 验证数据有效性
-```
+| `header` | `VmdHeader` | File header |
+| `bone_frames` | `List[VmdBoneFrame]` | Bone keyframes |
+| `morph_frames` | `List[VmdMorphFrame]` | Morph keyframes |
+| `camera_frames` | `List[VmdCameraFrame]` | Camera keyframes |
+| `light_frames` | `List[VmdLightFrame]` | Light keyframes |
+| `shadow_frames` | `List[VmdShadowFrame]` | Shadow keyframes |
+| `ik_frames` | `List[VmdIkFrame]` | IK keyframes |
 
 ---
 
 #### `VmdHeader`
 
-VMD文件头信息。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `version` | `int` | VMD版本 (1=旧版, 2=新版) |
-| `model_name` | `str` | 模型名称 (日文) |
-
-```python
-header = VmdHeader(version=2, model_name="TestModel")
-```
+| `version` | `int` | VMD version (1=old, 2=new) |
+| `model_name` | `str` | Model name |
 
 ---
 
 #### `VmdBoneFrame`
 
-骨骼关键帧。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `bone_name` | `str` | 骨骼名称 (日文，最大15字节) |
-| `frame_number` | `int` | 帧号 (≥0) |
-| `position` | `List[float]` | 位置 [x, y, z] |
-| `rotation` | `List[float]` | 旋转欧拉角 [x, y, z] (度) |
-| `interpolation` | `List[int]` | 插值曲线数据 (16个值) |
-| `physics_disabled` | `bool` | 是否禁用物理 |
-
-```python
-frame = VmdBoneFrame(
-    bone_name="センター",
-    frame_number=0,
-    position=[0.0, 10.0, 0.0],
-    rotation=[0.0, 0.0, 0.0]
-)
-```
+| `bone_name` | `str` | Bone name (max 15 bytes) |
+| `frame_number` | `int` | Frame index |
+| `position` | `List[float]` | Position [x, y, z] |
+| `rotation` | `List[float]` | Euler rotation [x, y, z] (degrees) |
+| `interpolation` | `List[int]` | Interpolation curve (16 values) |
+| `physics_disabled` | `bool` | Physics flag |
 
 ---
 
 #### `VmdMorphFrame`
 
-变形关键帧。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `morph_name` | `str` | 变形名称 (日文，最大15字节) |
-| `frame_number` | `int` | 帧号 (≥0) |
-| `weight` | `float` | 权重值 (0.0-1.0) |
-
-```python
-frame = VmdMorphFrame(
-    morph_name="まばたき",
-    frame_number=30,
-    weight=1.0
-)
-```
+| `morph_name` | `str` | Morph name (max 15 bytes) |
+| `frame_number` | `int` | Frame index |
+| `weight` | `float` | Weight (0.0-1.0) |
 
 ---
 
 #### `VmdCameraFrame`
 
-相机关键帧。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `frame_number` | `int` | 帧号 |
-| `distance` | `float` | 到目标的距离 |
-| `position` | `List[float]` | 目标位置 [x, y, z] |
-| `rotation` | `List[float]` | 相机旋转 [x, y, z] (弧度) |
-| `interpolation` | `List[int]` | 插值曲线数据 (24个值) |
-| `fov` | `int` | 视野角度 (1-180) |
-| `perspective` | `bool` | 是否透视投影 |
+| `frame_number` | `int` | Frame index |
+| `distance` | `float` | Distance to target |
+| `position` | `List[float]` | Target position [x, y, z] |
+| `rotation` | `List[float]` | Camera rotation [x, y, z] (degrees, converted from radians on read) |
+| `interpolation` | `List[int]` | Interpolation curve (24 values) |
+| `fov` | `int` | Field of view (1-180) |
+| `perspective` | `bool` | Perspective flag |
 
 ---
 
 #### `VmdLightFrame`
 
-光照关键帧。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `frame_number` | `int` | 帧号 |
-| `color` | `List[float]` | 光照颜色 [r, g, b] (0.0-1.0) |
-| `position` | `List[float]` | 光照位置 [x, y, z] |
+| `frame_number` | `int` | Frame index |
+| `color` | `List[float]` | Light color [r, g, b] |
+| `position` | `List[float]` | Light position [x, y, z] |
 
 ---
 
 #### `VmdShadowFrame`
 
-阴影关键帧。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `frame_number` | `int` | 帧号 |
-| `shadow_mode` | `ShadowMode` | 阴影模式 |
-| `distance` | `float` | 阴影距离 |
+| `frame_number` | `int` | Frame index |
+| `shadow_mode` | `ShadowMode` | Shadow mode |
+| `distance` | `float` | Shadow distance |
 
 ---
 
 #### `VmdIkFrame`
 
-IK显示关键帧。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `frame_number` | `int` | 帧号 |
-| `display` | `bool` | 是否显示模型 |
-| `ik_bones` | `List[VmdIkBone]` | IK骨骼列表 |
+| `frame_number` | `int` | Frame index |
+| `display` | `bool` | Display flag |
+| `ik_bones` | `List[VmdIkBone]` | IK bones |
 
 ---
 
 #### `VmdIkBone`
 
-IK骨骼信息。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `bone_name` | `str` | IK骨骼名称 (最大20字节) |
-| `ik_enabled` | `bool` | 是否启用IK |
+| `bone_name` | `str` | IK bone name (max 20 bytes) |
+| `ik_enabled` | `bool` | IK enabled |
 
 ---
 
-### PMX模型
+### PMX Models
 
-PMX (Polygon Model eXtended) 用于存储3D模型数据。
+PMX (Polygon Model eXtended) stores 3D model data.
 
 #### `PmxModel`
 
-PMX模型主类。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `header` | `PmxHeader` | 文件头信息 |
-| `vertices` | `List[PmxVertex]` | 顶点列表 |
-| `faces` | `List[List[int]]` | 面索引列表 (每面3个顶点索引) |
-| `textures` | `List[str]` | 纹理路径列表 |
-| `materials` | `List[PmxMaterial]` | 材质列表 |
-| `bones` | `List[PmxBone]` | 骨骼列表 |
-| `morphs` | `List[PmxMorph]` | 变形列表 |
-| `frames` | `List[PmxFrame]` | 显示框架列表 |
-| `rigidbodies` | `List[PmxRigidBody]` | 刚体列表 |
-| `joints` | `List[PmxJoint]` | 关节列表 |
-| `softbodies` | `List[PmxSoftBody]` | 软体列表 (PMX 2.1) |
-
-**方法**:
-
-```python
-model.get_vertex_count() -> int      # 获取顶点数
-model.get_face_count() -> int        # 获取面数
-model.get_material_count() -> int    # 获取材质数
-model.validate()                     # 验证数据有效性
-```
+| `header` | `PmxHeader` | File header |
+| `vertices` | `List[PmxVertex]` | Vertices |
+| `faces` | `List[List[int]]` | Face indices (triangles) |
+| `textures` | `List[str]` | Texture paths |
+| `materials` | `List[PmxMaterial]` | Materials |
+| `bones` | `List[PmxBone]` | Bones |
+| `morphs` | `List[PmxMorph]` | Morphs |
+| `frames` | `List[PmxFrame]` | Display frames |
+| `rigidbodies` | `List[PmxRigidBody]` | Rigid bodies |
+| `joints` | `List[PmxJoint]` | Joints |
+| `softbodies` | `List[PmxSoftBody]` | Soft bodies (PMX 2.1) |
 
 ---
 
 #### `PmxHeader`
 
-PMX文件头信息。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `version` | `float` | PMX版本号 (2.0 或 2.1) |
-| `name_jp` | `str` | 日文名称 |
-| `name_en` | `str` | 英文名称 |
-| `comment_jp` | `str` | 日文注释 |
-| `comment_en` | `str` | 英文注释 |
-
-```python
-header = PmxHeader(
-    version=2.0,
-    name_jp="テストモデル",
-    name_en="TestModel",
-    comment_jp="テスト用",
-    comment_en="For testing"
-)
-```
+| `version` | `float` | PMX version (2.0 or 2.1) |
+| `name_jp` | `str` | Japanese name |
+| `name_en` | `str` | English name |
+| `comment_jp` | `str` | Japanese comment |
+| `comment_en` | `str` | English comment |
 
 ---
 
 #### `PmxVertex`
 
-PMX顶点数据。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `position` | `List[float]` | 位置 [x, y, z] |
-| `normal` | `List[float]` | 法线 [x, y, z] |
-| `uv` | `List[float]` | UV坐标 [u, v] |
-| `additional_uvs` | `List[List[float]]` | 额外UV列表 |
-| `weight_mode` | `WeightMode` | 权重模式 |
-| `weight` | `List[List]` | 权重数据 [[bone_idx, weight], ...] |
-| `edge_scale` | `float` | 边缘缩放 |
-
-```python
-vertex = PmxVertex(
-    position=[0.0, 1.0, 0.0],
-    normal=[0.0, 1.0, 0.0],
-    uv=[0.5, 0.5]
-)
-```
+| `position` | `List[float]` | Position [x, y, z] |
+| `normal` | `List[float]` | Normal [x, y, z] |
+| `uv` | `List[float]` | UV [u, v] |
+| `additional_uvs` | `List[List[float]]` | Additional UVs |
+| `weight_mode` | `WeightMode` | Weight mode |
+| `weight` | `List[List]` | Weights [[bone_idx, weight], ...] |
+| `edge_scale` | `float` | Edge scale |
 
 ---
 
 #### `PmxMaterial`
 
-PMX材质数据。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `name_jp` | `str` | 日文名称 |
-| `name_en` | `str` | 英文名称 |
-| `diffuse_color` | `List[float]` | 漫反射色 [r, g, b, a] |
-| `specular_color` | `List[float]` | 镜面反射色 [r, g, b] |
-| `specular_strength` | `float` | 镜面反射强度 |
-| `ambient_color` | `List[float]` | 环境光色 [r, g, b] |
-| `flags` | `MaterialFlags` | 材质标志位 |
-| `edge_color` | `List[float]` | 边缘颜色 [r, g, b, a] |
-| `edge_size` | `float` | 边缘大小 |
-| `texture_path` | `str` | 纹理路径 |
-| `sphere_path` | `str` | 球面纹理路径 |
-| `sphere_mode` | `SphMode` | 球面纹理模式 |
-| `toon_path` | `str` | 卡通渲染纹理路径 |
-| `comment` | `str` | 注释 |
-| `face_count` | `int` | 面顶点数 |
-
-```python
-material = PmxMaterial(
-    name_jp="材質",
-    name_en="Material",
-    diffuse_color=[0.8, 0.8, 0.8, 1.0],
-    specular_color=[0.3, 0.3, 0.3],
-    specular_strength=5.0,
-    ambient_color=[0.2, 0.2, 0.2],
-    face_count=3
-)
-```
+| `name_jp` | `str` | Japanese name |
+| `name_en` | `str` | English name |
+| `diffuse_color` | `List[float]` | Diffuse [r, g, b, a] |
+| `specular_color` | `List[float]` | Specular [r, g, b] |
+| `specular_strength` | `float` | Specular strength |
+| `ambient_color` | `List[float]` | Ambient [r, g, b] |
+| `flags` | `MaterialFlags` | Material flags |
+| `edge_color` | `List[float]` | Edge color [r, g, b, a] |
+| `edge_size` | `float` | Edge size |
+| `texture_path` | `str` | Texture path |
+| `sphere_path` | `str` | Sphere texture path |
+| `sphere_mode` | `SphMode` | Sphere mode |
+| `toon_path` | `str` | Toon texture path |
+| `comment` | `str` | Comment |
+| `face_count` | `int` | Face count |
 
 ---
 
 #### `MaterialFlags`
 
-材质标志位类。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `double_sided` | `bool` | 双面显示 |
-| `ground_shadow` | `bool` | 地面阴影 |
-| `self_shadow_map` | `bool` | 自阴影贴图 |
-| `self_shadow` | `bool` | 自阴影 |
-| `edge_drawing` | `bool` | 边缘绘制 |
-| `vertex_color` | `bool` | 顶点色 |
-| `point_drawing` | `bool` | 点绘制 |
-| `line_drawing` | `bool` | 线绘制 |
-
-```python
-flags = MaterialFlags()
-flags.double_sided = True
-flags.edge_drawing = True
-```
+| `double_sided` | `bool` | Double sided |
+| `ground_shadow` | `bool` | Ground shadow |
+| `self_shadow_map` | `bool` | Self shadow map |
+| `self_shadow` | `bool` | Self shadow |
+| `edge_drawing` | `bool` | Edge drawing |
+| `vertex_color` | `bool` | Vertex color |
+| `point_drawing` | `bool` | Point drawing |
+| `line_drawing` | `bool` | Line drawing |
 
 ---
 
 #### `PmxBone`
 
-PMX骨骼数据。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `name_jp` | `str` | 日文名称 |
-| `name_en` | `str` | 英文名称 |
-| `position` | `List[float]` | 位置 [x, y, z] |
-| `parent_index` | `int` | 父骨骼索引 (-1表示无父骨骼) |
-| `deform_layer` | `int` | 变形层级 |
-| `bone_flags` | `BoneFlags` | 骨骼标志位 |
-| `tail` | `int \| List[float]` | 尾端 (骨骼索引或偏移量) |
-| `inherit_parent_index` | `int` | 继承父索引 |
-| `inherit_ratio` | `float` | 继承比率 |
-| `fixed_axis` | `List[float]` | 固定轴 |
-| `local_axis_x` | `List[float]` | 本地X轴 |
-| `local_axis_z` | `List[float]` | 本地Z轴 |
-| `external_parent_index` | `int` | 外部父索引 |
-| `ik_target_index` | `int` | IK目标索引 |
-| `ik_loop_count` | `int` | IK循环次数 |
-| `ik_angle_limit` | `float` | IK角度限制 |
-| `ik_links` | `List[PmxBoneIkLink]` | IK链接列表 |
+| `name_jp` | `str` | Japanese name |
+| `name_en` | `str` | English name |
+| `position` | `List[float]` | Position [x, y, z] |
+| `parent_index` | `int` | Parent bone index (-1 for none) |
+| `deform_layer` | `int` | Deform layer |
+| `bone_flags` | `BoneFlags` | Bone flags |
+| `tail` | `int | List[float]` | Tail (bone index or offset) |
+| `inherit_parent_index` | `int` | Inherit parent index |
+| `inherit_ratio` | `float` | Inherit ratio |
+| `fixed_axis` | `List[float]` | Fixed axis |
+| `local_axis_x` | `List[float]` | Local X axis |
+| `local_axis_z` | `List[float]` | Local Z axis |
+| `external_parent_index` | `int` | External parent index |
+| `ik_target_index` | `int` | IK target index |
+| `ik_loop_count` | `int` | IK loop count |
+| `ik_angle_limit` | `float` | IK angle limit |
+| `ik_links` | `List[PmxBoneIkLink]` | IK links |
 
 ---
 
 #### `PmxMorph`
 
-PMX变形数据。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `name_jp` | `str` | 日文名称 |
-| `name_en` | `str` | 英文名称 |
-| `panel` | `MorphPanel` | 面板位置 |
-| `morph_type` | `MorphType` | 变形类型 |
-| `items` | `List` | 变形项目列表 |
+| `name_jp` | `str` | Japanese name |
+| `name_en` | `str` | English name |
+| `panel` | `MorphPanel` | Panel |
+| `morph_type` | `MorphType` | Morph type |
+| `items` | `List` | Items |
 
 ---
 
 #### `PmxRigidBody`
 
-PMX刚体数据。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `name_jp` | `str` | 日文名称 |
-| `name_en` | `str` | 英文名称 |
-| `bone_index` | `int` | 关联骨骼索引 |
-| `group` | `int` | 碰撞组 |
-| `nocollide_groups` | `List[int]` | 非碰撞组列表 |
-| `shape` | `RigidBodyShape` | 形状类型 |
-| `size` | `List[float]` | 尺寸 [x, y, z] |
-| `position` | `List[float]` | 位置 [x, y, z] |
-| `rotation` | `List[float]` | 旋转 [x, y, z] |
-| `physics_mode` | `RigidBodyPhysMode` | 物理模式 |
-| `mass` | `float` | 质量 |
-| `move_damping` | `float` | 移动衰减 |
-| `rotation_damping` | `float` | 旋转衰减 |
-| `repulsion` | `float` | 反弹力 |
-| `friction` | `float` | 摩擦力 |
+| `name_jp` | `str` | Japanese name |
+| `name_en` | `str` | English name |
+| `bone_index` | `int` | Bone index |
+| `group` | `int` | Collision group |
+| `nocollide_groups` | `List[int]` | No-collide groups |
+| `shape` | `RigidBodyShape` | Shape |
+| `size` | `List[float]` | Size [x, y, z] |
+| `position` | `List[float]` | Position [x, y, z] |
+| `rotation` | `List[float]` | Rotation [x, y, z] |
+| `physics_mode` | `RigidBodyPhysMode` | Physics mode |
+| `mass` | `float` | Mass |
+| `move_damping` | `float` | Move damping |
+| `rotation_damping` | `float` | Rotation damping |
+| `repulsion` | `float` | Repulsion |
+| `friction` | `float` | Friction |
 
 ---
 
 #### `PmxJoint`
 
-PMX关节数据。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `name_jp` | `str` | 日文名称 |
-| `name_en` | `str` | 英文名称 |
-| `joint_type` | `JointType` | 关节类型 |
-| `rigidbody1_index` | `int` | 刚体1索引 |
-| `rigidbody2_index` | `int` | 刚体2索引 |
-| `position` | `List[float]` | 位置 |
-| `rotation` | `List[float]` | 旋转 |
-| `position_min` | `List[float]` | 位置最小值 |
-| `position_max` | `List[float]` | 位置最大值 |
-| `rotation_min` | `List[float]` | 旋转最小值 |
-| `rotation_max` | `List[float]` | 旋转最大值 |
-| `position_spring` | `List[float]` | 位置弹簧 |
-| `rotation_spring` | `List[float]` | 旋转弹簧 |
+| `name_jp` | `str` | Japanese name |
+| `name_en` | `str` | English name |
+| `joint_type` | `JointType` | Joint type |
+| `rigidbody1_index` | `int` | Rigid body 1 index |
+| `rigidbody2_index` | `int` | Rigid body 2 index |
+| `position` | `List[float]` | Position |
+| `rotation` | `List[float]` | Rotation |
+| `position_min` | `List[float]` | Position min |
+| `position_max` | `List[float]` | Position max |
+| `rotation_min` | `List[float]` | Rotation min |
+| `rotation_max` | `List[float]` | Rotation max |
+| `position_spring` | `List[float]` | Position spring |
+| `rotation_spring` | `List[float]` | Rotation spring |
 
 ---
 
-### VPD模型
+### VPD Models
 
-VPD (Vocaloid Pose Data) 用于存储单帧姿势数据。
+VPD (Vocaloid Pose Data) stores a single-frame pose.
 
 #### `VpdPose`
 
-VPD姿势主类。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `model_name` | `str` | 模型名称 |
-| `bone_poses` | `List[VpdBonePose]` | 骨骼姿势列表 |
-| `morph_poses` | `List[VpdMorphPose]` | 变形姿势列表 |
-
-**方法**:
-
-```python
-pose.get_bone_count() -> int     # 获取骨骼姿势数
-pose.get_morph_count() -> int    # 获取变形姿势数
-pose.validate()                  # 验证数据有效性
-```
+| `model_name` | `str` | Model name |
+| `bone_poses` | `List[VpdBonePose]` | Bone poses |
+| `morph_poses` | `List[VpdMorphPose]` | Morph poses |
 
 ---
 
 #### `VpdBonePose`
 
-VPD骨骼姿势。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `bone_name` | `str` | 骨骼名称 |
-| `position` | `List[float]` | 位置 [x, y, z] |
-| `rotation` | `List[float]` | 旋转四元数 [x, y, z, w] |
-
-```python
-bone_pose = VpdBonePose(
-    bone_name="センター",
-    position=[0.0, 10.0, 0.0],
-    rotation=[0.0, 0.0, 0.0, 1.0]
-)
-```
+| `bone_name` | `str` | Bone name |
+| `position` | `List[float]` | Position [x, y, z] |
+| `rotation` | `List[float]` | Quaternion [x, y, z, w] |
 
 ---
 
 #### `VpdMorphPose`
 
-VPD变形姿势。
-
-**属性**:
-
-| 属性 | 类型 | 说明 |
+| Field | Type | Description |
 |------|------|------|
-| `morph_name` | `str` | 变形名称 |
-| `weight` | `float` | 权重值 (0.0-1.0) |
-
-```python
-morph_pose = VpdMorphPose(
-    morph_name="笑顔",
-    weight=0.8
-)
-```
+| `morph_name` | `str` | Morph name |
+| `weight` | `float` | Weight (0.0-1.0) |
 
 ---
 
-## 解析器
+## Parsers
 
-如果需要更精细的控制，可以直接使用解析器类。
+Use parser classes for more control. When available, they automatically use Cython fast paths.
 
-### `VmdParser` (VmdParserNuthouse)
-
-VMD文件解析器。
+### `VmdParser`
 
 ```python
-from pypmxvmd.common.parsers.vmd_parser_nuthouse import VmdParserNuthouse
+from pypmxvmd.common.parsers.vmd_parser import VmdParser
 
-parser = VmdParserNuthouse(progress_callback=lambda p: print(f"{p*100:.1f}%"))
+parser = VmdParser(progress_callback=lambda p: print(f"{p*100:.1f}%"))
 motion = parser.parse_file("motion.vmd", more_info=True)
 parser.write_file(motion, "output.vmd")
 ```
 
-### `PmxParser` (PmxParserNuthouse)
-
-PMX文件解析器。
+### `PmxParser`
 
 ```python
-from pypmxvmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
+from pypmxvmd.common.parsers.pmx_parser import PmxParser
 
-parser = PmxParserNuthouse(progress_callback=lambda p: print(f"{p*100:.1f}%"))
+parser = PmxParser(progress_callback=lambda p: print(f"{p*100:.1f}%"))
 model = parser.parse_file("model.pmx", more_info=True)
 parser.write_file(model, "output.pmx")
 ```
 
 ### `VpdParser`
-
-VPD文件解析器。
 
 ```python
 from pypmxvmd.common.parsers.vpd_parser import VpdParser
@@ -730,225 +512,177 @@ parser.write_file(pose, "output.vpd")
 
 ---
 
-## 枚举类型
+## Enums
 
-### VMD枚举
+### VMD
 
 #### `ShadowMode`
 
-阴影模式。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `OFF` (0) | 关闭 |
-| `MODE1` (1) | 模式1 |
-| `MODE2` (2) | 模式2 |
+| `OFF` (0) | Off |
+| `MODE1` (1) | Mode 1 |
+| `MODE2` (2) | Mode 2 |
 
 ---
 
-### PMX枚举
+### PMX
 
 #### `WeightMode`
 
-顶点权重模式。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `BDEF1` (0) | 单骨骼变形 |
-| `BDEF2` (1) | 双骨骼变形 |
-| `BDEF4` (2) | 四骨骼变形 |
-| `SDEF` (3) | 球面变形 |
-| `QDEF` (4) | 四元数变形 |
+| `BDEF1` (0) | Single bone |
+| `BDEF2` (1) | Two bones |
+| `BDEF4` (2) | Four bones |
+| `SDEF` (3) | Sphere deformation |
+| `QDEF` (4) | Quaternion deformation |
 
 ---
 
 #### `SphMode`
 
-球面纹理模式。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `DISABLED` (0) | 禁用 |
-| `MULTIPLY` (1) | 乘算 |
-| `ADDITIVE` (2) | 加算 |
-| `SUBTEX` (3) | 子纹理 |
+| `DISABLED` (0) | Disabled |
+| `MULTIPLY` (1) | Multiply |
+| `ADDITIVE` (2) | Additive |
+| `SUBTEX` (3) | Sub texture |
 
 ---
 
 #### `MorphType`
 
-变形类型。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `GROUP` (0) | 组变形 |
-| `VERTEX` (1) | 顶点变形 |
-| `BONE` (2) | 骨骼变形 |
-| `UV` (3) | UV变形 |
-| `EXTENDED_UV1` (4) | 扩展UV1变形 |
-| `EXTENDED_UV2` (5) | 扩展UV2变形 |
-| `EXTENDED_UV3` (6) | 扩展UV3变形 |
-| `EXTENDED_UV4` (7) | 扩展UV4变形 |
-| `MATERIAL` (8) | 材质变形 |
-| `FLIP` (9) | 翻转变形 |
-| `IMPULSE` (10) | 冲击变形 |
+| `GROUP` (0) | Group |
+| `VERTEX` (1) | Vertex |
+| `BONE` (2) | Bone |
+| `UV` (3) | UV |
+| `EXTENDED_UV1` (4) | Extended UV1 |
+| `EXTENDED_UV2` (5) | Extended UV2 |
+| `EXTENDED_UV3` (6) | Extended UV3 |
+| `EXTENDED_UV4` (7) | Extended UV4 |
+| `MATERIAL` (8) | Material |
+| `FLIP` (9) | Flip |
+| `IMPULSE` (10) | Impulse |
 
 ---
 
 #### `MorphPanel`
 
-变形面板位置。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `HIDDEN` (0) | 隐藏 |
-| `EYEBROW` (1) | 眉毛 (左下) |
-| `EYE` (2) | 眼睛 (左上) |
-| `MOUTH` (3) | 嘴巴 (右上) |
-| `OTHER` (4) | 其他 (右下) |
+| `HIDDEN` (0) | Hidden |
+| `EYEBROW` (1) | Eyebrow |
+| `EYE` (2) | Eye |
+| `MOUTH` (3) | Mouth |
+| `OTHER` (4) | Other |
 
 ---
 
 #### `RigidBodyShape`
 
-刚体形状。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `SPHERE` (0) | 球体 |
-| `BOX` (1) | 盒子 |
-| `CAPSULE` (2) | 胶囊 |
+| `SPHERE` (0) | Sphere |
+| `BOX` (1) | Box |
+| `CAPSULE` (2) | Capsule |
 
 ---
 
 #### `RigidBodyPhysMode`
 
-刚体物理模式。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `BONE` (0) | 骨骼跟随 |
-| `PHYSICS` (1) | 物理演算 |
-| `PHYSICS_BONE` (2) | 物理演算+骨骼追随 |
+| `BONE` (0) | Follow bone |
+| `PHYSICS` (1) | Physics |
+| `PHYSICS_BONE` (2) | Physics + follow bone |
 
 ---
 
 #### `JointType`
 
-关节类型。
-
-| 值 | 说明 |
+| Value | Description |
 |----|------|
-| `SPRING6DOF` (0) | 6DOF弹簧关节 |
+| `SPRING6DOF` (0) | 6DOF spring |
 
 ---
 
-## 使用示例
+## Examples
 
-### 示例1: 读取VMD动作并获取信息
+### Example 1: Read VMD motion and inspect
 
 ```python
 import pypmxvmd
 
-# 加载VMD文件
 motion = pypmxvmd.load_vmd("dance.vmd", more_info=True)
+print(f"Version: {motion.header.version}")
+print(f"Model: {motion.header.model_name}")
+print(f"Bone frames: {motion.get_bone_frame_count()}")
+print(f"Morph frames: {motion.get_morph_frame_count()}")
 
-# 获取基本信息
-print(f"版本: {motion.header.version}")
-print(f"模型名: {motion.header.model_name}")
-print(f"骨骼帧数: {motion.get_bone_frame_count()}")
-print(f"变形帧数: {motion.get_morph_frame_count()}")
-
-# 遍历骨骼帧
 for frame in motion.bone_frames[:5]:
-    print(f"骨骼: {frame.bone_name}, 帧: {frame.frame_number}, 位置: {frame.position}")
+    print(frame.bone_name, frame.frame_number, frame.position)
 ```
 
-### 示例2: 创建简单的PMX模型
+### Example 2: Create a simple PMX model
 
 ```python
 import pypmxvmd
 from pypmxvmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
 
-# 创建模型
 model = PmxModel()
-
-# 设置头信息
-model.header = PmxHeader(
-    version=2.0,
-    name_jp="三角形",
-    name_en="Triangle"
-)
-
-# 添加顶点
+model.header = PmxHeader(version=2.0, name_jp="Triangle", name_en="Triangle")
 model.vertices = [
     PmxVertex(position=[0.0, 0.0, 0.0], normal=[0.0, 0.0, 1.0], uv=[0.0, 0.0]),
     PmxVertex(position=[1.0, 0.0, 0.0], normal=[0.0, 0.0, 1.0], uv=[1.0, 0.0]),
     PmxVertex(position=[0.5, 1.0, 0.0], normal=[0.0, 0.0, 1.0], uv=[0.5, 1.0]),
 ]
-
-# 添加面
 model.faces = [[0, 1, 2]]
-
-# 添加材质
 model.materials = [
-    PmxMaterial(
-        name_jp="材質",
-        name_en="Material",
-        diffuse_color=[0.8, 0.8, 0.8, 1.0],
-        face_count=3
-    )
+    PmxMaterial(name_jp="Material", name_en="Material", diffuse_color=[0.8, 0.8, 0.8, 1.0], face_count=3)
 ]
 
-# 保存
 pypmxvmd.save_pmx(model, "triangle.pmx")
 ```
 
-### 示例3: 修改VMD动作
+### Example 3: Modify VMD motion
 
 ```python
 import pypmxvmd
 
-# 加载动作
 motion = pypmxvmd.load_vmd("original.vmd")
 
-# 修改所有骨骼帧的位置 - 整体抬高10个单位
 for frame in motion.bone_frames:
     frame.position[1] += 10.0
 
-# 缩放所有变形权重为原来的50%
 for frame in motion.morph_frames:
     frame.weight *= 0.5
 
-# 保存修改后的动作
 pypmxvmd.save_vmd(motion, "modified.vmd")
 ```
 
-### 示例4: VPD姿势转VMD动作
+### Example 4: Convert VPD pose to VMD motion
 
 ```python
 import pypmxvmd
 from pypmxvmd.common.models.vmd import VmdMotion, VmdHeader, VmdBoneFrame, VmdMorphFrame
 
-# 加载VPD姿势
 pose = pypmxvmd.load_vpd("pose.vpd")
 
-# 创建VMD动作
 motion = VmdMotion()
 motion.header = VmdHeader(version=2, model_name=pose.model_name)
 
-# 转换骨骼姿势为骨骼帧
 for bone_pose in pose.bone_poses:
-    # 四元数转欧拉角 (简化处理)
     frame = VmdBoneFrame(
         bone_name=bone_pose.bone_name,
         frame_number=0,
         position=bone_pose.position,
-        rotation=[0.0, 0.0, 0.0]  # 需要实际转换
+        rotation=[0.0, 0.0, 0.0]
     )
     motion.bone_frames.append(frame)
 
-# 转换变形姿势为变形帧
 for morph_pose in pose.morph_poses:
     frame = VmdMorphFrame(
         morph_name=morph_pose.morph_name,
@@ -957,61 +691,58 @@ for morph_pose in pose.morph_poses:
     )
     motion.morph_frames.append(frame)
 
-# 保存
 pypmxvmd.save_vmd(motion, "pose_as_motion.vmd")
 ```
 
-### 示例5: 数据验证
+### Example 5: Validate data
 
 ```python
 import pypmxvmd
 
-# 加载模型
 model = pypmxvmd.load_pmx("model.pmx")
 
-# 验证数据完整性
 try:
     model.validate()
-    print("模型数据验证通过")
+    print("Model validation passed")
 except AssertionError as e:
-    print(f"模型数据验证失败: {e}")
+    print(f"Validation failed: {e}")
 ```
 
 ---
 
-## 错误处理
+## Error Handling
 
-PyPMXVMD 使用标准Python异常进行错误处理：
+PyPMXVMD uses standard Python exceptions:
 
-| 异常类型 | 说明 |
+| Exception | Description |
 |----------|------|
-| `FileNotFoundError` | 文件不存在 |
-| `ValueError` | 文件格式无效或数据错误 |
-| `IOError` | 文件读写错误 |
-| `AssertionError` | 数据验证失败 |
+| `FileNotFoundError` | File not found |
+| `ValueError` | Invalid format or data |
+| `IOError` | I/O error |
+| `AssertionError` | Validation failure |
 
 ```python
 import pypmxvmd
 
 try:
-    model = pypmxvmd.load_pmx("nonexistent.pmx")
+    model = pypmxvmd.load_pmx("missing.pmx")
 except FileNotFoundError:
-    print("文件不存在")
+    print("File not found")
 except ValueError as e:
-    print(f"文件格式错误: {e}")
+    print(f"Format error: {e}")
 ```
 
 ---
 
-## 兼容性说明
+## Compatibility
 
-- **VMD**: 支持旧版(v1)和新版(v2)格式
-- **PMX**: 支持2.0和2.1版本
-- **VPD**: 支持标准VPD文本格式
-- **编码**: VMD使用Shift-JIS，PMX支持UTF-16LE和UTF-8，VPD使用Shift-JIS
+- **VMD**: Supports v1 and v2
+- **PMX**: Supports 2.0 and 2.1
+- **VPD**: Supports standard VPD text format
+- **Encoding**: VMD uses Shift-JIS, PMX supports UTF-16LE/UTF-8, VPD uses Shift-JIS
 
 ---
 
-## 许可证
+## License
 
 MIT License
