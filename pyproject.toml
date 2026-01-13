@@ -1,6 +1,6 @@
 [project]
 name = "pypmxvmd"
-version = "2.6.1"
+version = "2.7.1"
 description = "Wrapper for reading and modifying VMD and PMX files"
 readme = "README.md"
 requires-python = ">=3.8"

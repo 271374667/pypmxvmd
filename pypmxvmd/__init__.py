@@ -36,7 +36,7 @@ from .common.models.vmd import VmdMotion
 from .common.models.pmx import PmxModel
 from .common.models.vpd import VpdPose
 
-__version__ = "2.6.1"
+__version__ = "2.7.1"
 __author__ = "PythonImporter"
 __description__ = "Python MikuMikuDance File Parser"
 
