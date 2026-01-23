@@ -1,0 +1,2727 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Python MikuMikuDance file parser library for VMD, PMX, and VPD.">
+      
+      
+        <meta name="author" content="PythonImporter">
+      
+      
+        <link rel="canonical" href="https://271374667.github.io/pypmxvmd/API/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../API_CN/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>API (English) - PyPMXVMD</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pypmxvmd-api-documentation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PyPMXVMD" class="md-header__button md-logo" aria-label="PyPMXVMD" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm0 2h7v5h5v11H6zm2 8v2h8v-2zm0 4v2h5v-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PyPMXVMD
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              API (English)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-hidden="true"  type="radio" name="__palette" id="__palette_1">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/271374667/pypmxvmd" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    271374667/pypmxvmd
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PyPMXVMD" class="md-nav__button md-logo" aria-label="PyPMXVMD" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm0 2h7v5h5v11H6zm2 8v2h8v-2zm0 4v2h5v-2z"/></svg>
+
+    </a>
+    PyPMXVMD
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/271374667/pypmxvmd" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    271374667/pypmxvmd
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API (English)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API (English)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Start">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-level-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-Level API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Top-Level API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#binary-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binary Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Text Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Models
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vmd-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VMD Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pmx-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PMX Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vpd-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VPD Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Parsers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vmdparser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VmdParser
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pmxparser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PmxParser
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vpdparser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VpdParser
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enums" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enums
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enums">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VMD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pmx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PMX
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-read-vmd-motion-and-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: Read VMD motion and inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-create-a-simple-pmx-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: Create a simple PMX model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-modify-vmd-motion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: Modify VMD motion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-4-convert-vpd-pose-to-vmd-motion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: Convert VPD pose to VMD motion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-5-validate-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: Validate data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../API_CN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API (中文)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Start">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-level-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-Level API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Top-Level API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#binary-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binary Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#text-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Text Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Models
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vmd-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VMD Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pmx-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PMX Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vpd-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VPD Models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Parsers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vmdparser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VmdParser
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pmxparser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PmxParser
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vpdparser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VpdParser
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enums" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enums
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enums">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VMD
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pmx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PMX
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-read-vmd-motion-and-inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 1: Read VMD motion and inspect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-create-a-simple-pmx-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 2: Create a simple PMX model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-modify-vmd-motion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 3: Modify VMD motion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-4-convert-vpd-pose-to-vmd-motion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 4: Convert VPD pose to VMD motion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-5-validate-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example 5: Validate data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pypmxvmd-api-documentation">PyPMXVMD API Documentation<a class="headerlink" href="#pypmxvmd-api-documentation" title="Permanent link">&para;</a></h1>
+<p>PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files.</p>
+<p><strong>Version</strong>: 2.7.1</p>
+<p><strong>Python</strong>: &gt;= 3.8</p>
+<p><strong>Acceleration</strong>: Optional Cython fast path for parsing and binary I/O with automatic fallback.</p>
+<hr />
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="#quick-start">Quick Start</a></li>
+<li><a href="#top-level-api">Top-Level API</a></li>
+<li><a href="#data-models">Data Models</a></li>
+<li><a href="#vmd-models">VMD Models</a></li>
+<li><a href="#pmx-models">PMX Models</a></li>
+<li><a href="#vpd-models">VPD Models</a></li>
+<li><a href="#parsers">Parsers</a></li>
+<li><a href="#enums">Enums</a></li>
+<li><a href="#examples">Examples</a></li>
+<li><a href="#error-handling">Error Handling</a></li>
+<li><a href="#compatibility">Compatibility</a></li>
+<li><a href="#license">License</a></li>
+</ul>
+<hr />
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<h3 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>pypmxvmd
+</code></pre></div></td></tr></table></div>
+<h3 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span>
+<span class="normal"><a href="#__codelineno-1-5">5</a></span>
+<span class="normal"><a href="#__codelineno-1-6">6</a></span>
+<span class="normal"><a href="#__codelineno-1-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="c1"># Auto-detect file type and load</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;model.pmx&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="c1"># Save</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="n">pypmxvmd</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;output.pmx&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="top-level-api">Top-Level API<a class="headerlink" href="#top-level-api" title="Permanent link">&para;</a></h2>
+<p>PyPMXVMD provides concise top-level helpers for loading and saving files.</p>
+<h3 id="binary-files">Binary Files<a class="headerlink" href="#binary-files" title="Permanent link">&para;</a></h3>
+<h4 id="pypmxvmdloadfile_path-more_infofalse"><code>pypmxvmd.load(file_path, more_info=False)</code><a class="headerlink" href="#pypmxvmdloadfile_path-more_infofalse" title="Permanent link">&para;</a></h4>
+<p>Auto-detect the file type and load it.</p>
+<p><strong>Args</strong>:
+- <code>file_path</code> (str | Path): File path
+- <code>more_info</code> (bool): Whether to print detailed parsing info</p>
+<p><strong>Returns</strong>: <code>VmdMotion</code> | <code>PmxModel</code> | <code>VpdPose</code></p>
+<p><strong>Raises</strong>: <code>ValueError</code> - Unsupported file type</p>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="n">data</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;motion.vmd&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h4 id="pypmxvmdsavedata-file_path"><code>pypmxvmd.save(data, file_path)</code><a class="headerlink" href="#pypmxvmdsavedata-file_path" title="Permanent link">&para;</a></h4>
+<p>Auto-detect the data type and save it.</p>
+<p><strong>Args</strong>:
+- <code>data</code>: <code>VmdMotion</code> | <code>PmxModel</code> | <code>VpdPose</code>
+- <code>file_path</code> (str | Path): Output path</p>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="n">pypmxvmd</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;output.pmx&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h4 id="pypmxvmdload_vmdfile_path-more_infofalse-vmdmotion"><code>pypmxvmd.load_vmd(file_path, more_info=False) -&gt; VmdMotion</code><a class="headerlink" href="#pypmxvmdload_vmdfile_path-more_infofalse-vmdmotion" title="Permanent link">&para;</a></h4>
+<p>Load a VMD motion file.</p>
+<hr />
+<h4 id="pypmxvmdsave_vmdmotion-file_path"><code>pypmxvmd.save_vmd(motion, file_path)</code><a class="headerlink" href="#pypmxvmdsave_vmdmotion-file_path" title="Permanent link">&para;</a></h4>
+<p>Save a VMD motion file.</p>
+<hr />
+<h4 id="pypmxvmdload_pmxfile_path-more_infofalse-pmxmodel"><code>pypmxvmd.load_pmx(file_path, more_info=False) -&gt; PmxModel</code><a class="headerlink" href="#pypmxvmdload_pmxfile_path-more_infofalse-pmxmodel" title="Permanent link">&para;</a></h4>
+<p>Load a PMX model file.</p>
+<hr />
+<h4 id="pypmxvmdsave_pmxmodel-file_path"><code>pypmxvmd.save_pmx(model, file_path)</code><a class="headerlink" href="#pypmxvmdsave_pmxmodel-file_path" title="Permanent link">&para;</a></h4>
+<p>Save a PMX model file.</p>
+<hr />
+<h4 id="pypmxvmdload_vpdfile_path-more_infofalse-vpdpose"><code>pypmxvmd.load_vpd(file_path, more_info=False) -&gt; VpdPose</code><a class="headerlink" href="#pypmxvmdload_vpdfile_path-more_infofalse-vpdpose" title="Permanent link">&para;</a></h4>
+<p>Load a VPD pose file.</p>
+<hr />
+<h4 id="pypmxvmdsave_vpdpose-file_path"><code>pypmxvmd.save_vpd(pose, file_path)</code><a class="headerlink" href="#pypmxvmdsave_vpdpose-file_path" title="Permanent link">&para;</a></h4>
+<p>Save a VPD pose file.</p>
+<hr />
+<h3 id="text-files">Text Files<a class="headerlink" href="#text-files" title="Permanent link">&para;</a></h3>
+<p>PyPMXVMD also supports structured text format for viewing and editing.</p>
+<h4 id="pypmxvmdload_vmd_textfile_path-more_infofalse-vmdmotion"><code>pypmxvmd.load_vmd_text(file_path, more_info=False) -&gt; VmdMotion</code><a class="headerlink" href="#pypmxvmdload_vmd_textfile_path-more_infofalse-vmdmotion" title="Permanent link">&para;</a></h4>
+<p>Load a VMD motion from text.</p>
+<hr />
+<h4 id="pypmxvmdsave_vmd_textmotion-file_path"><code>pypmxvmd.save_vmd_text(motion, file_path)</code><a class="headerlink" href="#pypmxvmdsave_vmd_textmotion-file_path" title="Permanent link">&para;</a></h4>
+<p>Save a VMD motion as text.</p>
+<hr />
+<h4 id="pypmxvmdload_pmx_textfile_path-more_infofalse-pmxmodel"><code>pypmxvmd.load_pmx_text(file_path, more_info=False) -&gt; PmxModel</code><a class="headerlink" href="#pypmxvmdload_pmx_textfile_path-more_infofalse-pmxmodel" title="Permanent link">&para;</a></h4>
+<p>Load a PMX model from text.</p>
+<hr />
+<h4 id="pypmxvmdsave_pmx_textmodel-file_path"><code>pypmxvmd.save_pmx_text(model, file_path)</code><a class="headerlink" href="#pypmxvmdsave_pmx_textmodel-file_path" title="Permanent link">&para;</a></h4>
+<p>Save a PMX model as text.</p>
+<hr />
+<h4 id="pypmxvmdload_vpd_textfile_path-more_infofalse-vpdpose"><code>pypmxvmd.load_vpd_text(file_path, more_info=False) -&gt; VpdPose</code><a class="headerlink" href="#pypmxvmdload_vpd_textfile_path-more_infofalse-vpdpose" title="Permanent link">&para;</a></h4>
+<p>Load a VPD pose from text.</p>
+<hr />
+<h4 id="pypmxvmdsave_vpd_textpose-file_path"><code>pypmxvmd.save_vpd_text(pose, file_path)</code><a class="headerlink" href="#pypmxvmdsave_vpd_textpose-file_path" title="Permanent link">&para;</a></h4>
+<p>Save a VPD pose as text.</p>
+<hr />
+<h4 id="pypmxvmdload_textfile_path-more_infofalse-vmdmotion-pmxmodel-vpdpose"><code>pypmxvmd.load_text(file_path, more_info=False) -&gt; VmdMotion | PmxModel | VpdPose</code><a class="headerlink" href="#pypmxvmdload_textfile_path-more_infofalse-vmdmotion-pmxmodel-vpdpose" title="Permanent link">&para;</a></h4>
+<p>Auto-detect the text format and load.</p>
+<hr />
+<h4 id="pypmxvmdsave_textdata-file_path"><code>pypmxvmd.save_text(data, file_path)</code><a class="headerlink" href="#pypmxvmdsave_textdata-file_path" title="Permanent link">&para;</a></h4>
+<p>Auto-detect the data type and save in the corresponding text format.</p>
+<hr />
+<h2 id="data-models">Data Models<a class="headerlink" href="#data-models" title="Permanent link">&para;</a></h2>
+<h3 id="vmd-models">VMD Models<a class="headerlink" href="#vmd-models" title="Permanent link">&para;</a></h3>
+<p>VMD (Vocaloid Motion Data) stores motion and camera data.</p>
+<h4 id="vmdmotion"><code>VmdMotion</code><a class="headerlink" href="#vmdmotion" title="Permanent link">&para;</a></h4>
+<p><strong>Attributes</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>header</code></td>
+<td><code>VmdHeader</code></td>
+<td>File header</td>
+</tr>
+<tr>
+<td><code>bone_frames</code></td>
+<td><code>List[VmdBoneFrame]</code></td>
+<td>Bone keyframes</td>
+</tr>
+<tr>
+<td><code>morph_frames</code></td>
+<td><code>List[VmdMorphFrame]</code></td>
+<td>Morph keyframes</td>
+</tr>
+<tr>
+<td><code>camera_frames</code></td>
+<td><code>List[VmdCameraFrame]</code></td>
+<td>Camera keyframes</td>
+</tr>
+<tr>
+<td><code>light_frames</code></td>
+<td><code>List[VmdLightFrame]</code></td>
+<td>Light keyframes</td>
+</tr>
+<tr>
+<td><code>shadow_frames</code></td>
+<td><code>List[VmdShadowFrame]</code></td>
+<td>Shadow keyframes</td>
+</tr>
+<tr>
+<td><code>ik_frames</code></td>
+<td><code>List[VmdIkFrame]</code></td>
+<td>IK keyframes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdheader"><code>VmdHeader</code><a class="headerlink" href="#vmdheader" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version</code></td>
+<td><code>int</code></td>
+<td>VMD version (1=old, 2=new)</td>
+</tr>
+<tr>
+<td><code>model_name</code></td>
+<td><code>str</code></td>
+<td>Model name</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdboneframe"><code>VmdBoneFrame</code><a class="headerlink" href="#vmdboneframe" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bone_name</code></td>
+<td><code>str</code></td>
+<td>Bone name (max 15 bytes)</td>
+</tr>
+<tr>
+<td><code>frame_number</code></td>
+<td><code>int</code></td>
+<td>Frame index</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Position [x, y, z]</td>
+</tr>
+<tr>
+<td><code>rotation</code></td>
+<td><code>List[float]</code></td>
+<td>Euler rotation [x, y, z] (degrees)</td>
+</tr>
+<tr>
+<td><code>interpolation</code></td>
+<td><code>List[int]</code></td>
+<td>Interpolation curve (16 values)</td>
+</tr>
+<tr>
+<td><code>physics_disabled</code></td>
+<td><code>bool</code></td>
+<td>Physics flag</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdmorphframe"><code>VmdMorphFrame</code><a class="headerlink" href="#vmdmorphframe" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>morph_name</code></td>
+<td><code>str</code></td>
+<td>Morph name (max 15 bytes)</td>
+</tr>
+<tr>
+<td><code>frame_number</code></td>
+<td><code>int</code></td>
+<td>Frame index</td>
+</tr>
+<tr>
+<td><code>weight</code></td>
+<td><code>float</code></td>
+<td>Weight (0.0-1.0)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdcameraframe"><code>VmdCameraFrame</code><a class="headerlink" href="#vmdcameraframe" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frame_number</code></td>
+<td><code>int</code></td>
+<td>Frame index</td>
+</tr>
+<tr>
+<td><code>distance</code></td>
+<td><code>float</code></td>
+<td>Distance to target</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Target position [x, y, z]</td>
+</tr>
+<tr>
+<td><code>rotation</code></td>
+<td><code>List[float]</code></td>
+<td>Camera rotation [x, y, z] (degrees, converted from radians on read)</td>
+</tr>
+<tr>
+<td><code>interpolation</code></td>
+<td><code>List[int]</code></td>
+<td>Interpolation curve (24 values)</td>
+</tr>
+<tr>
+<td><code>fov</code></td>
+<td><code>int</code></td>
+<td>Field of view (1-180)</td>
+</tr>
+<tr>
+<td><code>perspective</code></td>
+<td><code>bool</code></td>
+<td>Perspective flag</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdlightframe"><code>VmdLightFrame</code><a class="headerlink" href="#vmdlightframe" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frame_number</code></td>
+<td><code>int</code></td>
+<td>Frame index</td>
+</tr>
+<tr>
+<td><code>color</code></td>
+<td><code>List[float]</code></td>
+<td>Light color [r, g, b]</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Light position [x, y, z]</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdshadowframe"><code>VmdShadowFrame</code><a class="headerlink" href="#vmdshadowframe" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frame_number</code></td>
+<td><code>int</code></td>
+<td>Frame index</td>
+</tr>
+<tr>
+<td><code>shadow_mode</code></td>
+<td><code>ShadowMode</code></td>
+<td>Shadow mode</td>
+</tr>
+<tr>
+<td><code>distance</code></td>
+<td><code>float</code></td>
+<td>Shadow distance</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdikframe"><code>VmdIkFrame</code><a class="headerlink" href="#vmdikframe" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frame_number</code></td>
+<td><code>int</code></td>
+<td>Frame index</td>
+</tr>
+<tr>
+<td><code>display</code></td>
+<td><code>bool</code></td>
+<td>Display flag</td>
+</tr>
+<tr>
+<td><code>ik_bones</code></td>
+<td><code>List[VmdIkBone]</code></td>
+<td>IK bones</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vmdikbone"><code>VmdIkBone</code><a class="headerlink" href="#vmdikbone" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bone_name</code></td>
+<td><code>str</code></td>
+<td>IK bone name (max 20 bytes)</td>
+</tr>
+<tr>
+<td><code>ik_enabled</code></td>
+<td><code>bool</code></td>
+<td>IK enabled</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="pmx-models">PMX Models<a class="headerlink" href="#pmx-models" title="Permanent link">&para;</a></h3>
+<p>PMX (Polygon Model eXtended) stores 3D model data.</p>
+<h4 id="pmxmodel"><code>PmxModel</code><a class="headerlink" href="#pmxmodel" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>header</code></td>
+<td><code>PmxHeader</code></td>
+<td>File header</td>
+</tr>
+<tr>
+<td><code>vertices</code></td>
+<td><code>List[PmxVertex]</code></td>
+<td>Vertices</td>
+</tr>
+<tr>
+<td><code>faces</code></td>
+<td><code>List[List[int]]</code></td>
+<td>Face indices (triangles)</td>
+</tr>
+<tr>
+<td><code>textures</code></td>
+<td><code>List[str]</code></td>
+<td>Texture paths</td>
+</tr>
+<tr>
+<td><code>materials</code></td>
+<td><code>List[PmxMaterial]</code></td>
+<td>Materials</td>
+</tr>
+<tr>
+<td><code>bones</code></td>
+<td><code>List[PmxBone]</code></td>
+<td>Bones</td>
+</tr>
+<tr>
+<td><code>morphs</code></td>
+<td><code>List[PmxMorph]</code></td>
+<td>Morphs</td>
+</tr>
+<tr>
+<td><code>frames</code></td>
+<td><code>List[PmxFrame]</code></td>
+<td>Display frames</td>
+</tr>
+<tr>
+<td><code>rigidbodies</code></td>
+<td><code>List[PmxRigidBody]</code></td>
+<td>Rigid bodies</td>
+</tr>
+<tr>
+<td><code>joints</code></td>
+<td><code>List[PmxJoint]</code></td>
+<td>Joints</td>
+</tr>
+<tr>
+<td><code>softbodies</code></td>
+<td><code>List[PmxSoftBody]</code></td>
+<td>Soft bodies (PMX 2.1)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxheader"><code>PmxHeader</code><a class="headerlink" href="#pmxheader" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version</code></td>
+<td><code>float</code></td>
+<td>PMX version (2.0 or 2.1)</td>
+</tr>
+<tr>
+<td><code>name_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese name</td>
+</tr>
+<tr>
+<td><code>name_en</code></td>
+<td><code>str</code></td>
+<td>English name</td>
+</tr>
+<tr>
+<td><code>comment_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese comment</td>
+</tr>
+<tr>
+<td><code>comment_en</code></td>
+<td><code>str</code></td>
+<td>English comment</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxvertex"><code>PmxVertex</code><a class="headerlink" href="#pmxvertex" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Position [x, y, z]</td>
+</tr>
+<tr>
+<td><code>normal</code></td>
+<td><code>List[float]</code></td>
+<td>Normal [x, y, z]</td>
+</tr>
+<tr>
+<td><code>uv</code></td>
+<td><code>List[float]</code></td>
+<td>UV [u, v]</td>
+</tr>
+<tr>
+<td><code>additional_uvs</code></td>
+<td><code>List[List[float]]</code></td>
+<td>Additional UVs</td>
+</tr>
+<tr>
+<td><code>weight_mode</code></td>
+<td><code>WeightMode</code></td>
+<td>Weight mode</td>
+</tr>
+<tr>
+<td><code>weight</code></td>
+<td><code>List[List]</code></td>
+<td>Weights [[bone_idx, weight], ...]</td>
+</tr>
+<tr>
+<td><code>edge_scale</code></td>
+<td><code>float</code></td>
+<td>Edge scale</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxmaterial"><code>PmxMaterial</code><a class="headerlink" href="#pmxmaterial" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese name</td>
+</tr>
+<tr>
+<td><code>name_en</code></td>
+<td><code>str</code></td>
+<td>English name</td>
+</tr>
+<tr>
+<td><code>diffuse_color</code></td>
+<td><code>List[float]</code></td>
+<td>Diffuse [r, g, b, a]</td>
+</tr>
+<tr>
+<td><code>specular_color</code></td>
+<td><code>List[float]</code></td>
+<td>Specular [r, g, b]</td>
+</tr>
+<tr>
+<td><code>specular_strength</code></td>
+<td><code>float</code></td>
+<td>Specular strength</td>
+</tr>
+<tr>
+<td><code>ambient_color</code></td>
+<td><code>List[float]</code></td>
+<td>Ambient [r, g, b]</td>
+</tr>
+<tr>
+<td><code>flags</code></td>
+<td><code>MaterialFlags</code></td>
+<td>Material flags</td>
+</tr>
+<tr>
+<td><code>edge_color</code></td>
+<td><code>List[float]</code></td>
+<td>Edge color [r, g, b, a]</td>
+</tr>
+<tr>
+<td><code>edge_size</code></td>
+<td><code>float</code></td>
+<td>Edge size</td>
+</tr>
+<tr>
+<td><code>texture_path</code></td>
+<td><code>str</code></td>
+<td>Texture path</td>
+</tr>
+<tr>
+<td><code>sphere_path</code></td>
+<td><code>str</code></td>
+<td>Sphere texture path</td>
+</tr>
+<tr>
+<td><code>sphere_mode</code></td>
+<td><code>SphMode</code></td>
+<td>Sphere mode</td>
+</tr>
+<tr>
+<td><code>toon_path</code></td>
+<td><code>str</code></td>
+<td>Toon texture path</td>
+</tr>
+<tr>
+<td><code>comment</code></td>
+<td><code>str</code></td>
+<td>Comment</td>
+</tr>
+<tr>
+<td><code>face_count</code></td>
+<td><code>int</code></td>
+<td>Face count</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="materialflags"><code>MaterialFlags</code><a class="headerlink" href="#materialflags" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>double_sided</code></td>
+<td><code>bool</code></td>
+<td>Double sided</td>
+</tr>
+<tr>
+<td><code>ground_shadow</code></td>
+<td><code>bool</code></td>
+<td>Ground shadow</td>
+</tr>
+<tr>
+<td><code>self_shadow_map</code></td>
+<td><code>bool</code></td>
+<td>Self shadow map</td>
+</tr>
+<tr>
+<td><code>self_shadow</code></td>
+<td><code>bool</code></td>
+<td>Self shadow</td>
+</tr>
+<tr>
+<td><code>edge_drawing</code></td>
+<td><code>bool</code></td>
+<td>Edge drawing</td>
+</tr>
+<tr>
+<td><code>vertex_color</code></td>
+<td><code>bool</code></td>
+<td>Vertex color</td>
+</tr>
+<tr>
+<td><code>point_drawing</code></td>
+<td><code>bool</code></td>
+<td>Point drawing</td>
+</tr>
+<tr>
+<td><code>line_drawing</code></td>
+<td><code>bool</code></td>
+<td>Line drawing</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxbone"><code>PmxBone</code><a class="headerlink" href="#pmxbone" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese name</td>
+</tr>
+<tr>
+<td><code>name_en</code></td>
+<td><code>str</code></td>
+<td>English name</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Position [x, y, z]</td>
+</tr>
+<tr>
+<td><code>parent_index</code></td>
+<td><code>int</code></td>
+<td>Parent bone index (-1 for none)</td>
+</tr>
+<tr>
+<td><code>deform_layer</code></td>
+<td><code>int</code></td>
+<td>Deform layer</td>
+</tr>
+<tr>
+<td><code>bone_flags</code></td>
+<td><code>BoneFlags</code></td>
+<td>Bone flags</td>
+</tr>
+<tr>
+<td><code>tail</code></td>
+<td><code>int | List[float]</code></td>
+<td>Tail (bone index or offset)</td>
+</tr>
+<tr>
+<td><code>inherit_parent_index</code></td>
+<td><code>int</code></td>
+<td>Inherit parent index</td>
+</tr>
+<tr>
+<td><code>inherit_ratio</code></td>
+<td><code>float</code></td>
+<td>Inherit ratio</td>
+</tr>
+<tr>
+<td><code>fixed_axis</code></td>
+<td><code>List[float]</code></td>
+<td>Fixed axis</td>
+</tr>
+<tr>
+<td><code>local_axis_x</code></td>
+<td><code>List[float]</code></td>
+<td>Local X axis</td>
+</tr>
+<tr>
+<td><code>local_axis_z</code></td>
+<td><code>List[float]</code></td>
+<td>Local Z axis</td>
+</tr>
+<tr>
+<td><code>external_parent_index</code></td>
+<td><code>int</code></td>
+<td>External parent index</td>
+</tr>
+<tr>
+<td><code>ik_target_index</code></td>
+<td><code>int</code></td>
+<td>IK target index</td>
+</tr>
+<tr>
+<td><code>ik_loop_count</code></td>
+<td><code>int</code></td>
+<td>IK loop count</td>
+</tr>
+<tr>
+<td><code>ik_angle_limit</code></td>
+<td><code>float</code></td>
+<td>IK angle limit</td>
+</tr>
+<tr>
+<td><code>ik_links</code></td>
+<td><code>List[PmxBoneIkLink]</code></td>
+<td>IK links</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxmorph"><code>PmxMorph</code><a class="headerlink" href="#pmxmorph" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese name</td>
+</tr>
+<tr>
+<td><code>name_en</code></td>
+<td><code>str</code></td>
+<td>English name</td>
+</tr>
+<tr>
+<td><code>panel</code></td>
+<td><code>MorphPanel</code></td>
+<td>Panel</td>
+</tr>
+<tr>
+<td><code>morph_type</code></td>
+<td><code>MorphType</code></td>
+<td>Morph type</td>
+</tr>
+<tr>
+<td><code>items</code></td>
+<td><code>List</code></td>
+<td>Items</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxrigidbody"><code>PmxRigidBody</code><a class="headerlink" href="#pmxrigidbody" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese name</td>
+</tr>
+<tr>
+<td><code>name_en</code></td>
+<td><code>str</code></td>
+<td>English name</td>
+</tr>
+<tr>
+<td><code>bone_index</code></td>
+<td><code>int</code></td>
+<td>Bone index</td>
+</tr>
+<tr>
+<td><code>group</code></td>
+<td><code>int</code></td>
+<td>Collision group</td>
+</tr>
+<tr>
+<td><code>nocollide_groups</code></td>
+<td><code>List[int]</code></td>
+<td>No-collide groups</td>
+</tr>
+<tr>
+<td><code>shape</code></td>
+<td><code>RigidBodyShape</code></td>
+<td>Shape</td>
+</tr>
+<tr>
+<td><code>size</code></td>
+<td><code>List[float]</code></td>
+<td>Size [x, y, z]</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Position [x, y, z]</td>
+</tr>
+<tr>
+<td><code>rotation</code></td>
+<td><code>List[float]</code></td>
+<td>Rotation [x, y, z]</td>
+</tr>
+<tr>
+<td><code>physics_mode</code></td>
+<td><code>RigidBodyPhysMode</code></td>
+<td>Physics mode</td>
+</tr>
+<tr>
+<td><code>mass</code></td>
+<td><code>float</code></td>
+<td>Mass</td>
+</tr>
+<tr>
+<td><code>move_damping</code></td>
+<td><code>float</code></td>
+<td>Move damping</td>
+</tr>
+<tr>
+<td><code>rotation_damping</code></td>
+<td><code>float</code></td>
+<td>Rotation damping</td>
+</tr>
+<tr>
+<td><code>repulsion</code></td>
+<td><code>float</code></td>
+<td>Repulsion</td>
+</tr>
+<tr>
+<td><code>friction</code></td>
+<td><code>float</code></td>
+<td>Friction</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="pmxjoint"><code>PmxJoint</code><a class="headerlink" href="#pmxjoint" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name_jp</code></td>
+<td><code>str</code></td>
+<td>Japanese name</td>
+</tr>
+<tr>
+<td><code>name_en</code></td>
+<td><code>str</code></td>
+<td>English name</td>
+</tr>
+<tr>
+<td><code>joint_type</code></td>
+<td><code>JointType</code></td>
+<td>Joint type</td>
+</tr>
+<tr>
+<td><code>rigidbody1_index</code></td>
+<td><code>int</code></td>
+<td>Rigid body 1 index</td>
+</tr>
+<tr>
+<td><code>rigidbody2_index</code></td>
+<td><code>int</code></td>
+<td>Rigid body 2 index</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Position</td>
+</tr>
+<tr>
+<td><code>rotation</code></td>
+<td><code>List[float]</code></td>
+<td>Rotation</td>
+</tr>
+<tr>
+<td><code>position_min</code></td>
+<td><code>List[float]</code></td>
+<td>Position min</td>
+</tr>
+<tr>
+<td><code>position_max</code></td>
+<td><code>List[float]</code></td>
+<td>Position max</td>
+</tr>
+<tr>
+<td><code>rotation_min</code></td>
+<td><code>List[float]</code></td>
+<td>Rotation min</td>
+</tr>
+<tr>
+<td><code>rotation_max</code></td>
+<td><code>List[float]</code></td>
+<td>Rotation max</td>
+</tr>
+<tr>
+<td><code>position_spring</code></td>
+<td><code>List[float]</code></td>
+<td>Position spring</td>
+</tr>
+<tr>
+<td><code>rotation_spring</code></td>
+<td><code>List[float]</code></td>
+<td>Rotation spring</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="vpd-models">VPD Models<a class="headerlink" href="#vpd-models" title="Permanent link">&para;</a></h3>
+<p>VPD (Vocaloid Pose Data) stores a single-frame pose.</p>
+<h4 id="vpdpose"><code>VpdPose</code><a class="headerlink" href="#vpdpose" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>model_name</code></td>
+<td><code>str</code></td>
+<td>Model name</td>
+</tr>
+<tr>
+<td><code>bone_poses</code></td>
+<td><code>List[VpdBonePose]</code></td>
+<td>Bone poses</td>
+</tr>
+<tr>
+<td><code>morph_poses</code></td>
+<td><code>List[VpdMorphPose]</code></td>
+<td>Morph poses</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vpdbonepose"><code>VpdBonePose</code><a class="headerlink" href="#vpdbonepose" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bone_name</code></td>
+<td><code>str</code></td>
+<td>Bone name</td>
+</tr>
+<tr>
+<td><code>position</code></td>
+<td><code>List[float]</code></td>
+<td>Position [x, y, z]</td>
+</tr>
+<tr>
+<td><code>rotation</code></td>
+<td><code>List[float]</code></td>
+<td>Quaternion [x, y, z, w]</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="vpdmorphpose"><code>VpdMorphPose</code><a class="headerlink" href="#vpdmorphpose" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>morph_name</code></td>
+<td><code>str</code></td>
+<td>Morph name</td>
+</tr>
+<tr>
+<td><code>weight</code></td>
+<td><code>float</code></td>
+<td>Weight (0.0-1.0)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="parsers">Parsers<a class="headerlink" href="#parsers" title="Permanent link">&para;</a></h2>
+<p>Use parser classes for more control. When available, they automatically use Cython fast paths.</p>
+<h3 id="vmdparser"><code>VmdParser</code><a class="headerlink" href="#vmdparser" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
+<span class="normal"><a href="#__codelineno-4-2">2</a></span>
+<span class="normal"><a href="#__codelineno-4-3">3</a></span>
+<span class="normal"><a href="#__codelineno-4-4">4</a></span>
+<span class="normal"><a href="#__codelineno-4-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pypmxvmd.common.parsers.vmd_parser</span><span class="w"> </span><span class="kn">import</span> <span class="n">VmdParser</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="n">parser</span> <span class="o">=</span> <span class="n">VmdParser</span><span class="p">(</span><span class="n">progress_callback</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">p</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">))</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="n">motion</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_file</span><span class="p">(</span><span class="s2">&quot;motion.vmd&quot;</span><span class="p">,</span> <span class="n">more_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="n">parser</span><span class="o">.</span><span class="n">write_file</span><span class="p">(</span><span class="n">motion</span><span class="p">,</span> <span class="s2">&quot;output.vmd&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="pmxparser"><code>PmxParser</code><a class="headerlink" href="#pmxparser" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span>
+<span class="normal"><a href="#__codelineno-5-3">3</a></span>
+<span class="normal"><a href="#__codelineno-5-4">4</a></span>
+<span class="normal"><a href="#__codelineno-5-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pypmxvmd.common.parsers.pmx_parser</span><span class="w"> </span><span class="kn">import</span> <span class="n">PmxParser</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="n">parser</span> <span class="o">=</span> <span class="n">PmxParser</span><span class="p">(</span><span class="n">progress_callback</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">p</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">))</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_file</span><span class="p">(</span><span class="s2">&quot;model.pmx&quot;</span><span class="p">,</span> <span class="n">more_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="n">parser</span><span class="o">.</span><span class="n">write_file</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;output.pmx&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="vpdparser"><code>VpdParser</code><a class="headerlink" href="#vpdparser" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span>
+<span class="normal"><a href="#__codelineno-6-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pypmxvmd.common.parsers.vpd_parser</span><span class="w"> </span><span class="kn">import</span> <span class="n">VpdParser</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="n">parser</span> <span class="o">=</span> <span class="n">VpdParser</span><span class="p">(</span><span class="n">progress_callback</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">p</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">))</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="n">pose</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_file</span><span class="p">(</span><span class="s2">&quot;pose.vpd&quot;</span><span class="p">,</span> <span class="n">more_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="n">parser</span><span class="o">.</span><span class="n">write_file</span><span class="p">(</span><span class="n">pose</span><span class="p">,</span> <span class="s2">&quot;output.vpd&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="enums">Enums<a class="headerlink" href="#enums" title="Permanent link">&para;</a></h2>
+<h3 id="vmd">VMD<a class="headerlink" href="#vmd" title="Permanent link">&para;</a></h3>
+<h4 id="shadowmode"><code>ShadowMode</code><a class="headerlink" href="#shadowmode" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OFF</code> (0)</td>
+<td>Off</td>
+</tr>
+<tr>
+<td><code>MODE1</code> (1)</td>
+<td>Mode 1</td>
+</tr>
+<tr>
+<td><code>MODE2</code> (2)</td>
+<td>Mode 2</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="pmx">PMX<a class="headerlink" href="#pmx" title="Permanent link">&para;</a></h3>
+<h4 id="weightmode"><code>WeightMode</code><a class="headerlink" href="#weightmode" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BDEF1</code> (0)</td>
+<td>Single bone</td>
+</tr>
+<tr>
+<td><code>BDEF2</code> (1)</td>
+<td>Two bones</td>
+</tr>
+<tr>
+<td><code>BDEF4</code> (2)</td>
+<td>Four bones</td>
+</tr>
+<tr>
+<td><code>SDEF</code> (3)</td>
+<td>Sphere deformation</td>
+</tr>
+<tr>
+<td><code>QDEF</code> (4)</td>
+<td>Quaternion deformation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="sphmode"><code>SphMode</code><a class="headerlink" href="#sphmode" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DISABLED</code> (0)</td>
+<td>Disabled</td>
+</tr>
+<tr>
+<td><code>MULTIPLY</code> (1)</td>
+<td>Multiply</td>
+</tr>
+<tr>
+<td><code>ADDITIVE</code> (2)</td>
+<td>Additive</td>
+</tr>
+<tr>
+<td><code>SUBTEX</code> (3)</td>
+<td>Sub texture</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="morphtype"><code>MorphType</code><a class="headerlink" href="#morphtype" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GROUP</code> (0)</td>
+<td>Group</td>
+</tr>
+<tr>
+<td><code>VERTEX</code> (1)</td>
+<td>Vertex</td>
+</tr>
+<tr>
+<td><code>BONE</code> (2)</td>
+<td>Bone</td>
+</tr>
+<tr>
+<td><code>UV</code> (3)</td>
+<td>UV</td>
+</tr>
+<tr>
+<td><code>EXTENDED_UV1</code> (4)</td>
+<td>Extended UV1</td>
+</tr>
+<tr>
+<td><code>EXTENDED_UV2</code> (5)</td>
+<td>Extended UV2</td>
+</tr>
+<tr>
+<td><code>EXTENDED_UV3</code> (6)</td>
+<td>Extended UV3</td>
+</tr>
+<tr>
+<td><code>EXTENDED_UV4</code> (7)</td>
+<td>Extended UV4</td>
+</tr>
+<tr>
+<td><code>MATERIAL</code> (8)</td>
+<td>Material</td>
+</tr>
+<tr>
+<td><code>FLIP</code> (9)</td>
+<td>Flip</td>
+</tr>
+<tr>
+<td><code>IMPULSE</code> (10)</td>
+<td>Impulse</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="morphpanel"><code>MorphPanel</code><a class="headerlink" href="#morphpanel" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HIDDEN</code> (0)</td>
+<td>Hidden</td>
+</tr>
+<tr>
+<td><code>EYEBROW</code> (1)</td>
+<td>Eyebrow</td>
+</tr>
+<tr>
+<td><code>EYE</code> (2)</td>
+<td>Eye</td>
+</tr>
+<tr>
+<td><code>MOUTH</code> (3)</td>
+<td>Mouth</td>
+</tr>
+<tr>
+<td><code>OTHER</code> (4)</td>
+<td>Other</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="rigidbodyshape"><code>RigidBodyShape</code><a class="headerlink" href="#rigidbodyshape" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SPHERE</code> (0)</td>
+<td>Sphere</td>
+</tr>
+<tr>
+<td><code>BOX</code> (1)</td>
+<td>Box</td>
+</tr>
+<tr>
+<td><code>CAPSULE</code> (2)</td>
+<td>Capsule</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="rigidbodyphysmode"><code>RigidBodyPhysMode</code><a class="headerlink" href="#rigidbodyphysmode" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BONE</code> (0)</td>
+<td>Follow bone</td>
+</tr>
+<tr>
+<td><code>PHYSICS</code> (1)</td>
+<td>Physics</td>
+</tr>
+<tr>
+<td><code>PHYSICS_BONE</code> (2)</td>
+<td>Physics + follow bone</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h4 id="jointtype"><code>JointType</code><a class="headerlink" href="#jointtype" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SPRING6DOF</code> (0)</td>
+<td>6DOF spring</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
+<h3 id="example-1-read-vmd-motion-and-inspect">Example 1: Read VMD motion and inspect<a class="headerlink" href="#example-1-read-vmd-motion-and-inspect" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-7-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-7-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-7-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-7-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-7-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-7-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-7-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-7-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-7-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="n">motion</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load_vmd</span><span class="p">(</span><span class="s2">&quot;dance.vmd&quot;</span><span class="p">,</span> <span class="n">more_info</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Version: </span><span class="si">{</span><span class="n">motion</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model: </span><span class="si">{</span><span class="n">motion</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">model_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Bone frames: </span><span class="si">{</span><span class="n">motion</span><span class="o">.</span><span class="n">get_bone_frame_count</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Morph frames: </span><span class="si">{</span><span class="n">motion</span><span class="o">.</span><span class="n">get_morph_frame_count</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8"></a>
+<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="k">for</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">motion</span><span class="o">.</span><span class="n">bone_frames</span><span class="p">[:</span><span class="mi">5</span><span class="p">]:</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">bone_name</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">frame_number</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">position</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="example-2-create-a-simple-pmx-model">Example 2: Create a simple PMX model<a class="headerlink" href="#example-2-create-a-simple-pmx-model" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-8-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-8-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-8-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-8-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-8-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-8-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-8-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-8-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-8-10">10</a></span>
+<span class="normal"><a href="#__codelineno-8-11">11</a></span>
+<span class="normal"><a href="#__codelineno-8-12">12</a></span>
+<span class="normal"><a href="#__codelineno-8-13">13</a></span>
+<span class="normal"><a href="#__codelineno-8-14">14</a></span>
+<span class="normal"><a href="#__codelineno-8-15">15</a></span>
+<span class="normal"><a href="#__codelineno-8-16">16</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pypmxvmd.common.models.pmx</span><span class="w"> </span><span class="kn">import</span> <span class="n">PmxModel</span><span class="p">,</span> <span class="n">PmxHeader</span><span class="p">,</span> <span class="n">PmxVertex</span><span class="p">,</span> <span class="n">PmxMaterial</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">PmxModel</span><span class="p">()</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="n">model</span><span class="o">.</span><span class="n">header</span> <span class="o">=</span> <span class="n">PmxHeader</span><span class="p">(</span><span class="n">version</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span> <span class="n">name_jp</span><span class="o">=</span><span class="s2">&quot;Triangle&quot;</span><span class="p">,</span> <span class="n">name_en</span><span class="o">=</span><span class="s2">&quot;Triangle&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6"></a><span class="n">model</span><span class="o">.</span><span class="n">vertices</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7"></a>    <span class="n">PmxVertex</span><span class="p">(</span><span class="n">position</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="n">normal</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="n">uv</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">]),</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8"></a>    <span class="n">PmxVertex</span><span class="p">(</span><span class="n">position</span><span class="o">=</span><span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="n">normal</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="n">uv</span><span class="o">=</span><span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">]),</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9"></a>    <span class="n">PmxVertex</span><span class="p">(</span><span class="n">position</span><span class="o">=</span><span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="n">normal</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="n">uv</span><span class="o">=</span><span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]),</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10"></a><span class="p">]</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11"></a><span class="n">model</span><span class="o">.</span><span class="n">faces</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]]</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12"></a><span class="n">model</span><span class="o">.</span><span class="n">materials</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13"></a>    <span class="n">PmxMaterial</span><span class="p">(</span><span class="n">name_jp</span><span class="o">=</span><span class="s2">&quot;Material&quot;</span><span class="p">,</span> <span class="n">name_en</span><span class="o">=</span><span class="s2">&quot;Material&quot;</span><span class="p">,</span> <span class="n">diffuse_color</span><span class="o">=</span><span class="p">[</span><span class="mf">0.8</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="n">face_count</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14"></a><span class="p">]</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15"></a>
+<a id="__codelineno-8-16" name="__codelineno-8-16"></a><span class="n">pypmxvmd</span><span class="o">.</span><span class="n">save_pmx</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;triangle.pmx&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="example-3-modify-vmd-motion">Example 3: Modify VMD motion<a class="headerlink" href="#example-3-modify-vmd-motion" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-9-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-9-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-9-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-9-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-9-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-9-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-9-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-9-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-9-10">10</a></span>
+<span class="normal"><a href="#__codelineno-9-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3"></a><span class="n">motion</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load_vmd</span><span class="p">(</span><span class="s2">&quot;original.vmd&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5"></a><span class="k">for</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">motion</span><span class="o">.</span><span class="n">bone_frames</span><span class="p">:</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6"></a>    <span class="n">frame</span><span class="o">.</span><span class="n">position</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="mf">10.0</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7"></a>
+<a id="__codelineno-9-8" name="__codelineno-9-8"></a><span class="k">for</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">motion</span><span class="o">.</span><span class="n">morph_frames</span><span class="p">:</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9"></a>    <span class="n">frame</span><span class="o">.</span><span class="n">weight</span> <span class="o">*=</span> <span class="mf">0.5</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10"></a>
+<a id="__codelineno-9-11" name="__codelineno-9-11"></a><span class="n">pypmxvmd</span><span class="o">.</span><span class="n">save_vmd</span><span class="p">(</span><span class="n">motion</span><span class="p">,</span> <span class="s2">&quot;modified.vmd&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="example-4-convert-vpd-pose-to-vmd-motion">Example 4: Convert VPD pose to VMD motion<a class="headerlink" href="#example-4-convert-vpd-pose-to-vmd-motion" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-10-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-10-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-10-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-10-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-10-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-10-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-10-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-10-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-10-10">10</a></span>
+<span class="normal"><a href="#__codelineno-10-11">11</a></span>
+<span class="normal"><a href="#__codelineno-10-12">12</a></span>
+<span class="normal"><a href="#__codelineno-10-13">13</a></span>
+<span class="normal"><a href="#__codelineno-10-14">14</a></span>
+<span class="normal"><a href="#__codelineno-10-15">15</a></span>
+<span class="normal"><a href="#__codelineno-10-16">16</a></span>
+<span class="normal"><a href="#__codelineno-10-17">17</a></span>
+<span class="normal"><a href="#__codelineno-10-18">18</a></span>
+<span class="normal"><a href="#__codelineno-10-19">19</a></span>
+<span class="normal"><a href="#__codelineno-10-20">20</a></span>
+<span class="normal"><a href="#__codelineno-10-21">21</a></span>
+<span class="normal"><a href="#__codelineno-10-22">22</a></span>
+<span class="normal"><a href="#__codelineno-10-23">23</a></span>
+<span class="normal"><a href="#__codelineno-10-24">24</a></span>
+<span class="normal"><a href="#__codelineno-10-25">25</a></span>
+<span class="normal"><a href="#__codelineno-10-26">26</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pypmxvmd.common.models.vmd</span><span class="w"> </span><span class="kn">import</span> <span class="n">VmdMotion</span><span class="p">,</span> <span class="n">VmdHeader</span><span class="p">,</span> <span class="n">VmdBoneFrame</span><span class="p">,</span> <span class="n">VmdMorphFrame</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="n">pose</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load_vpd</span><span class="p">(</span><span class="s2">&quot;pose.vpd&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5"></a>
+<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="n">motion</span> <span class="o">=</span> <span class="n">VmdMotion</span><span class="p">()</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="n">motion</span><span class="o">.</span><span class="n">header</span> <span class="o">=</span> <span class="n">VmdHeader</span><span class="p">(</span><span class="n">version</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="n">pose</span><span class="o">.</span><span class="n">model_name</span><span class="p">)</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8"></a>
+<a id="__codelineno-10-9" name="__codelineno-10-9"></a><span class="k">for</span> <span class="n">bone_pose</span> <span class="ow">in</span> <span class="n">pose</span><span class="o">.</span><span class="n">bone_poses</span><span class="p">:</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10"></a>    <span class="n">frame</span> <span class="o">=</span> <span class="n">VmdBoneFrame</span><span class="p">(</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11"></a>        <span class="n">bone_name</span><span class="o">=</span><span class="n">bone_pose</span><span class="o">.</span><span class="n">bone_name</span><span class="p">,</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12"></a>        <span class="n">frame_number</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13"></a>        <span class="n">position</span><span class="o">=</span><span class="n">bone_pose</span><span class="o">.</span><span class="n">position</span><span class="p">,</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14"></a>        <span class="n">rotation</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">]</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15"></a>    <span class="p">)</span>
+<a id="__codelineno-10-16" name="__codelineno-10-16"></a>    <span class="n">motion</span><span class="o">.</span><span class="n">bone_frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+<a id="__codelineno-10-17" name="__codelineno-10-17"></a>
+<a id="__codelineno-10-18" name="__codelineno-10-18"></a><span class="k">for</span> <span class="n">morph_pose</span> <span class="ow">in</span> <span class="n">pose</span><span class="o">.</span><span class="n">morph_poses</span><span class="p">:</span>
+<a id="__codelineno-10-19" name="__codelineno-10-19"></a>    <span class="n">frame</span> <span class="o">=</span> <span class="n">VmdMorphFrame</span><span class="p">(</span>
+<a id="__codelineno-10-20" name="__codelineno-10-20"></a>        <span class="n">morph_name</span><span class="o">=</span><span class="n">morph_pose</span><span class="o">.</span><span class="n">morph_name</span><span class="p">,</span>
+<a id="__codelineno-10-21" name="__codelineno-10-21"></a>        <span class="n">frame_number</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-10-22" name="__codelineno-10-22"></a>        <span class="n">weight</span><span class="o">=</span><span class="n">morph_pose</span><span class="o">.</span><span class="n">weight</span>
+<a id="__codelineno-10-23" name="__codelineno-10-23"></a>    <span class="p">)</span>
+<a id="__codelineno-10-24" name="__codelineno-10-24"></a>    <span class="n">motion</span><span class="o">.</span><span class="n">morph_frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+<a id="__codelineno-10-25" name="__codelineno-10-25"></a>
+<a id="__codelineno-10-26" name="__codelineno-10-26"></a><span class="n">pypmxvmd</span><span class="o">.</span><span class="n">save_vmd</span><span class="p">(</span><span class="n">motion</span><span class="p">,</span> <span class="s2">&quot;pose_as_motion.vmd&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="example-5-validate-data">Example 5: Validate data<a class="headerlink" href="#example-5-validate-data" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1">1</a></span>
+<span class="normal"><a href="#__codelineno-11-2">2</a></span>
+<span class="normal"><a href="#__codelineno-11-3">3</a></span>
+<span class="normal"><a href="#__codelineno-11-4">4</a></span>
+<span class="normal"><a href="#__codelineno-11-5">5</a></span>
+<span class="normal"><a href="#__codelineno-11-6">6</a></span>
+<span class="normal"><a href="#__codelineno-11-7">7</a></span>
+<span class="normal"><a href="#__codelineno-11-8">8</a></span>
+<span class="normal"><a href="#__codelineno-11-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load_pmx</span><span class="p">(</span><span class="s2">&quot;model.pmx&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6"></a>    <span class="n">model</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Model validation passed&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8"></a><span class="k">except</span> <span class="ne">AssertionError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Validation failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
+<p>PyPMXVMD uses standard Python exceptions:</p>
+<table>
+<thead>
+<tr>
+<th>Exception</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FileNotFoundError</code></td>
+<td>File not found</td>
+</tr>
+<tr>
+<td><code>ValueError</code></td>
+<td>Invalid format or data</td>
+</tr>
+<tr>
+<td><code>IOError</code></td>
+<td>I/O error</td>
+</tr>
+<tr>
+<td><code>AssertionError</code></td>
+<td>Validation failure</td>
+</tr>
+</tbody>
+</table>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1">1</a></span>
+<span class="normal"><a href="#__codelineno-12-2">2</a></span>
+<span class="normal"><a href="#__codelineno-12-3">3</a></span>
+<span class="normal"><a href="#__codelineno-12-4">4</a></span>
+<span class="normal"><a href="#__codelineno-12-5">5</a></span>
+<span class="normal"><a href="#__codelineno-12-6">6</a></span>
+<span class="normal"><a href="#__codelineno-12-7">7</a></span>
+<span class="normal"><a href="#__codelineno-12-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pypmxvmd</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2"></a>
+<a id="__codelineno-12-3" name="__codelineno-12-3"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4"></a>    <span class="n">model</span> <span class="o">=</span> <span class="n">pypmxvmd</span><span class="o">.</span><span class="n">load_pmx</span><span class="p">(</span><span class="s2">&quot;missing.pmx&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5"></a><span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;File not found&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Format error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>VMD</strong>: Supports v1 and v2</li>
+<li><strong>PMX</strong>: Supports 2.0 and 2.1</li>
+<li><strong>VPD</strong>: Supports standard VPD text format</li>
+<li><strong>Encoding</strong>: VMD uses Shift-JIS, PMX supports UTF-16LE/UTF-8, VPD uses Shift-JIS</li>
+</ul>
+<hr />
+<h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
+<p>MIT License</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 PythonImporter
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
