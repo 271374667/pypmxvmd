@@ -66,6 +66,8 @@ cdef class FastBinaryReader:
 
     cpdef void set_position(self, int pos):
         """设置读取位置"""
+        if pos < 0 or pos > self._size:
+            raise ValueError("position is outside the data buffer")
         self._pos = pos
 
     cpdef int get_remaining(self):
@@ -74,23 +76,29 @@ cdef class FastBinaryReader:
 
     cpdef void skip(self, int count):
         """跳过指定字节数"""
+        self._require_available(count)
         self._pos += count
 
     cpdef unsigned char read_byte(self):
         """读取单字节"""
-        cdef unsigned char value = self._ptr[self._pos]
+        cdef unsigned char value
+        self._require_available(1)
+        value = self._ptr[self._pos]
         self._pos += 1
         return value
 
     cpdef signed char read_sbyte(self):
         """读取有符号字节"""
-        cdef signed char value = <signed char>self._ptr[self._pos]
+        cdef signed char value
+        self._require_available(1)
+        value = <signed char>self._ptr[self._pos]
         self._pos += 1
         return value
 
     cpdef unsigned short read_ushort(self):
         """读取无符号短整数 (小端)"""
         cdef unsigned short value
+        self._require_available(2)
         memcpy(&value, self._ptr + self._pos, 2)
         self._pos += 2
         return value
@@ -98,6 +106,7 @@ cdef class FastBinaryReader:
     cpdef short read_short(self):
         """读取有符号短整数 (小端)"""
         cdef short value
+        self._require_available(2)
         memcpy(&value, self._ptr + self._pos, 2)
         self._pos += 2
         return value
@@ -105,6 +114,7 @@ cdef class FastBinaryReader:
     cpdef unsigned int read_uint(self):
         """读取无符号整数 (小端)"""
         cdef unsigned int value
+        self._require_available(4)
         memcpy(&value, self._ptr + self._pos, 4)
         self._pos += 4
         return value
@@ -112,6 +122,7 @@ cdef class FastBinaryReader:
     cpdef int read_int(self):
         """读取有符号整数 (小端)"""
         cdef int value
+        self._require_available(4)
         memcpy(&value, self._ptr + self._pos, 4)
         self._pos += 4
         return value
@@ -119,6 +130,7 @@ cdef class FastBinaryReader:
     cpdef float read_float(self):
         """读取单精度浮点数"""
         cdef float value
+        self._require_available(4)
         memcpy(&value, self._ptr + self._pos, 4)
         self._pos += 4
         return value
@@ -126,6 +138,7 @@ cdef class FastBinaryReader:
     cpdef tuple read_float3(self):
         """读取3个浮点数"""
         cdef float x, y, z
+        self._require_available(12)
         memcpy(&x, self._ptr + self._pos, 4)
         memcpy(&y, self._ptr + self._pos + 4, 4)
         memcpy(&z, self._ptr + self._pos + 8, 4)
@@ -135,6 +148,7 @@ cdef class FastBinaryReader:
     cpdef tuple read_float4(self):
         """读取4个浮点数"""
         cdef float x, y, z, w
+        self._require_available(16)
         memcpy(&x, self._ptr + self._pos, 4)
         memcpy(&y, self._ptr + self._pos + 4, 4)
         memcpy(&z, self._ptr + self._pos + 8, 4)
@@ -144,7 +158,9 @@ cdef class FastBinaryReader:
 
     cpdef bytes read_bytes(self, int count):
         """读取指定字节数"""
-        cdef bytes result = self._data[self._pos:self._pos + count]
+        cdef bytes result
+        self._require_available(count)
+        result = self._data[self._pos:self._pos + count]
         self._pos += count
         return result
 
@@ -163,6 +179,8 @@ cdef class FastBinaryReader:
         cdef int actual_len
         cdef bytes enc_bytes
         cdef const char* enc_c_str
+
+        self._require_available(length)
 
         # 立即推进位置指针
         self._pos += length
@@ -196,8 +214,10 @@ cdef class FastBinaryReader:
         cdef bytes enc_bytes
         cdef const char* enc_c_str
 
-        # 读取长度
+        # 读取长度，并在推进位置前验证整个字符串都可用
+        self._require_available(4)
         memcpy(&length, self._ptr + self._pos, 4)
+        self._require_available(4 + <Py_ssize_t>length)
         self._pos += 4
 
         if length == 0:
@@ -226,9 +246,13 @@ cdef class FastBinaryReader:
         cdef int value
         cdef unsigned int uvalue
 
+        if size != 1 and size != 2 and size != 4:
+            raise ValueError("index size must be 1, 2, or 4")
+        self._require_available(size)
+
         if size == 1:
             if signed:
-                return <signed char>self._ptr[self._pos]
+                value = <signed char>self._ptr[self._pos]
             else:
                 value = self._ptr[self._pos]
             self._pos += 1
@@ -253,15 +277,25 @@ cdef class FastBinaryReader:
 
     # ===== 内部优化方法 (cdef inline) =====
 
+    cdef inline void _require_available(self, Py_ssize_t count) except *:
+        """验证读取范围，防止关闭 boundscheck 后发生越界访问。"""
+        if count < 0:
+            raise ValueError("read size cannot be negative")
+        if self._pos < 0 or self._pos > self._size or count > self._size - self._pos:
+            raise ValueError("not enough data in buffer")
+
     cdef inline unsigned char _read_byte_fast(self):
         """内部快速读取单字节"""
-        cdef unsigned char value = self._ptr[self._pos]
+        cdef unsigned char value
+        self._require_available(1)
+        value = self._ptr[self._pos]
         self._pos += 1
         return value
 
     cdef inline unsigned int _read_uint_fast(self):
         """内部快速读取无符号整数"""
         cdef unsigned int value
+        self._require_available(4)
         memcpy(&value, self._ptr + self._pos, 4)
         self._pos += 4
         return value
@@ -269,17 +303,20 @@ cdef class FastBinaryReader:
     cdef inline float _read_float_fast(self):
         """内部快速读取浮点数"""
         cdef float value
+        self._require_available(4)
         memcpy(&value, self._ptr + self._pos, 4)
         self._pos += 4
         return value
 
     cdef inline void _read_float3_into(self, float* out):
         """内部快速读取3个浮点数到指针"""
+        self._require_available(12)
         memcpy(out, self._ptr + self._pos, 12)
         self._pos += 12
 
     cdef inline void _read_float4_into(self, float* out):
         """内部快速读取4个浮点数到指针"""
+        self._require_available(16)
         memcpy(out, self._ptr + self._pos, 16)
         self._pos += 16
 

@@ -1,114 +1,31 @@
-#!/usr/bin/env python3
-"""PMX写入器测试脚本"""
+"""Correctness tests for the PMX writer."""
 
-import sys
-from pathlib import Path
+import struct
 
-# 添加项目根目录到路径
-sys.path.insert(0, str(Path(__file__).parent))
+import pytest
 
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
-from pypmxvmd.common.models.pmx import PmxModel, PmxHeader, PmxVertex, PmxMaterial
 
 
-def create_test_pmx_model():
-    """创建一个简单的测试PMX模型"""
-    
-    # 创建头部
-    header = PmxHeader(
-        version=2.0,
-        name_jp="テストモデル",
-        name_en="TestModel",
-        comment_jp="テスト用のシンプルなモデル",
-        comment_en="Simple test model"
-    )
-    
-    # 创建顶点
-    vertices = [
-        PmxVertex(
-            position=[0.0, 0.0, 0.0],
-            normal=[0.0, 1.0, 0.0],
-            uv=[0.0, 0.0]
-        ),
-        PmxVertex(
-            position=[1.0, 0.0, 0.0],
-            normal=[0.0, 1.0, 0.0],
-            uv=[1.0, 0.0]
-        ),
-        PmxVertex(
-            position=[0.5, 1.0, 0.0],
-            normal=[0.0, 1.0, 0.0],
-            uv=[0.5, 1.0]
-        )
-    ]
-    
-    # 创建面
-    faces = [[0, 1, 2]]  # 一个三角面
-    
-    # 创建材质
-    materials = [
-        PmxMaterial(
-            name_jp="デフォルト材質",
-            name_en="Default Material",
-            diffuse_color=[0.8, 0.8, 0.8, 1.0],
-            specular_color=[0.5, 0.5, 0.5],
-            specular_strength=5.0,
-            ambient_color=[0.2, 0.2, 0.2],
-            texture_path="",
-            face_count=3
-        )
-    ]
-    
-    # 创建完整模型
-    model = PmxModel()
-    model.header = header
-    model.vertices = vertices
-    model.faces = faces
-    model.materials = materials
-    
-    return model
+def test_pmx_writer_roundtrip(tmp_path, sample_pmx_model):
+    parser = PmxParser()
+    path = tmp_path / "model.pmx"
 
+    parser.write_file(sample_pmx_model, path)
 
-def test_pmx_writer():
-    """测试PMX写入功能"""
-    print("=== PMX写入器测试 ===")
-    
-    try:
-        # 创建测试模型
-        print("创建测试PMX模型...")
-        model = create_test_pmx_model()
-        
-        # 验证模型
-        print("验证模型数据...")
-        model.validate()
-        print(f"模型包含: {len(model.vertices)}个顶点, {len(model.faces)}个面, {len(model.materials)}个材质")
-        
-        # 创建解析器
-        parser = PmxParser()
-        
-        # 测试写入
-        output_file = Path(__file__).parent / "test_output.pmx"
-        print(f"测试写入到: {output_file}")
-        
-        parser.write_file(model, output_file)
-        
-        print("PMX写入测试完成")
-        
-        # 验证文件是否创建
-        if output_file.exists():
-            print(f"输出文件大小: {output_file.stat().st_size}字节")
-        else:
-            print("警告: 输出文件未创建")
-        
-        # 清理测试文件
-        if output_file.exists():
-            output_file.unlink()
-        
-    except Exception as e:
-        print(f"测试失败: {e}")
-        import traceback
-        traceback.print_exc()
+    data = path.read_bytes()
+    assert data[:4] == b"PMX "
+    assert struct.unpack("<f", data[4:8])[0] == pytest.approx(2.0)
 
-
-if __name__ == "__main__":
-    test_pmx_writer()
+    loaded = parser.parse_file(path)
+    assert loaded.header.name_jp == sample_pmx_model.header.name_jp
+    assert loaded.header.name_en == sample_pmx_model.header.name_en
+    assert loaded.faces == sample_pmx_model.faces
+    assert len(loaded.vertices) == len(sample_pmx_model.vertices)
+    for actual, expected in zip(loaded.vertices, sample_pmx_model.vertices):
+        assert actual.position == pytest.approx(expected.position)
+        assert actual.normal == pytest.approx(expected.normal)
+        assert actual.uv == pytest.approx(expected.uv)
+    assert loaded.materials[0].name_jp == "材質"
+    assert loaded.materials[0].diffuse_color == pytest.approx([0.8, 0.7, 0.6, 1.0])
+    assert loaded.materials[0].face_count == 3

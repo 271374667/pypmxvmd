@@ -1182,7 +1182,14 @@ class VmdParser:
         """解析文本文件头部"""
         if start_idx >= len(lines) or len(lines[start_idx]) != 2 or lines[start_idx][0] != "version:":
             raise ValueError("缺少版本信息")
-        version = lines[start_idx][1]
+        try:
+            version = int(lines[start_idx][1])
+        except ValueError as exc:
+            raise ValueError(
+                f"无效的VMD版本: {lines[start_idx][1]!r}"
+            ) from exc
+        if version not in (1, 2):
+            raise ValueError(f"不支持的VMD版本: {version}")
         
         if start_idx + 1 >= len(lines) or len(lines[start_idx + 1]) != 2 or lines[start_idx + 1][0] != "modelname:":
             raise ValueError("缺少模型名称")

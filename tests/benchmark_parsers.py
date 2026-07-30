@@ -1,11 +1,7 @@
 """性能基准测试 - 比较标准解析、快速解析和Cython优化解析的性能差异"""
 
 import time
-import sys
 from pathlib import Path
-
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pypmxvmd.common.parsers.vmd_parser import VmdParser
 from pypmxvmd.common.parsers.pmx_parser import PmxParser

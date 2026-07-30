@@ -368,7 +368,7 @@ cdef list _parse_vertices_cython(FastPmxReader reader, bint more_info):
             memcpy(&w4, ptr + reader._pos + 12, 4)
             reader._pos += 16
 
-            weight_data = [[bone1, w1], [bone2, w2], [bone3, w3], [bone4, w4]]
+            weight_data = [(bone1, w1), (bone2, w2), (bone3, w3), (bone4, w4)]
         elif weight_mode == 3:  # SDEF
             bone1 = reader._read_bone_index_inline()
             bone2 = reader._read_bone_index_inline()
@@ -389,7 +389,7 @@ cdef list _parse_vertices_cython(FastPmxReader reader, bint more_info):
             memcpy(&w4, ptr + reader._pos + 12, 4)
             reader._pos += 16
 
-            weight_data = [[bone1, w1], [bone2, w2], [bone3, w3], [bone4, w4]]
+            weight_data = [(bone1, w1), (bone2, w2), (bone3, w3), (bone4, w4)]
         else:
             weight_data = []  # 防止未初始化
 

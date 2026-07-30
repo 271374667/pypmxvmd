@@ -110,7 +110,8 @@ class PmxParser:
             # 解析各个数据段
             pmx_model.vertices = self._parse_vertices(data)
             pmx_model.faces = self._parse_faces(data)
-            pmx_model.materials = self._parse_materials(data)
+            pmx_model.textures = self._parse_textures(data)
+            pmx_model.materials = self._parse_materials(data, pmx_model.textures)
 
             # TODO: 解析其他数据段（骨骼、变形等）
             # pmx_model.bones = self._parse_bones(data)
@@ -162,7 +163,10 @@ class PmxParser:
             # 解析各个数据段
             pmx_model.vertices = self._parse_vertices_fast(more_info)
             pmx_model.faces = self._parse_faces_fast(more_info)
-            pmx_model.materials = self._parse_materials_fast(more_info)
+            pmx_model.textures = self._parse_textures_fast(more_info)
+            pmx_model.materials = self._parse_materials_fast(
+                more_info, pmx_model.textures
+            )
 
             if more_info:
                 print(f"PMX快速解析完成: {len(pmx_model.vertices)}个顶点, "
@@ -538,11 +542,10 @@ class PmxParser:
 
         return textures
 
-    def _parse_materials_fast(self, more_info: bool) -> List[PmxMaterial]:
+    def _parse_materials_fast(
+        self, more_info: bool, textures: List[str]
+    ) -> List[PmxMaterial]:
         """快速解析材质数据（使用内部缓冲区）"""
-        # 先解析纹理列表
-        textures = self._parse_textures_fast(more_info)
-
         # 读取材质数量
         material_count = self._io_handler.unpack_from_buffer("I")[0]
         materials = []
@@ -740,7 +743,9 @@ class PmxParser:
 
         return textures
 
-    def _parse_materials(self, data: bytearray) -> List[PmxMaterial]:
+    def _parse_materials(
+        self, data: bytearray, textures: List[str]
+    ) -> List[PmxMaterial]:
         """解析材质数据
 
         Args:
@@ -749,8 +754,6 @@ class PmxParser:
         Returns:
             材质对象列表
         """
-        # 先解析纹理列表
-        textures = self._parse_textures(data)
         # 读取材质数量
         material_count = self._io_handler.unpack_data("I", data)[0]
         materials = []
