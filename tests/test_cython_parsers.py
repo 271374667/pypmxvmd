@@ -28,13 +28,21 @@ except ImportError:
 
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
 from pypmxvmd.common.parsers.vmd_parser import VmdParser
+from pypmxvmd.common.models.pmx import PmxHeader, PmxMaterial, PmxModel, PmxVertex
+from pypmxvmd.common.models.vmd import VmdBoneFrame, VmdHeader, VmdMotion
 
 
 # 如果Cython不可用，跳过所有测试
-pytestmark = pytest.mark.skipif(
-    not CYTHON_AVAILABLE,
-    reason="Cython modules not compiled. Run 'python scripts/build_cython.py' to compile."
-)
+pytestmark = [
+    pytest.mark.cython,
+    pytest.mark.skipif(
+        not CYTHON_AVAILABLE,
+        reason=(
+            "Cython modules not compiled. "
+            "Run 'python scripts/build_cython.py' to compile."
+        ),
+    ),
+]
 
 
 class TestFastBinaryReader:
@@ -101,6 +109,21 @@ class TestFastBinaryReader:
 class TestCythonVmdParser:
     """测试Cython VMD解析器"""
 
+    def test_synthetic_vmd_without_external_corpus(self, tmp_path):
+        """Exercise the Cython VMD parser without local test data."""
+        motion = VmdMotion()
+        motion.header = VmdHeader(version=2, model_name="CythonTest")
+        motion.bone_frames = [
+            VmdBoneFrame(bone_name="Center", frame_number=12)
+        ]
+        vmd_path = tmp_path / "synthetic.vmd"
+        VmdParser().write_file(motion, vmd_path)
+
+        result = parse_vmd_cython(vmd_path.read_bytes(), False)
+
+        assert result.header.model_name == "CythonTest"
+        assert result.bone_frames[0].frame_number == 12
+
     def test_parse_vmd_cython_function(self, test_data_dir):
         """测试parse_vmd_cython函数直接调用"""
         vmd_files = list(test_data_dir.rglob("*.vmd"))
@@ -136,6 +159,7 @@ class TestCythonVmdParser:
         assert len(python_result.bone_frames) == len(cython_result.bone_frames)
         assert len(python_result.morph_frames) == len(cython_result.morph_frames)
 
+    @pytest.mark.benchmark
     def test_cython_vmd_performance(self, test_data_dir):
         """测试Cython VMD解析性能"""
         vmd_files = list(test_data_dir.rglob("*.vmd"))
@@ -164,6 +188,32 @@ class TestCythonVmdParser:
 
 class TestCythonPmxParser:
     """测试Cython PMX解析器"""
+
+    def test_synthetic_pmx_without_external_corpus(self, tmp_path):
+        """Exercise the Cython PMX parser without local test data."""
+        model = PmxModel()
+        model.header = PmxHeader(
+            version=2.0,
+            name_jp="CythonTest",
+            name_en="CythonTest",
+        )
+        model.vertices = [
+            PmxVertex(position=[0.0, 0.0, 0.0]),
+            PmxVertex(position=[1.0, 0.0, 0.0]),
+            PmxVertex(position=[0.0, 1.0, 0.0]),
+        ]
+        model.faces = [[0, 1, 2]]
+        model.materials = [
+            PmxMaterial(name_jp="Material", name_en="Material", face_count=3)
+        ]
+        pmx_path = tmp_path / "synthetic.pmx"
+        PmxParser().write_file(model, pmx_path)
+
+        result = parse_pmx_cython(pmx_path.read_bytes(), False)
+
+        assert result.header.name_jp == "CythonTest"
+        assert len(result.vertices) == 3
+        assert result.faces == [[0, 1, 2]]
 
     def test_parse_pmx_cython_function(self, test_data_dir):
         """测试parse_pmx_cython函数直接调用"""
@@ -201,6 +251,7 @@ class TestCythonPmxParser:
         assert len(python_result.faces) == len(cython_result.faces)
         assert len(python_result.materials) == len(cython_result.materials)
 
+    @pytest.mark.benchmark
     def test_cython_pmx_performance(self, test_data_dir):
         """测试Cython PMX解析性能"""
         pmx_files = list(test_data_dir.rglob("*.pmx"))

@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure-python:
+    name: Pure Python 3.11
+    runs-on: ubuntu-latest
+    env:
+      PYPMXVMD_BUILD_CYTHON: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.17"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.12"
+      - run: uv sync --locked --group dev --python 3.11.12
+      - run: >-
+          uv run --python 3.11.12 --no-sync pytest
+          -m "not benchmark and not corpus and not cython" -ra
+
+  cython:
+    name: Cython Python 3.11
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.17"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.12"
+      - run: uv sync --locked --group dev --python 3.11.12
+      - run: uv run --python 3.11.12 --no-sync python scripts/build_cython.py
+      - run: >-
+          uv run --python 3.11.12 --no-sync pytest tests/test_cython_parsers.py
+          -m "cython and not benchmark" -ra
+
+  package:
+    name: Windows package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.17"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.12"
+      - run: uv sync --locked --group dev --python 3.11.12
+      - run: uv build
+      - run: uv run --python 3.11.12 --no-sync python scripts/verify_wheel.py dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-distributions
+          path: dist/*
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    env:
+      PYPMXVMD_BUILD_CYTHON: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.17"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.12"
+      - run: uv sync --locked --only-group docs --no-install-project --python 3.11.12
+      - run: uv run --python 3.11.12 --no-sync mkdocs build --strict

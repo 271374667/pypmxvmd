@@ -1066,6 +1066,21 @@ class TestShadowModeEnum:
         assert ShadowMode(1) == ShadowMode.MODE1
         assert ShadowMode(2) == ShadowMode.MODE2
 
+    @pytest.mark.parametrize("shadow_mode", list(ShadowMode))
+    def test_shadow_mode_text_roundtrip(self, tmp_path, shadow_mode):
+        """Every shadow mode uses the same stable text representation."""
+        motion = VmdMotion()
+        motion.header = VmdHeader(version=2, model_name="ShadowModeTest")
+        motion.shadow_frames = [
+            VmdShadowFrame(frame_number=10, shadow_mode=shadow_mode, distance=25.0)
+        ]
+
+        text_file = tmp_path / f"shadow-{int(shadow_mode)}.txt"
+        pypmxvmd.save_vmd_text(motion, text_file)
+        loaded = pypmxvmd.load_vmd_text(text_file)
+
+        assert loaded.shadow_frames[0].shadow_mode == shadow_mode
+
 
 # ============================================================================
 # Complete VMD with All Frame Types
@@ -1127,6 +1142,7 @@ class TestVmdCompleteRoundtrip:
         assert len(loaded.camera_frames) == 2
         assert len(loaded.light_frames) == 1
         assert len(loaded.shadow_frames) == 1
+        assert loaded.shadow_frames[0].shadow_mode == ShadowMode.MODE1
         assert len(loaded.ik_frames) == 1
 
 

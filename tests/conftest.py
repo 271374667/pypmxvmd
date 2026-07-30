@@ -23,6 +23,18 @@ def test_data_dir():
     return TEST_DATA_DIR
 
 
+@pytest.fixture(scope="session")
+def test_models_dir():
+    """Return the local real-world PMX corpus directory."""
+    return TEST_DATA_DIR / "test_models"
+
+
+@pytest.fixture(scope="session")
+def test_vmds_dir():
+    """Return the local real-world VMD corpus directory."""
+    return TEST_DATA_DIR / "test_vmds"
+
+
 @pytest.fixture
 def sample_pmx_file(test_data_dir):
     """返回示例PMX文件路径"""

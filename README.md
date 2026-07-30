@@ -6,9 +6,9 @@
 
 Python MikuMikuDance File Parser Library
 
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.7.1-orange.svg)](https://github.com/pypmxvmd/pypmxvmd)
+[![Version](https://img.shields.io/badge/version-2.7.1-orange.svg)](https://github.com/271374667/pypmxvmd)
 
 PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files, supporting the following formats:
 
@@ -24,34 +24,33 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 - Complete type annotation support
 - Optional Cython acceleration for core parsing and binary I/O (VMD/PMX, binary read/write)
 - No external dependencies (core functionality)
-- Supports Python 3.8+
+- Uses Python 3.11 as the supported development and release baseline
 
 ## Installation
 
 ```bash
-# Install from PyPI
-pip install pypmxvmd
+# Add the released package to a uv project
+uv add pypmxvmd
 
-# Install from source
-git clone https://github.com/pypmxvmd/pypmxvmd.git
+# Prepare a source checkout for development
+git clone https://github.com/271374667/pypmxvmd.git
 cd pypmxvmd
-pip install -e .
-
-# Install development dependencies
-pip install -e ".[dev]"
+uv sync --group dev --python 3.11.12
 ```
 
 ### Optional: Build Cython Accelerators
 
 The core parsing path supports Cython-accelerated modules for VMD/PMX and binary I/O.
-In typical workloads, the Cython implementation is ~3.7x faster on average than the previous implementation.
-Prebuilt wheels are provided for Windows (cp38-cp313). Other platforms or versions compile locally.
-If the compiled modules are not available, the library automatically falls back to pure Python.
+`uv sync` builds the three native extensions through the project's setuptools backend.
+The runtime automatically falls back to pure Python when compiled modules are unavailable.
 
 ```bash
-pip install cython
-python scripts/build_cython.py
+uv run --python 3.11.12 --no-sync python scripts/build_cython.py
+uv run --python 3.11.12 --no-sync pytest tests/test_cython_parsers.py -m "cython and not benchmark" -ra
 ```
+
+Set `PYPMXVMD_BUILD_CYTHON=0` before `uv sync` when a pure-Python environment is
+required explicitly.
 
 ## Quick Start
 
@@ -218,7 +217,6 @@ pypmxvmd/                     # Main package
     io/                       # Binary/text IO (+ Cython accel)
     models/                   # Data models (VMD/PMX/VPD)
     parsers/                  # Parsers (+ fast modules)
-    validators/               # Validation helpers
 docs/                         # Documentation
   API.md                      # English API
   API_CN.md                   # 中文 API
@@ -232,38 +230,41 @@ tests/                        # Tests + fixtures
 ## Testing
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run correctness tests, including a local corpus when present
+uv run --python 3.11.12 --no-sync pytest -m "not benchmark" -ra
 
-# Run specific test
-pytest tests/test_vmd_parser.py -v
+# Run the local PMX/VMD corpus only
+uv run --python 3.11.12 --no-sync pytest -m corpus -ra
 
 # Run coverage test
-pytest tests/ --cov=pypmxvmd --cov-report=html
+uv run --python 3.11.12 --no-sync pytest --cov=pypmxvmd --cov-report=html
 ```
 
 ## Development
 
 ```bash
-# Install development dependencies
-pip install -e ".[dev]"
+# Resolve and install the locked development environment
+uv sync --group dev --python 3.11.12
 
 # Code formatting
-black pypmxvmd/
-isort pypmxvmd/
+uv run --python 3.11.12 --no-sync black --check pypmxvmd tests scripts
+uv run --python 3.11.12 --no-sync isort --check-only pypmxvmd tests scripts
 
 # Type checking
-mypy pypmxvmd/
+uv run --python 3.11.12 --no-sync mypy pypmxvmd
 
 # Code linting
-flake8 pypmxvmd/
+uv run --python 3.11.12 --no-sync flake8 pypmxvmd tests scripts
+
+# Build sdist and the platform wheel
+uv build
 ```
 
 ## Changelog
 
 ### v2.7.1
 - Updated core parsers and binary I/O with Cython fast paths
-- Added/expanded Windows wheel builds (cp38-cp313)
+- Restored the Windows CPython 3.11 native wheel build
 - Improved text format auto-detection and test coverage
 
 ### v2.5.1

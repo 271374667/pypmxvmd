@@ -1545,7 +1545,11 @@ class VmdParser:
             lines.append('\t'.join(["frame_num", "mode", "shadowrange"]))
             
             for frame in shadow_frames:
-                row = [str(frame.frame_number), str(frame.shadow_mode), f"{frame.distance:.6f}"]
+                row = [
+                    str(frame.frame_number),
+                    str(int(frame.shadow_mode)),
+                    f"{frame.distance:.6f}",
+                ]
                 lines.append('\t'.join(row))
         
         return lines
