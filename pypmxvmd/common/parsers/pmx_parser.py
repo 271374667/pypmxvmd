@@ -1313,6 +1313,7 @@ class PmxParser:
         for index in range(rigid_body_count):
             self._report_progress(index, rigid_body_count)
             prefix = f"rigidbodies[{index}]"
+            record_start = cursor.position
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
             bone_index = cursor.read_index_field(
@@ -1393,6 +1394,7 @@ class PmxParser:
                     friction=float(friction),
                 )
             )
+            cursor.mark_record(prefix, record_start)
 
         self._report_progress(rigid_body_count, rigid_body_count)
         return rigid_bodies

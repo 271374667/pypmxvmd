@@ -1,4 +1,4 @@
-"""Transactional editing of existing PMX 2.0 Bone records."""
+"""Transactional editing of existing PMX 2.0 variable-width records."""
 
 from __future__ import annotations
 
@@ -7,19 +7,34 @@ import struct
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Callable, Iterable, Optional, Sequence, TypeVar, cast
 
-from pypmxvmd.common.models.pmx import PmxBone, PmxBoneIkLink, PmxModel
+from pypmxvmd.common.models.pmx import PmxBone, PmxBoneIkLink, PmxModel, PmxRigidBody
 from pypmxvmd.common.pmx.document import (
     BinaryPatch,
     PmxDocument,
     find_semantic_mismatch,
 )
-from pypmxvmd.common.pmx.errors import PmxBoneEditError, PmxPatchError
+from pypmxvmd.common.pmx.errors import (
+    PmxBoneEditError,
+    PmxPatchError,
+    PmxRigidBodyEditError,
+)
+from pypmxvmd.common.pmx.types import RigidBodyPhysMode, RigidBodyShape
 from pypmxvmd.common.pmx.validator import validate_pmx_model
 
 if TYPE_CHECKING:
     from pypmxvmd.common.models.pmx import PmxHeader
+
+
+RecordT = TypeVar("RecordT")
+
+
+@dataclass(frozen=True, slots=True)
+class _RecordEditOutput:
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,18 +56,13 @@ class PmxBoneEditor:
     def __init__(self, document: PmxDocument) -> None:
         if not isinstance(document, PmxDocument):
             raise TypeError("PmxBoneEditor requires a PmxDocument")
-        try:
-            is_clean = document.encode_lossless() == document.source_bytes
-            for index in range(len(document.model.bones)):
-                document.record_span_for(f"bones[{index}]")
-        except PmxPatchError as exc:
-            raise PmxBoneEditError(
-                "Bone editing requires a clean document with complete Bone record spans"
-            ) from exc
-        if not is_clean:
-            raise PmxBoneEditError(
-                "Bone editing requires an otherwise unmodified PmxDocument"
-            )
+        _require_clean_record_document(
+            document,
+            record_label="Bone",
+            record_prefix="bones",
+            record_count=len(document.model.bones),
+            error_type=PmxBoneEditError,
+        )
 
         self.document = document
         self.model = deepcopy(document.model)
@@ -254,73 +264,20 @@ class PmxBoneEditor:
 
     def encode(self) -> PmxBoneEditResult:
         """Validate, replace changed Bone records, strict-reparse and compare."""
-        if len(self.model.bones) != len(self._baseline_model.bones):
-            raise PmxBoneEditError(
-                "W11a cannot insert or delete Bone records; edit existing records only"
-            )
-        if tuple(id(bone) for bone in self.model.bones) != self._bone_identity_order:
-            raise PmxBoneEditError(
-                "W11a cannot replace or reorder Bone records; edit fields in place"
-            )
-        validate_pmx_model(self.model, limits=self.document.limits, strict_eof=True)
-
-        patches = []
-        for index, bone in enumerate(self.model.bones):
-            span = self.document.record_span_for(f"bones[{index}]")
-            before = self.document.source_bytes[span.start_offset : span.end_offset]
-            try:
-                after = _encode_bone_record(bone, self.model.header)
-            except (UnicodeEncodeError, struct.error, OverflowError) as exc:
-                raise PmxBoneEditError(
-                    f"Could not encode bones[{index}]: {exc}",
-                    field_path=f"bones[{index}]",
-                    offset=span.start_offset,
-                ) from exc
-            if after != before:
-                patches.append(
-                    BinaryPatch(
-                        span.start_offset,
-                        before,
-                        after,
-                        f"replace bones[{index}] record",
-                    )
-                )
-
-        if not patches:
-            mismatch = find_semantic_mismatch(self.model, self._baseline_model)
-            if mismatch is not None:
-                raise PmxBoneEditError(
-                    f"Transaction contains an unsupported non-Bone edit: {mismatch}"
-                )
-            return PmxBoneEditResult(
-                self.document.source_bytes, (), deepcopy(self._baseline_model)
-            )
-
-        output = bytearray(self.document.source_bytes)
-        for patch in reversed(patches):
-            end = patch.end_offset
-            if bytes(output[patch.offset : end]) != patch.before:
-                raise PmxBoneEditError(
-                    "Bone record before bytes do not match the source",
-                    offset=patch.offset,
-                )
-            output[patch.offset : end] = patch.after
-        output_bytes = bytes(output)
-        if len(output_bytes) > self.document.limits.max_source_bytes:
-            raise PmxBoneEditError(
-                "Edited PMX exceeds the configured max_source_bytes limit"
-            )
-
-        try:
-            reparsed = self.document.strict_reparse(output_bytes)
-        except PmxPatchError as exc:
-            raise PmxBoneEditError(str(exc)) from exc
-        mismatch = find_semantic_mismatch(reparsed, self.model)
-        if mismatch is not None:
-            raise PmxBoneEditError(
-                f"Bone transaction changed semantics outside its intent: {mismatch}"
-            )
-        return PmxBoneEditResult(output_bytes, tuple(patches), reparsed)
+        output = _encode_record_transaction(
+            document=self.document,
+            model=self.model,
+            baseline_model=self._baseline_model,
+            records=self.model.bones,
+            baseline_records=self._baseline_model.bones,
+            record_identity_order=self._bone_identity_order,
+            record_prefix="bones",
+            record_label="Bone",
+            stage="W11a",
+            encoder=_encode_bone_record,
+            error_type=PmxBoneEditError,
+        )
+        return PmxBoneEditResult(output.output_bytes, output.patches, output.model)
 
     def write_file(self, file_path: str | Path) -> PmxBoneEditResult:
         """Verify the complete transaction, then atomically replace the target."""
@@ -339,9 +296,219 @@ class PmxBoneEditor:
         return index
 
 
+@dataclass(frozen=True, slots=True)
+class PmxRigidBodyEditResult:
+    """Verified output produced by one existing-record Rigid Body transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+
+    @property
+    def changed_record_count(self) -> int:
+        return len(self.patches)
+
+
+class PmxRigidBodyEditor:
+    """Isolated transaction for modifying existing Rigid Body records only."""
+
+    def __init__(self, document: PmxDocument) -> None:
+        if not isinstance(document, PmxDocument):
+            raise TypeError("PmxRigidBodyEditor requires a PmxDocument")
+        _require_clean_record_document(
+            document,
+            record_label="Rigid Body",
+            record_prefix="rigidbodies",
+            record_count=len(document.model.rigidbodies),
+            error_type=PmxRigidBodyEditError,
+        )
+
+        self.document = document
+        self.model = deepcopy(document.model)
+        self._baseline_model = deepcopy(document.model)
+        self._rigid_body_identity_order = tuple(
+            id(body) for body in self.model.rigidbodies
+        )
+
+    def rigid_body(self, rigid_body_index: int) -> PmxRigidBody:
+        """Return the transaction-local Rigid Body object for inspection."""
+        return self.model.rigidbodies[self._rigid_body_index(rigid_body_index)]
+
+    def set_names(
+        self,
+        rigid_body_index: int,
+        *,
+        name_jp: Optional[str] = None,
+        name_en: Optional[str] = None,
+    ) -> "PmxRigidBodyEditor":
+        body = self.rigid_body(rigid_body_index)
+        if name_jp is None and name_en is None:
+            raise PmxRigidBodyEditError("set_names requires name_jp and/or name_en")
+        if name_jp is not None:
+            if not isinstance(name_jp, str):
+                raise PmxRigidBodyEditError("Rigid Body Japanese name must be a string")
+            body.name_jp = name_jp
+        if name_en is not None:
+            if not isinstance(name_en, str):
+                raise PmxRigidBodyEditError("Rigid Body English name must be a string")
+            body.name_en = name_en
+        return self
+
+    def set_bone(self, rigid_body_index: int, bone_index: int) -> "PmxRigidBodyEditor":
+        self.rigid_body(rigid_body_index).bone_index = _integer(
+            bone_index, "rigid_body.bone_index", PmxRigidBodyEditError
+        )
+        return self
+
+    def set_collision(
+        self,
+        rigid_body_index: int,
+        *,
+        collision_group: Optional[int] = None,
+        collision_mask: Optional[int] = None,
+    ) -> "PmxRigidBodyEditor":
+        if collision_group is None and collision_mask is None:
+            raise PmxRigidBodyEditError(
+                "set_collision requires collision_group and/or collision_mask"
+            )
+        body = self.rigid_body(rigid_body_index)
+        if collision_group is not None:
+            body.collision_group = _bounded_integer(
+                collision_group,
+                "rigid_body.collision_group",
+                0,
+                15,
+                PmxRigidBodyEditError,
+            )
+        if collision_mask is not None:
+            body.collision_mask = _bounded_integer(
+                collision_mask,
+                "rigid_body.collision_mask",
+                0,
+                0xFFFF,
+                PmxRigidBodyEditError,
+            )
+        return self
+
+    def set_shape(
+        self, rigid_body_index: int, shape: RigidBodyShape | int
+    ) -> "PmxRigidBodyEditor":
+        self.rigid_body(rigid_body_index).shape = _enum_member(
+            shape, RigidBodyShape, "rigid_body.shape", PmxRigidBodyEditError
+        )
+        return self
+
+    def set_size(
+        self, rigid_body_index: int, size: Sequence[float]
+    ) -> "PmxRigidBodyEditor":
+        self.rigid_body(rigid_body_index).size = _vector3(
+            size, "rigid_body.size", PmxRigidBodyEditError
+        )
+        return self
+
+    def set_position(
+        self, rigid_body_index: int, position: Sequence[float]
+    ) -> "PmxRigidBodyEditor":
+        self.rigid_body(rigid_body_index).position = _vector3(
+            position, "rigid_body.position", PmxRigidBodyEditError
+        )
+        return self
+
+    def set_rotation(
+        self, rigid_body_index: int, rotation: Sequence[float]
+    ) -> "PmxRigidBodyEditor":
+        self.rigid_body(rigid_body_index).rotation = _vector3(
+            rotation, "rigid_body.rotation", PmxRigidBodyEditError
+        )
+        return self
+
+    def set_physics_mode(
+        self, rigid_body_index: int, physics_mode: RigidBodyPhysMode | int
+    ) -> "PmxRigidBodyEditor":
+        self.rigid_body(rigid_body_index).physics_mode = _enum_member(
+            physics_mode,
+            RigidBodyPhysMode,
+            "rigid_body.physics_mode",
+            PmxRigidBodyEditError,
+        )
+        return self
+
+    def set_physical_parameters(
+        self,
+        rigid_body_index: int,
+        *,
+        mass: Optional[float] = None,
+        move_damping: Optional[float] = None,
+        rotation_damping: Optional[float] = None,
+        repulsion: Optional[float] = None,
+        friction: Optional[float] = None,
+    ) -> "PmxRigidBodyEditor":
+        updates = {
+            "mass": mass,
+            "move_damping": move_damping,
+            "rotation_damping": rotation_damping,
+            "repulsion": repulsion,
+            "friction": friction,
+        }
+        if all(value is None for value in updates.values()):
+            raise PmxRigidBodyEditError(
+                "set_physical_parameters requires at least one parameter"
+            )
+        body = self.rigid_body(rigid_body_index)
+        for name, value in updates.items():
+            if value is not None:
+                number = _number(value, f"rigid_body.{name}", PmxRigidBodyEditError)
+                if name == "mass" and number < 0:
+                    raise PmxRigidBodyEditError(
+                        "rigid_body.mass must be non-negative",
+                        field_path="rigid_body.mass",
+                    )
+                setattr(body, name, number)
+        return self
+
+    def encode(self) -> PmxRigidBodyEditResult:
+        """Validate, replace changed records, strict-reparse and compare."""
+        output = _encode_record_transaction(
+            document=self.document,
+            model=self.model,
+            baseline_model=self._baseline_model,
+            records=self.model.rigidbodies,
+            baseline_records=self._baseline_model.rigidbodies,
+            record_identity_order=self._rigid_body_identity_order,
+            record_prefix="rigidbodies",
+            record_label="Rigid Body",
+            stage="W11b",
+            encoder=_encode_rigid_body_record,
+            error_type=PmxRigidBodyEditError,
+        )
+        return PmxRigidBodyEditResult(output.output_bytes, output.patches, output.model)
+
+    def write_file(self, file_path: str | Path) -> PmxRigidBodyEditResult:
+        """Verify the complete transaction, then atomically replace the target."""
+        from pypmxvmd.common.pmx.writer import PmxWriter
+
+        result = self.encode()
+        PmxWriter._atomic_write(Path(file_path), result.output_bytes)
+        return result
+
+    def _rigid_body_index(self, rigid_body_index: int) -> int:
+        index = _integer(rigid_body_index, "rigid_body_index", PmxRigidBodyEditError)
+        if not 0 <= index < len(self.model.rigidbodies):
+            raise PmxRigidBodyEditError(
+                "Rigid Body index "
+                f"{index} is outside 0..{len(self.model.rigidbodies) - 1}"
+            )
+        return index
+
+
 def edit_pmx_bones(document: PmxDocument) -> PmxBoneEditor:
     """Create a W11a Bone transaction from a clean source-backed document."""
     return PmxBoneEditor(document)
+
+
+def edit_pmx_rigid_bodies(document: PmxDocument) -> PmxRigidBodyEditor:
+    """Create a W11b Rigid Body transaction from a clean document."""
+    return PmxRigidBodyEditor(document)
 
 
 def ik_link(
@@ -371,6 +538,113 @@ def ik_link(
         limit_max=maximum,
         has_limits=True,
     )
+
+
+def _require_clean_record_document(
+    document: PmxDocument,
+    *,
+    record_label: str,
+    record_prefix: str,
+    record_count: int,
+    error_type: type[PmxPatchError],
+) -> None:
+    try:
+        is_clean = document.encode_lossless() == document.source_bytes
+        for index in range(record_count):
+            document.record_span_for(f"{record_prefix}[{index}]")
+    except PmxPatchError as exc:
+        raise error_type(
+            f"{record_label} editing requires a clean document with complete "
+            f"{record_label} record spans"
+        ) from exc
+    if not is_clean:
+        raise error_type(
+            f"{record_label} editing requires an otherwise unmodified PmxDocument"
+        )
+
+
+def _encode_record_transaction(
+    *,
+    document: PmxDocument,
+    model: PmxModel,
+    baseline_model: PmxModel,
+    records: Sequence[RecordT],
+    baseline_records: Sequence[RecordT],
+    record_identity_order: tuple[int, ...],
+    record_prefix: str,
+    record_label: str,
+    stage: str,
+    encoder: Callable[[RecordT, "PmxHeader"], bytes],
+    error_type: type[PmxPatchError],
+) -> _RecordEditOutput:
+    if len(records) != len(baseline_records):
+        raise error_type(
+            f"{stage} cannot insert or delete {record_label} records; "
+            "edit existing records only"
+        )
+    if tuple(id(record) for record in records) != record_identity_order:
+        raise error_type(
+            f"{stage} cannot replace or reorder {record_label} records; "
+            "edit fields in place"
+        )
+    validate_pmx_model(model, limits=document.limits, strict_eof=True)
+
+    patches = []
+    for index, record in enumerate(records):
+        field_path = f"{record_prefix}[{index}]"
+        span = document.record_span_for(field_path)
+        before = document.source_bytes[span.start_offset : span.end_offset]
+        try:
+            after = encoder(record, model.header)
+        except (KeyError, UnicodeEncodeError, struct.error, OverflowError) as exc:
+            raise error_type(
+                f"Could not encode {field_path}: {exc}",
+                field_path=field_path,
+                offset=span.start_offset,
+            ) from exc
+        if after != before:
+            patches.append(
+                BinaryPatch(
+                    span.start_offset,
+                    before,
+                    after,
+                    f"replace {field_path} record",
+                )
+            )
+
+    if not patches:
+        mismatch = find_semantic_mismatch(model, baseline_model)
+        if mismatch is not None:
+            raise error_type(
+                "Transaction contains an unsupported "
+                f"non-{record_label} edit: {mismatch}"
+            )
+        return _RecordEditOutput(document.source_bytes, (), deepcopy(baseline_model))
+
+    output = bytearray(document.source_bytes)
+    for patch in reversed(patches):
+        end = patch.end_offset
+        if bytes(output[patch.offset : end]) != patch.before:
+            raise error_type(
+                f"{record_label} record before bytes do not match the source",
+                offset=patch.offset,
+            )
+        output[patch.offset : end] = patch.after
+    output_bytes = bytes(output)
+    if len(output_bytes) > document.limits.max_source_bytes:
+        raise error_type("Edited PMX exceeds the configured max_source_bytes limit")
+
+    try:
+        reparsed = document.strict_reparse(output_bytes)
+    except PmxPatchError as exc:
+        raise error_type(str(exc)) from exc
+    mismatch = find_semantic_mismatch(reparsed, model)
+    if mismatch is not None:
+        raise error_type(
+            f"{record_label} transaction changed semantics outside its intent: "
+            f"{mismatch}"
+        )
+    return _RecordEditOutput(output_bytes, tuple(patches), reparsed)
 
 
 def _encode_bone_record(bone: PmxBone, header: "PmxHeader") -> bytes:
@@ -415,6 +689,31 @@ def _encode_bone_record(bone: PmxBone, header: "PmxHeader") -> bytes:
     return bytes(data)
 
 
+def _encode_rigid_body_record(body: PmxRigidBody, header: "PmxHeader") -> bytes:
+    data = bytearray()
+    data.extend(_string(body.name_jp, header.text_encoding))
+    data.extend(_string(body.name_en, header.text_encoding))
+    data.extend(_index(body.bone_index, header.bone_index_size))
+    data.extend(struct.pack("<BH", body.collision_group, body.collision_mask))
+    data.extend(struct.pack("<B", int(body.shape)))
+    data.extend(_floats(body.size))
+    data.extend(_floats(body.position))
+    data.extend(_floats(body.rotation))
+    data.extend(
+        _floats(
+            (
+                body.mass,
+                body.move_damping,
+                body.rotation_damping,
+                body.repulsion,
+                body.friction,
+            )
+        )
+    )
+    data.extend(struct.pack("<B", int(body.physics_mode)))
+    return bytes(data)
+
+
 def _string(value: str, encoding: str) -> bytes:
     encoded = value.encode(encoding)
     return struct.pack("<i", len(encoded)) + encoded
@@ -429,18 +728,57 @@ def _floats(values: Iterable[float]) -> bytes:
     return struct.pack(f"<{len(values_tuple)}f", *values_tuple)
 
 
-def _integer(value: int, field: str) -> int:
+def _integer(
+    value: int,
+    field: str,
+    error_type: type[PmxPatchError] = PmxBoneEditError,
+) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise PmxBoneEditError(f"{field} must be an integer", field_path=field)
+        raise error_type(f"{field} must be an integer", field_path=field)
     return value
 
 
-def _number(value: float, field: str) -> float:
+def _bounded_integer(
+    value: int,
+    field: str,
+    minimum: int,
+    maximum: int,
+    error_type: type[PmxPatchError],
+) -> int:
+    result = _integer(value, field, error_type)
+    if not minimum <= result <= maximum:
+        raise error_type(f"{field} must be in {minimum}..{maximum}", field_path=field)
+    return result
+
+
+EnumT = TypeVar("EnumT")
+
+
+def _enum_member(
+    value: int,
+    enum_type: type[EnumT],
+    field: str,
+    error_type: type[PmxPatchError],
+) -> EnumT:
+    integer = _integer(value, field, error_type)
+    try:
+        return enum_type(integer)
+    except ValueError as exc:
+        raise error_type(
+            f"{field} is not a valid {enum_type.__name__}", field_path=field
+        ) from exc
+
+
+def _number(
+    value: float,
+    field: str,
+    error_type: type[PmxPatchError] = PmxBoneEditError,
+) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise PmxBoneEditError(f"{field} must be numeric", field_path=field)
+        raise error_type(f"{field} must be numeric", field_path=field)
     result = float(value)
     if not math.isfinite(result):
-        raise PmxBoneEditError(f"{field} must be finite", field_path=field)
+        raise error_type(f"{field} must be finite", field_path=field)
     return result
 
 
@@ -450,17 +788,27 @@ def _boolean(value: bool, field: str) -> bool:
     return value
 
 
-def _vector3(value: Sequence[float], field: str) -> list[float]:
+def _vector3(
+    value: Sequence[float],
+    field: str,
+    error_type: type[PmxPatchError] = PmxBoneEditError,
+) -> list[float]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise PmxBoneEditError(f"{field} must be a 3-value sequence", field_path=field)
+        raise error_type(f"{field} must be a 3-value sequence", field_path=field)
     if len(value) != 3:
-        raise PmxBoneEditError(f"{field} must contain 3 values", field_path=field)
-    return [_number(item, f"{field}[{index}]") for index, item in enumerate(value)]
+        raise error_type(f"{field} must contain 3 values", field_path=field)
+    return [
+        _number(item, f"{field}[{index}]", error_type)
+        for index, item in enumerate(value)
+    ]
 
 
 __all__ = [
     "PmxBoneEditResult",
     "PmxBoneEditor",
+    "PmxRigidBodyEditResult",
+    "PmxRigidBodyEditor",
     "edit_pmx_bones",
+    "edit_pmx_rigid_bodies",
     "ik_link",
 ]

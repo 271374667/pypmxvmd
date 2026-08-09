@@ -25,7 +25,7 @@
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
 > fail closed。W5 canonical writer、W7 公共 API 迁移、W9 定长 lossless patch 和
-> W11a 骨骼安全编辑已完成；下一阶段为 W11b 刚体编辑。
+> W11a 骨骼与 W11b 刚体安全编辑已完成；下一阶段为 W11c Joint 编辑。
 
 总体结论：
 
@@ -317,6 +317,7 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [x] Bone 模型及 reader：全 flags、inherit、axes、external parent 和 IK。
 - [x] Bone writer 与 read → write → read。
 - [x] 现有 Bone record 事务化 S2 编辑：变长名称、两种 tail、全 flags/条件载荷与 IK。
+- [x] 现有 Rigid Body record 事务化 S2 编辑：变长名称、三形状/模式、mask、姿态与物理参数。
 - [x] 所有 PMX 2.0 Morph reader/model，Bone 旋转保留原始 quaternion。
 - [x] Display frame reader/model。
 - [x] Rigid body reader/model。
@@ -330,7 +331,9 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 Group Morph 36、UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 741 条记录。
 该结果证明 canonical S0/S1 读写覆盖。W11a 另以 22 项测试证明现有 Bone record
 的 S2 事务编辑；其中 7 个 UTF-16 真实 PMX 执行变长名称和层级联合修改，非目标字节及
-原件 SHA-256 均不变。该结果不代表其他页面已达 S2。
+原件 SHA-256 均不变。W11b 以 44 项测试证明现有 Rigid Body record 的 S2 事务编辑，
+覆盖三形状/模式、16 组 mask、五个物理参数、1/2/4 字节 Bone index，并对 7 个真实 PMX
+只写临时输出且原件 SHA-256 不变。该结果不代表 Joint、材质或 PMX 2.1 页面已达 S2。
 
 ## P2：完整 PMX 2.1
 

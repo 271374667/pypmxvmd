@@ -132,17 +132,19 @@ Cursor. Until the native ABI is completed, explicit `cython` still executes its
 probe but returns the Cursor's canonical semantic model. This legacy-compatible
 helper is equivalent to `load_pmx(..., mode="partial")`. With
 `track_spans=True`, `field_spans` contains the registered fixed-width fields and
-`record_spans` contains exact existing Bone record ranges.
+`record_spans` contains exact existing Bone and Rigid Body record ranges.
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 Strict-load an immutable source snapshot, canonical model, parse report, section
-evidence, fixed-width field spans, and exact existing Bone record spans. The first
+evidence, fixed-width field spans, and exact existing Bone/Rigid Body record
+spans. The first
 lossless stage registers selected directly mapped numeric, enum, index, flags, and
-vector fields in existing Material, Bone, Rigid Body, and Joint records. Bone record
-spans additionally support the W11a transaction below. Other variable-length strings,
+vector fields in existing Material, Bone, Rigid Body, and Joint records. Bone and
+Rigid Body record spans additionally support the W11a/W11b transactions below.
+Other variable-length strings,
 Material texture/Toon references, collection insertion/deletion, and layout-changing
 flags are deliberately not registered.
 
@@ -194,6 +196,39 @@ records using the source encoding and Bone index width, validates the complete
 model, strict-reparses the candidate bytes, and compares all model semantics.
 Bone insertion, deletion, object replacement/reordering, and global index
 renumbering are outside W11a and raise `PmxBoneEditError`.
+
+---
+
+#### `PmxDocument.edit_rigid_bodies() -> PmxRigidBodyEditor` / `pypmxvmd.edit_pmx_rigid_bodies(document)`
+
+Create an isolated transaction for editing existing PMX 2.0 Rigid Body records.
+The editor supports variable-length Japanese/English names, Bone references
+including the `-1` sentinel, all sphere/box/capsule shapes, all three physics
+modes, raw collision group/mask, size/position/rotation (rotation remains in
+radians), and mass/move damping/rotation damping/repulsion/friction.
+
+```python
+from pypmxvmd.common.pmx import RigidBodyShape
+
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_rigid_bodies()
+editor.set_names(0, name_en="body")
+editor.set_bone(0, -1)
+editor.set_shape(0, RigidBodyShape.CAPSULE)
+editor.set_collision(0, collision_group=3, collision_mask=0xFFF7)
+editor.set_rotation(0, [0.0, 0.25, 0.0])  # radians
+editor.set_physical_parameters(0, mass=1.5, friction=0.6)
+result = editor.write_file("rigid-body-edited.pmx")
+print(result.changed_record_count)
+```
+
+`encode()` returns a verified `PmxRigidBodyEditResult` without writing;
+`write_file()` validates and atomically replaces the target. The transaction
+uses the source encoding and Bone index width, rebuilds only changed Rigid Body
+records, strict-reparses the complete output, and compares all model semantics.
+Rigid Body insertion, deletion, object replacement/reordering, and global index
+renumbering are outside W11b and raise `PmxRigidBodyEditError`; existing Joint
+Rigid Body indices therefore retain their meaning.
 
 ---
 

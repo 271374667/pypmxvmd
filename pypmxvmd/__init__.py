@@ -46,13 +46,17 @@ from .common.pmx import (
     PmxParseReport,
     PmxParseResult,
     PmxPatchError,
+    PmxRigidBodyEditError,
     PmxValidationError,
     UnsupportedPmxFeatureError,
 )
 from .common.pmx.editing import (
     PmxBoneEditor,
     PmxBoneEditResult,
+    PmxRigidBodyEditor,
+    PmxRigidBodyEditResult,
     edit_pmx_bones,
+    edit_pmx_rigid_bodies,
     ik_link,
 )
 
@@ -645,7 +649,10 @@ __all__ = [
     "PmxDocument",
     "PmxBoneEditResult",
     "PmxBoneEditor",
+    "PmxRigidBodyEditResult",
+    "PmxRigidBodyEditor",
     "edit_pmx_bones",
+    "edit_pmx_rigid_bodies",
     "ik_link",
     "PmxParseReport",
     "PmxParseResult",
@@ -653,6 +660,7 @@ __all__ = [
     "IncompletePmxWriterError",
     "PmxValidationError",
     "PmxBoneEditError",
+    "PmxRigidBodyEditError",
     "PmxPatchError",
     "UnsupportedPmxFeatureError",
     "VpdPose",

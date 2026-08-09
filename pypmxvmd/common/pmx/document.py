@@ -292,6 +292,12 @@ class PmxDocument:
 
         return PmxBoneEditor(self)
 
+    def edit_rigid_bodies(self) -> "PmxRigidBodyEditor":
+        """Create an isolated transaction for editing existing Rigid Body records."""
+        from pypmxvmd.common.pmx.editing import PmxRigidBodyEditor
+
+        return PmxRigidBodyEditor(self)
+
     def span_for(self, field_path: str | FieldPath) -> BinarySpan:
         path = (
             field_path if isinstance(field_path, FieldPath) else FieldPath(field_path)

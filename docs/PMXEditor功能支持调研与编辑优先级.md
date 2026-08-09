@@ -3,7 +3,7 @@
 > 调研日期：2026-07-30
 >
 > 状态：长期路线已确认；PMX 2.0 canonical 读写、validator、
-> PmxDocument/lossless patch 和 W11a 骨骼安全编辑已完成；下一步为 W11b 刚体编辑
+> PmxDocument/lossless patch、W11a 骨骼和 W11b 刚体安全编辑已完成；下一步为 W11c Joint 编辑
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -22,15 +22,15 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
 - PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
   Spring 6DOF Joint 已完成 canonical 读写与集中验证。
-- W11a 已公开现有 Bone record 的事务化 S2 编辑；刚体、Joint、材质和
+- W11a/W11b 已公开现有 Bone/Rigid Body record 的事务化 S2 编辑；Joint、材质和
   Soft Body 页面仍未达到 S2。
 
-因此当前不能承诺全面 PMXEditor 编辑；只有现有骨骼记录已达到本文定义的 S2。
+因此当前不能承诺全面 PMXEditor 编辑；只有现有骨骼和刚体记录已达到本文定义的 S2。
 
 | 页面/范围 | 当前读取 | 当前编辑结论 |
 |---|---|---|
 | 骨骼 | PMX 2.0 S0/S1 字段已 canonical 读写，含“表示先”和 IK | W11a 已达 S2；可重建现有 record，不可增删/重排骨骼 |
-| 刚体 | 三形状、三模式、group/mask 与物理参数已 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
+| 刚体 | 三形状、三模式、group/mask 与物理参数已 canonical 读写 | W11b 已达 S2；可重建现有 record，不可增删/重排刚体 |
 | Joint | Spring 6DOF 全向量按原始弧度 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
 | 材质 | 全序列化字段已读取 | “同步扩散-环境”仍是未来 S3 命令 |
 | Soft Body/PMX 2.1 | 未实现，明确 fail closed | 长期计划 |
@@ -87,17 +87,21 @@ W11a 通过记录级 span 重编码整个 Bone record，因此能安全处理两
 
 | PMXEditor 控件 | PMX 语义字段 | 目标 |
 |---|---|---|
-| 刚体名、英名 | `name_jp`、`name_en` | S2 |
-| 关联骨骼 | `bone_index`，包括合法的无骨骼 sentinel | S2 |
-| 刚体类型 | bone-follow / physics / physics+bone 的 mode enum | S2 |
-| 形状 | sphere / box / capsule enum | S2 |
-| 尺寸、位置、旋转 | `size`、`position`、`rotation` | S2 |
-| group | 4-bit group 值 | S2 |
-| 非冲突 group | 16-bit collision mask，UI 的 16 个复选框 | S2，保留 mask 而不是不稳定 list 转换 |
-| 质量、移动阻尼、旋转阻尼、反发力、摩擦力 | 五个物理参数 | S2 |
+| 刚体名、英名 | `name_jp`、`name_en` | W11b S2 已完成，支持变长字符串 |
+| 关联骨骼 | `bone_index`，包括合法的无骨骼 sentinel | W11b S2 已完成 |
+| 刚体类型 | bone-follow / physics / physics+bone 的 mode enum | W11b S2 已完成 |
+| 形状 | sphere / box / capsule enum | W11b S2 已完成 |
+| 尺寸、位置、旋转 | `size`、`position`、`rotation` | W11b S2 已完成，旋转保留原始弧度 |
+| group | 4-bit group 值 | W11b S2 已完成 |
+| 非冲突 group | 16-bit collision mask，UI 的 16 个复选框 | W11b S2 已完成，保留原始 mask |
+| 质量、移动阻尼、旋转阻尼、反发力、摩擦力 | 五个物理参数 | W11b S2 已完成 |
 
 进入刚体编辑前，必须先完成骨骼引用验证。修改或删除骨骼时必须明确阻止、重绑定或同时
 更新引用，不能留下悬空 `bone_index`。刚体阶段还必须保证现有 Joint 的刚体索引不被破坏。
+
+W11b 通过 `PmxRigidBodyEditor` 在隔离副本中修改现有记录，并使用精确 record span
+重建变长日/英名及全部刚体字段。事务在落盘前集中验证骨骼/Joint 引用，strict reparse
+并比较全模型语义；刚体集合增删、对象替换/重排和全局 index 重编号仍 fail closed。
 
 ### 3.3 Joint：第三优先级
 
@@ -185,8 +189,8 @@ Header -> Vertex -> Face -> Texture -> Material -> Bone -> Morph
    完整性报告、全部 section 和 partial 模型拒写。
 2. `[W11a 已完成]` 现有骨骼 record 的 S2/S3：包含“表示先”两种形式和全部
    PMX 2.0 IK/付与/轴/外部亲字段；集合增删/重排未开放。
-3. `[W11b 下一步]` 刚体 S1/S2/S3：包含完整 collision mask 与骨骼/Joint 引用保护。
-4. PMX 2.0 Joint S1/S2/S3：包含 Spring 6DOF 全字段与单位一致性。
+3. `[W11b 已完成]` 刚体 S1/S2：包含完整 collision mask 与骨骼/Joint 引用保护。
+4. `[W11c 下一步]` PMX 2.0 Joint S1/S2/S3：包含 Spring 6DOF 全字段与单位一致性。
 5. 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
 6. PMX 2.1 / Soft Body：完整字段、Anchor/Pin、PMX 2.1 Morph/Joint。
 7. 顶点、面、Morph、表示枠的高层编辑。

@@ -127,15 +127,22 @@ editor = document.edit_bones()
 editor.set_deform_layer(0, 2)
 editor.set_tail_offset(0, [0.0, 1.0, 0.0])
 editor.write_file("bone-edited.pmx")
+
+# Transactional editing of an existing Rigid Body record
+editor = document.edit_rigid_bodies()
+editor.set_bone(0, -1)  # legal no-Bone sentinel
+editor.set_collision(0, collision_group=0, collision_mask=0xFFFE)
+editor.set_physical_parameters(0, mass=1.0, friction=0.5)
+editor.write_file("rigid-body-edited.pmx")
 ```
 
 `document`/field-span reads and fixed-width `lossless_patch` writes are available
 for selected directly mapped Material, Bone, Rigid Body, and Joint fields. Every patch is
 range/before-byte checked, strict-reparsed, and compared against the edited model.
-Outside the Bone transaction described below, variable-length strings, Material
-texture/Toon references, record insertion/deletion, layout-changing flags, PMX
-2.1, and `preserve_layout` remain unsupported and fail closed. Lossless mode
-never silently falls back to canonical output.
+Outside the Bone and Rigid Body transactions described below, variable-length
+strings, Material texture/Toon references, record insertion/deletion,
+layout-changing flags, PMX 2.1, and `preserve_layout` remain unsupported and
+fail closed. Lossless mode never silently falls back to canonical output.
 
 `PmxBoneEditor` additionally supports all PMX 2.0 fields of existing Bone
 records: variable-length names, position/parent/deform layer, basic flags, both
@@ -143,6 +150,13 @@ tail modes, inheritance, fixed/local axes, external parent, and IK links/limits.
 It rebuilds only changed Bone records, validates the complete model, strict-
 reparses the result, and writes atomically. Bone insertion, deletion, replacement,
 reordering, and global index renumbering remain unsupported and fail closed.
+
+`PmxRigidBodyEditor` supports all fields of existing PMX 2.0 Rigid Body
+records: variable-length names, Bone reference including `-1`, three shapes and
+physics modes, raw collision group/mask, size/position/rotation in source units,
+and all five physical parameters. It rebuilds only changed records and preserves
+existing Joint index semantics. Rigid Body insertion, deletion, replacement, and
+reordering remain unsupported and fail closed.
 
 ### Text Format Conversion
 

@@ -153,16 +153,17 @@ document = pypmxvmd.load_pmx("character.pmx", mode="document")
 资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
 Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
 传入 `track_spans=True` 时，`field_spans` 保存已登记的定长字段，`record_spans`
-保存现有 Bone record 的精确字节范围。
+保存现有 Bone 和 Rigid Body record 的精确字节范围。
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据、字段
-span 和现有 Bone record 的精确 span。Material、Bone、Rigid Body、Joint record 中
-可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；Bone record span
-另用于下文 W11a 事务。其他变长字符串、材质纹理/Toon 引用、集合增删和会改变
+span 和现有 Bone/Rigid Body record 的精确 span。Material、Bone、Rigid Body、Joint
+record 中
+可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；Bone 与 Rigid Body
+record span 另用于下文 W11a/W11b 事务。其他变长字符串、材质纹理/Toon 引用、集合增删和会改变
 条件布局的 flags 不登记。
 
 ```python
@@ -207,6 +208,36 @@ print(result.changed_record_count)
 事务从未修改的 `PmxDocument` 开始，使用源文件编码和 Bone index 宽度仅重建
 变更记录，然后验证全模型、strict reparse 并比较全部语义。骨骼增删、对象替换/
 重排和全局 index 重编号不在 W11a 范围，会抛出 `PmxBoneEditError`。
+
+---
+
+#### `PmxDocument.edit_rigid_bodies() -> PmxRigidBodyEditor` / `pypmxvmd.edit_pmx_rigid_bodies(document)`
+
+创建一个隔离的 PMX 2.0 现有 Rigid Body record 编辑事务。已支持日/英变长名称、
+关联 Bone（含合法 `-1` sentinel）、sphere/box/capsule 三形状、三种物理模式、原始
+collision group/mask、size/position/rotation（旋转保持弧度），以及质量、移动阻尼、
+旋转阻尼、反弹力和摩擦力。
+
+```python
+from pypmxvmd.common.pmx import RigidBodyShape
+
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_rigid_bodies()
+editor.set_names(0, name_en="body")
+editor.set_bone(0, -1)
+editor.set_shape(0, RigidBodyShape.CAPSULE)
+editor.set_collision(0, collision_group=3, collision_mask=0xFFF7)
+editor.set_rotation(0, [0.0, 0.25, 0.0])  # 弧度
+editor.set_physical_parameters(0, mass=1.5, friction=0.6)
+result = editor.write_file("rigid-body-edited.pmx")
+print(result.changed_record_count)
+```
+
+`encode()` 只返回已验证的 `PmxRigidBodyEditResult`；`write_file()` 验证后原子替换
+目标。事务使用源文件编码和 Bone index 宽度，仅重建变更的 Rigid Body record，随后
+strict reparse 完整输出并比较全部模型语义。刚体增删、对象替换/重排和全局 index
+重编号不在 W11b 范围，会抛出 `PmxRigidBodyEditError`，因此现有 Joint 刚体索引语义
+保持不变。
 
 ---
 

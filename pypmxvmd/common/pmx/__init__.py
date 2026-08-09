@@ -9,6 +9,7 @@ from pypmxvmd.common.pmx.errors import (
     PmxError,
     PmxFormatError,
     PmxPatchError,
+    PmxRigidBodyEditError,
     PmxValidationError,
     UnsupportedPmxFeatureError,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "PmxBoneEditError",
     "PmxFormatError",
     "PmxPatchError",
+    "PmxRigidBodyEditError",
     "PmxValidationError",
     "UnsupportedPmxFeatureError",
     "PmxByteSpan",
