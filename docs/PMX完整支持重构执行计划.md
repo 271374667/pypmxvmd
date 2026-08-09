@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0-W5、W7、W9 已完成；下一步 W11a 骨骼编辑）
+> 文档状态：执行中（W0-W5、W7、W9、W11a 已完成；下一步 W11b 刚体编辑）
 >
 > 基线日期：2026-07-30
 >
@@ -498,7 +498,7 @@ sdist/wheel 内容校验和用户迁移说明。
 
 交付顺序：
 
-1. **W11a 骨骼**：名称/位置/层级与 flags、`表示先`骨骼/相对、付与、固定轴、Local 轴、
+1. **W11a 骨骼（已完成）**：名称/位置/层级与 flags、`表示先`骨骼/相对、付与、固定轴、Local 轴、
    外部亲和 IK；提供 `set_tail_bone()`、`set_tail_offset()` 等显式操作。退出门槛是两种
    tail 变长 record 都能 read-modify-write-read，Bone/Rigid Body/Morph/Frame 引用无悬空。
 2. **W11b 刚体**：关联骨骼、三种形状/物理模式、group/mask、姿态和五个物理参数；退出
@@ -509,6 +509,12 @@ sdist/wheel 内容校验和用户迁移说明。
    “同步扩散-环境”只作为显式命令，不在读取或普通保存时自动执行。
 
 每个子阶段单独提交和发布能力矩阵；前一页面未达到 S2 验收时不启动下一页面。
+
+2026-08-09 W11a 交付结果：`PmxDocument` 现在保留 Bone record 的精确源 span，
+`PmxBoneEditor` 在隔离副本上修改现有骨骼，并为变长名称和所有条件布局重建整条
+record。位置、parent、`deform_layer`、基本 flags、两种 tail、付与/本地付与、固定轴、
+Local 轴、外部亲和 IK 均有显式命令。事务在写入前完成集中验证、源 `before`
+校验、strict reparse 和全模型语义比较；骨骼集合增删/重排仍 fail closed。
 
 ### W12：长期高层编辑（Vertex、Face、Morph、Display Frame）
 

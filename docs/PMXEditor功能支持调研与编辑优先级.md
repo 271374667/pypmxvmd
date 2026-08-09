@@ -2,8 +2,8 @@
 
 > 调研日期：2026-07-30
 >
-> 状态：长期路线已确认；PMX 2.0 canonical 读写、validator 和公共 API 完成，下一步为
-> PmxDocument/lossless patch
+> 状态：长期路线已确认；PMX 2.0 canonical 读写、validator、
+> PmxDocument/lossless patch 和 W11a 骨骼安全编辑已完成；下一步为 W11b 刚体编辑
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -21,14 +21,15 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
 - 活动 Python reader 已使用 little-endian、bounds-checked Cursor；备用 Nuthouse 的直接
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
 - PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
-  Spring 6DOF Joint 已完成结构与语义读取；W4 完整 validator 已完成，canonical writer
-  尚未完成。
+  Spring 6DOF Joint 已完成 canonical 读写与集中验证。
+- W11a 已公开现有 Bone record 的事务化 S2 编辑；刚体、Joint、材质和
+  Soft Body 页面仍未达到 S2。
 
-因此当前公开 API 不能承诺材料、骨骼、刚体、Joint 或 SoftBody 页面的安全修改和保存。
+因此当前不能承诺全面 PMXEditor 编辑；只有现有骨骼记录已达到本文定义的 S2。
 
 | 页面/范围 | 当前读取 | 当前编辑结论 |
 |---|---|---|
-| 骨骼 | PMX 2.0 S0/S1 字段已 canonical 读写，含“表示先”和 IK | 尚无事务化编辑 API，未达到 S2 |
+| 骨骼 | PMX 2.0 S0/S1 字段已 canonical 读写，含“表示先”和 IK | W11a 已达 S2；可重建现有 record，不可增删/重排骨骼 |
 | 刚体 | 三形状、三模式、group/mask 与物理参数已 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
 | Joint | Spring 6DOF 全向量按原始弧度 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
 | 材质 | 全序列化字段已读取 | “同步扩散-环境”仍是未来 S3 命令 |
@@ -56,31 +57,29 @@ PMXEditor 的一个控件只有达到 S2 才能称为“可编辑”；例如一
 
 | PMXEditor 控件 | PMX 语义字段 | 目标 |
 |---|---|---|
-| 骨骼名、英名 | `name_jp`、`name_en` | S2 |
-| 变形阶层、物理后 | `deform_layer`、`deform_after_phys` flag | S2 |
-| 位置 | `position[3]` | S2 |
-| 性能：旋转、移动、IK、显示、操作 | `rotateable`、`translateable`、`ik`、`visible`、`enabled` flags | S2 |
-| 亲骨骼 | `parent_index` | S2，验证 cycle 与范围 |
-| 表示先：骨骼 | `tail_usebonelink=True` + tail bone index | S2/S3 选择目标骨骼 |
-| 表示先：相对 | `tail_usebonelink=False` + relative `vec3` | S2/S3 编辑相对坐标 |
-| 付与旋转、付与移动、付与率、付与亲 | inherit flags、`inherit_parent_index`、`inherit_ratio` | S2 |
-| 轴限制 | fixed-axis flag、`fixed_axis` | S2 |
-| Local 轴 | local-axis flag、`local_axis_x`、`local_axis_z` | S2 |
-| 外部亲、亲 Key | external-parent flag、`external_parent_index` | S2 |
-| IK Target、Loop、单位角、Link、角度限制 | IK flag、target、loop、angle、links/limits | S2，限制条件完整验证 |
+| 骨骼名、英名 | `name_jp`、`name_en` | W11a S2 已完成，支持变长字符串 |
+| 变形阶层、物理后 | `deform_layer`、`deform_after_phys` flag | W11a S2 已完成 |
+| 位置 | `position[3]` | W11a S2 已完成 |
+| 性能：旋转、移动、IK、显示、操作 | `rotateable`、`translateable`、`ik`、`visible`、`enabled` flags | W11a S2 已完成 |
+| 亲骨骼 | `parent_index` | W11a S2 已完成，验证 cycle 与范围 |
+| 表示先：骨骼 | `tail_usebonelink=True` + tail bone index | W11a S2/S3 已完成：`set_tail_bone()` |
+| 表示先：相对 | `tail_usebonelink=False` + relative `vec3` | W11a S2/S3 已完成：`set_tail_offset()` |
+| 付与旋转、付与移动、付与率、付与亲 | inherit flags、`inherit_parent_index`、`inherit_ratio` | W11a S2 已完成 |
+| 轴限制 | fixed-axis flag、`fixed_axis` | W11a S2 已完成 |
+| Local 轴 | local-axis flag、`local_axis_x`、`local_axis_z` | W11a S2 已完成 |
+| 外部亲、亲 Key | external-parent flag、`external_parent_index` | W11a S2 已完成 |
+| IK Target、Loop、单位角、Link、角度限制 | IK flag、target、loop、angle、links/limits | W11a S2 已完成，条件与引用集中验证 |
 
 #### “表示先”能否修改
 
-未来必须能修改，而且要支持截图中的两种模式：
+当前已能修改，并支持截图中的两种模式：
 
 - **骨骼模式**：显示尾端引用另一个骨骼。文件中写入一个随 Header 指定宽度变化的 bone index。
 - **相对模式**：显示尾端写为相对本骨位置的三个 `float32` 偏移量。
 
-当前 reader 已完整读取 `BoneFlags.tail_usebonelink`、`tail_bone_index` 与 `tail_offset`，
-因此可在内存中区分并设置截图里的“骨骼/相对”两种形式；但尚不能安全写回。两种模式的
-record 长度不同，不能用固定 offset 替换，必须由能重编码整个 Bone record 的
-preserve-layout writer 实现。骨骼编辑阶段先限制为不增加/删除骨骼；集合增删与全局 index
-重编号另开子阶段。
+W11a 通过记录级 span 重编码整个 Bone record，因此能安全处理两种模式的
+长度变化；输出后会 strict reparse 并比较全模型语义。当前仍限制为不增加、删除、
+替换或重排骨骼对象；集合增删与全局 index 重编号另开子阶段。
 
 ### 3.2 刚体：第二优先级
 
@@ -184,8 +183,9 @@ Header -> Vertex -> Face -> Texture -> Material -> Bone -> Morph
 
 1. `[已完成]` PMX 2.0 结构/语义读取基座：little-endian Cursor、EOF、count limits、
    完整性报告、全部 section 和 partial 模型拒写。
-2. 骨骼 S1/S2/S3：包含“表示先”骨骼/相对两种形式和全部 IK/付与/轴/外部亲字段。
-3. 刚体 S1/S2/S3：包含完整 collision mask 与骨骼/Joint 引用保护。
+2. `[W11a 已完成]` 现有骨骼 record 的 S2/S3：包含“表示先”两种形式和全部
+   PMX 2.0 IK/付与/轴/外部亲字段；集合增删/重排未开放。
+3. `[W11b 下一步]` 刚体 S1/S2/S3：包含完整 collision mask 与骨骼/Joint 引用保护。
 4. PMX 2.0 Joint S1/S2/S3：包含 Spring 6DOF 全字段与单位一致性。
 5. 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
 6. PMX 2.1 / Soft Body：完整字段、Anchor/Pin、PMX 2.1 Morph/Joint。

@@ -5,6 +5,7 @@ from pypmxvmd.common.pmx.document import BinaryPatch, BinarySpan, FieldPath, Pmx
 from pypmxvmd.common.pmx.errors import (
     IncompletePmxError,
     IncompletePmxWriterError,
+    PmxBoneEditError,
     PmxError,
     PmxFormatError,
     PmxPatchError,
@@ -33,6 +34,7 @@ __all__ = [
     "IncompletePmxError",
     "IncompletePmxWriterError",
     "PmxError",
+    "PmxBoneEditError",
     "PmxFormatError",
     "PmxPatchError",
     "PmxValidationError",

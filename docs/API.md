@@ -131,18 +131,20 @@ an earlier unsupported PMX 2.1 record. `auto` uses the bounds-checked Python
 Cursor. Until the native ABI is completed, explicit `cython` still executes its
 probe but returns the Cursor's canonical semantic model. This legacy-compatible
 helper is equivalent to `load_pmx(..., mode="partial")`. With
-`track_spans=True`, `field_spans` contains the registered fixed-width fields.
+`track_spans=True`, `field_spans` contains the registered fixed-width fields and
+`record_spans` contains exact existing Bone record ranges.
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 Strict-load an immutable source snapshot, canonical model, parse report, section
-evidence, and fixed-width field spans. The first lossless stage registers selected
-directly mapped numeric, enum, index, flags, and vector fields in existing Material,
-Bone, Rigid Body, and Joint records. Variable-length strings, Material texture/Toon
-references, collection insertion/deletion, and layout-changing flags are deliberately
-not registered.
+evidence, fixed-width field spans, and exact existing Bone record spans. The first
+lossless stage registers selected directly mapped numeric, enum, index, flags, and
+vector fields in existing Material, Bone, Rigid Body, and Joint records. Bone record
+spans additionally support the W11a transaction below. Other variable-length strings,
+Material texture/Toon references, collection insertion/deletion, and layout-changing
+flags are deliberately not registered.
 
 ```python
 document = pypmxvmd.load_pmx_document("model.pmx")
@@ -156,6 +158,42 @@ length, non-overlap and registered field type before writing. It then strict-
 reparses the patched bytes and compares the entire semantic model. A no-op write
 returns the exact original bytes. Unsupported edits raise `PmxPatchError` before
 the target is created or replaced.
+
+---
+
+#### `PmxDocument.edit_bones() -> PmxBoneEditor` / `pypmxvmd.edit_pmx_bones(document)`
+
+Create an isolated transaction for editing existing PMX 2.0 Bone records. The
+editor supports variable-length Japanese/English names, position, parent,
+deform layer, rotatable/translatable/visible/enabled/after-physics flags, both
+tail modes, rotation/translation/local inheritance, fixed and local axes,
+external parent, and complete IK target/loop/angle/link/limit data.
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_bones()
+editor.set_names(0, name_en="center")
+editor.set_deform_layer(0, 2)  # PMXEditor "deform hierarchy"
+editor.set_tail_bone(0, 1)     # or set_tail_offset(0, [0.0, 1.0, 0.0])
+editor.set_ik(
+    0,
+    target_index=1,
+    loop_count=40,
+    angle_limit=0.5,  # radians
+    links=[pypmxvmd.ik_link(1)],
+)
+result = editor.write_file("bone-edited.pmx")
+print(result.changed_record_count)
+```
+
+Conditional flags and their payloads must be changed through the paired
+`set_*`/`clear_*` methods. `encode()` returns a verified `PmxBoneEditResult`
+without writing; `write_file()` verifies and atomically replaces the target.
+Every transaction starts from a clean `PmxDocument`, rebuilds only changed Bone
+records using the source encoding and Bone index width, validates the complete
+model, strict-reparses the candidate bytes, and compares all model semantics.
+Bone insertion, deletion, object replacement/reordering, and global index
+renumbering are outside W11a and raise `PmxBoneEditError`.
 
 ---
 
@@ -205,10 +243,11 @@ occur before replacing the target.
 |---|---|---|
 | Read `strict` | Yes | Complete PMX 2.0 `PmxModel` or fail closed |
 | Read `partial` | Yes | `PmxParseResult` with completeness report |
-| Read `document` / field spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` |
+| Read `document` / spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` / Bone `record_spans` |
 | Write `canonical` | Yes | Atomic semantic PMX 2.0 output |
 | Write fixed-field `lossless_patch` | Yes | Audited atomic source-byte patch |
-| Write `preserve_layout` or variable-length edits | No | Fail closed |
+| Edit existing Bone records | Yes (PMX 2.0) | Transactional variable-record replacement |
+| Write `preserve_layout` or other variable-length edits | No | Fail closed |
 
 ---
 
@@ -859,6 +898,7 @@ PyPMXVMD uses standard Python exceptions:
 | `IncompletePmxWriterError` | The explicit legacy partial PMX writer would discard unsupported sections |
 | `PmxValidationError` | A semantic model field failed validation; exposes `field`, `expected` and `actual` |
 | `PmxPatchError` | A lossless patch failed path/type/range/before/reparse/semantic checks |
+| `PmxBoneEditError` | A transactional Bone edit violated its field, layout, reference, or collection safety contract |
 | `UnsupportedPmxFeatureError` | A recognized PMX version/mode is not implemented; exposes `feature` and `available` |
 | `IOError` | I/O error |
 

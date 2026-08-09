@@ -120,14 +120,29 @@ pypmxvmd.write_pmx(model, "output.pmx", mode="canonical")
 document = pypmxvmd.load_pmx_document("model.pmx")
 document.model.bones[0].deform_layer = 1
 pypmxvmd.write_pmx(document, "patched.pmx", mode="lossless_patch")
+
+# Transactional editing of an existing Bone record, including variable layouts
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_bones()
+editor.set_deform_layer(0, 2)
+editor.set_tail_offset(0, [0.0, 1.0, 0.0])
+editor.write_file("bone-edited.pmx")
 ```
 
 `document`/field-span reads and fixed-width `lossless_patch` writes are available
 for selected directly mapped Material, Bone, Rigid Body, and Joint fields. Every patch is
 range/before-byte checked, strict-reparsed, and compared against the edited model.
-Variable-length strings, Material texture/Toon references, record insertion/deletion,
-layout-changing flags, PMX 2.1, and `preserve_layout` remain unsupported and fail
-closed. Lossless mode never silently falls back to canonical output.
+Outside the Bone transaction described below, variable-length strings, Material
+texture/Toon references, record insertion/deletion, layout-changing flags, PMX
+2.1, and `preserve_layout` remain unsupported and fail closed. Lossless mode
+never silently falls back to canonical output.
+
+`PmxBoneEditor` additionally supports all PMX 2.0 fields of existing Bone
+records: variable-length names, position/parent/deform layer, basic flags, both
+tail modes, inheritance, fixed/local axes, external parent, and IK links/limits.
+It rebuilds only changed Bone records, validates the complete model, strict-
+reparses the result, and writes atomically. Bone insertion, deletion, replacement,
+reordering, and global index renumbering remain unsupported and fail closed.
 
 ### Text Format Conversion
 

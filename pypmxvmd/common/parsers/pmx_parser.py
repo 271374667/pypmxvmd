@@ -39,7 +39,7 @@ from pypmxvmd.common.models.pmx import (
     WeightMode,
 )
 from pypmxvmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
-from pypmxvmd.common.pmx.cursor import PmxCursor
+from pypmxvmd.common.pmx.cursor import PmxByteSpan, PmxCursor
 from pypmxvmd.common.pmx.document import BinarySpan, PmxDocument
 from pypmxvmd.common.pmx.errors import (
     IncompletePmxError,
@@ -75,6 +75,7 @@ class PmxParser:
         self._progress_callback = None
         self._last_parse_report: Optional[PmxParseReport] = None
         self._last_field_spans: tuple[BinarySpan, ...] = ()
+        self._last_record_spans: tuple[PmxByteSpan, ...] = ()
 
         # 索引类型格式字符串
         self._vertex_index_format = "B"  # 顶点索引格式
@@ -107,6 +108,11 @@ class PmxParser:
         """Return fixed-width field spans from the most recent tracked parse."""
         return self._last_field_spans
 
+    @property
+    def last_record_spans(self) -> tuple[PmxByteSpan, ...]:
+        """Return variable-width record spans from the most recent tracked parse."""
+        return self._last_record_spans
+
     def parse_file(
         self,
         file_path: Union[str, Path],
@@ -127,7 +133,7 @@ class PmxParser:
             more_info: 是否显示更多解析信息
             implementation: auto、python、fast 或 cython
             strict_eof: 完整读取固定为 True；诊断读取使用 parse_file_partial
-            track_spans: 返回模型并在 parser.last_field_spans 保存字段级 span
+            track_spans: 返回模型并保存字段级及已支持的 record span
 
         Returns:
             解析后的PMX模型对象
@@ -175,6 +181,7 @@ class PmxParser:
         if not isinstance(implementation, str):
             raise ValueError("PMX implementation must be a string")
         self._last_field_spans = ()
+        self._last_record_spans = ()
         file_path = Path(file_path)
         selected = implementation.lower()
         if selected == "auto":
@@ -220,6 +227,7 @@ class PmxParser:
                 sections=probe_report.sections,
             )
             self._last_field_spans = probe.last_field_spans
+            self._last_record_spans = probe.last_record_spans
             model.parse_report = self._last_parse_report
         else:
             raise ValueError(
@@ -231,7 +239,10 @@ class PmxParser:
         if report is None:
             raise RuntimeError("PMX parser did not produce a parse report")
         return PmxParseResult(
-            model=model, report=report, field_spans=self._last_field_spans
+            model=model,
+            report=report,
+            field_spans=self._last_field_spans,
+            record_spans=self._last_record_spans,
         )
 
     def _parse_file_python(
@@ -396,6 +407,7 @@ class PmxParser:
                 sections=tuple(sections),
             )
             self._last_field_spans = cursor.field_spans
+            self._last_record_spans = cursor.record_spans
             pmx_model.parse_report = self._last_parse_report
 
             if more_info:
@@ -422,6 +434,7 @@ class PmxParser:
                 failed_offset=offset,
             )
             self._last_field_spans = cursor.field_spans
+            self._last_record_spans = cursor.record_spans
             if isinstance(exc, PmxFormatError):
                 exc.report = self._last_parse_report
                 raise
@@ -961,6 +974,7 @@ class PmxParser:
 
         for index in range(bone_count):
             self._report_progress(index, bone_count)
+            record_start = cursor.position
 
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
@@ -1098,6 +1112,7 @@ class PmxParser:
                     ik_links=ik_links,
                 )
             )
+            cursor.mark_record(prefix, record_start)
 
         self._report_progress(bone_count, bone_count)
         return bones
@@ -1227,7 +1242,6 @@ class PmxParser:
                     items=items,
                 )
             )
-            self._last_field_spans = cursor.field_spans
 
         self._report_progress(morph_count, morph_count)
         return morphs

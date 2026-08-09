@@ -152,16 +152,18 @@ document = pypmxvmd.load_pmx("character.pmx", mode="document")
 `soft_bodies` 缺失，或在更早的未支持 PMX 2.1 record 处明确失败。`auto` 使用带边界与
 资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
 Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
-传入 `track_spans=True` 时，`field_spans` 保存首批已登记的定长字段。
+传入 `track_spans=True` 时，`field_spans` 保存已登记的定长字段，`record_spans`
+保存现有 Bone record 的精确字节范围。
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
-严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据和字段
-span。第一阶段只登记现有 Material、Bone、Rigid Body、Joint record 中可直接映射的部分
-定长数值、枚举、flags、索引和向量字段；变长字符串、材质纹理/Toon 引用、集合增删和会
-改变条件布局的 flags 不登记。
+严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据、字段
+span 和现有 Bone record 的精确 span。Material、Bone、Rigid Body、Joint record 中
+可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；Bone record span
+另用于下文 W11a 事务。其他变长字符串、材质纹理/Toon 引用、集合增删和会改变
+条件布局的 flags 不登记。
 
 ```python
 document = pypmxvmd.load_pmx_document("model.pmx")
@@ -173,6 +175,38 @@ pypmxvmd.save_pmx(document, "patched.pmx", mode="lossless_patch")
 lossless 写入会在落盘前验证模型、`before` 字节、边界、等长、不重叠和字段类型；随后严格
 重读 patch 结果并比较整个语义模型。no-op 原样返回源字节。任何未登记修改均抛出
 `PmxPatchError`，不会创建或替换目标文件。
+
+---
+
+#### `PmxDocument.edit_bones() -> PmxBoneEditor` / `pypmxvmd.edit_pmx_bones(document)`
+
+创建一个隔离的 PMX 2.0 现有 Bone record 编辑事务。已支持日/英变长名称、
+位置、亲骨骼、变形阶层（PMXEditor“表示先”）、旋转/移动/显示/操作/物理后 flags、
+骨骼/相对两种尾端模式、旋转/移动/本地付与、固定轴、Local 轴、外部亲，以及
+IK target/loop/angle/link/limit 全部条件字段。
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_bones()
+editor.set_names(0, name_en="center")
+editor.set_deform_layer(0, 2)
+editor.set_tail_bone(0, 1)  # 或 set_tail_offset(0, [0.0, 1.0, 0.0])
+editor.set_ik(
+    0,
+    target_index=1,
+    loop_count=40,
+    angle_limit=0.5,  # 弧度
+    links=[pypmxvmd.ik_link(1)],
+)
+result = editor.write_file("bone-edited.pmx")
+print(result.changed_record_count)
+```
+
+条件 flags 及其 payload 必须通过配对的 `set_*`/`clear_*` 方法修改。`encode()`
+只返回已验证的 `PmxBoneEditResult`；`write_file()` 验证后原子替换目标。每个
+事务从未修改的 `PmxDocument` 开始，使用源文件编码和 Bone index 宽度仅重建
+变更记录，然后验证全模型、strict reparse 并比较全部语义。骨骼增删、对象替换/
+重排和全局 index 重编号不在 W11a 范围，会抛出 `PmxBoneEditError`。
 
 ---
 
@@ -223,10 +257,11 @@ pypmxvmd.save_pmx(model, "output.pmx")
 |---|---|---|
 | 读取 `strict` | 是 | 完整 PMX 2.0 `PmxModel`，否则 fail closed |
 | 读取 `partial` | 是 | 带完整性报告的 `PmxParseResult` |
-| 读取 `document` / 字段 span | 是（PMX 2.0） | `PmxDocument` / `field_spans` |
+| 读取 `document` / span | 是（PMX 2.0） | `PmxDocument` / `field_spans` / Bone `record_spans` |
 | 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0 |
 | 写入定长字段 `lossless_patch` | 是 | 经审计的原子源字节 patch |
-| 写入 `preserve_layout` 或变长编辑 | 否 | fail closed |
+| 编辑现有 Bone record | 是（PMX 2.0） | 事务化变长 record 替换 |
+| 写入 `preserve_layout` 或其他变长编辑 | 否 | fail closed |
 
 ---
 
@@ -1133,6 +1168,7 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `IncompletePmxWriterError` | 显式 legacy partial writer 会丢弃未支持 section，因而拒绝写入 |
 | `PmxValidationError` | 字段验证失败，包含 `field`、`expected`、`actual` |
 | `PmxPatchError` | lossless patch 的路径/类型/范围/before/重读/语义检查失败 |
+| `PmxBoneEditError` | 骨骼编辑事务违反字段、布局、引用或集合安全契约 |
 | `UnsupportedPmxFeatureError` | 已识别的 PMX 版本/模式尚未实现，包含 `feature`、`available` |
 
 ```python

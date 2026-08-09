@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from pypmxvmd.common.models.pmx import PmxModel
+    from pypmxvmd.common.pmx.cursor import PmxByteSpan
     from pypmxvmd.common.pmx.document import BinarySpan
 
 
@@ -110,3 +111,4 @@ class PmxParseResult:
     model: "PmxModel"
     report: PmxParseReport
     field_spans: tuple["BinarySpan", ...] = ()
+    record_spans: tuple["PmxByteSpan", ...] = ()

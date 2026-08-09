@@ -453,6 +453,15 @@ class PmxValidator:
                         cast(Iterable[object], link.limit_max),
                         f"{link_path}.limit_max",
                     )
+                    for component, (lower, upper) in enumerate(
+                        zip(link.limit_min, link.limit_max)
+                    ):
+                        if lower > upper:
+                            _fail(
+                                f"{link_path}.limits[{component}]",
+                                "limit_min <= limit_max",
+                                (lower, upper),
+                            )
 
             _validate_record(bone, path, "bone")
             _finite_vector(bone.position, f"{path}.position")

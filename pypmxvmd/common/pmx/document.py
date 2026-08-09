@@ -16,6 +16,8 @@ from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 
 if TYPE_CHECKING:
     from pypmxvmd.common.models.pmx import PmxModel
+    from pypmxvmd.common.pmx.cursor import PmxByteSpan
+    from pypmxvmd.common.pmx.editing import PmxBoneEditor
     from pypmxvmd.common.pmx.report import PmxParseReport
 
 
@@ -169,8 +171,10 @@ class PmxDocument:
         "model",
         "report",
         "field_spans",
+        "record_spans",
         "_span_by_path",
         "_span_by_range",
+        "_record_span_by_name",
         "_limits",
         "_baseline_model",
     )
@@ -182,6 +186,7 @@ class PmxDocument:
         model: "PmxModel",
         report: "PmxParseReport",
         field_spans: Sequence[BinarySpan],
+        record_spans: Sequence["PmxByteSpan"] = (),
         limits: PmxLimits = DEFAULT_PMX_LIMITS,
     ) -> None:
         if type(source_bytes) is not bytes:
@@ -217,8 +222,10 @@ class PmxDocument:
         self.model = model
         self.report = report
         self.field_spans = ordered
+        self.record_spans = tuple(record_spans)
         self._span_by_path = by_path
         self._span_by_range = by_range
+        self._record_span_by_name = self._index_record_spans(record_spans)
         self._limits = limits
         self._baseline_model = deepcopy(model)
 
@@ -257,6 +264,7 @@ class PmxDocument:
             model=result.model,
             report=result.report,
             field_spans=result.field_spans,
+            record_spans=result.record_spans,
             limits=limits,
         )
 
@@ -273,6 +281,17 @@ class PmxDocument:
     def trailing_bytes(self) -> int:
         return self.report.trailing_bytes
 
+    @property
+    def limits(self) -> PmxLimits:
+        """Resource limits inherited by verified document operations."""
+        return self._limits
+
+    def edit_bones(self) -> "PmxBoneEditor":
+        """Create an isolated transaction for editing existing Bone records."""
+        from pypmxvmd.common.pmx.editing import PmxBoneEditor
+
+        return PmxBoneEditor(self)
+
     def span_for(self, field_path: str | FieldPath) -> BinarySpan:
         path = (
             field_path if isinstance(field_path, FieldPath) else FieldPath(field_path)
@@ -284,6 +303,37 @@ class PmxDocument:
                 "Unknown or variable-length PMX field path",
                 field_path=str(path),
             ) from exc
+
+    def record_span_for(self, name: str) -> "PmxByteSpan":
+        """Return an exact variable-width source record span by stable name."""
+        try:
+            return self._record_span_by_name[name]
+        except KeyError as exc:
+            raise PmxPatchError(
+                "Unknown or untracked PMX record span", field_path=name
+            ) from exc
+
+    def _index_record_spans(
+        self, record_spans: Sequence["PmxByteSpan"]
+    ) -> dict[str, "PmxByteSpan"]:
+        by_name: dict[str, "PmxByteSpan"] = {}
+        previous_end = 0
+        for span in sorted(record_spans, key=lambda item: item.start_offset):
+            if span.end_offset > len(self.source_bytes):
+                raise PmxPatchError(
+                    "Registered record span is outside source bytes",
+                    field_path=span.name,
+                    offset=span.start_offset,
+                )
+            if span.start_offset < previous_end:
+                raise PmxPatchError("Registered PMX record spans overlap")
+            if span.name in by_name:
+                raise PmxPatchError(
+                    "Duplicate registered PMX record span", field_path=span.name
+                )
+            by_name[span.name] = span
+            previous_end = span.end_offset
+        return by_name
 
     def make_patch(
         self,
@@ -330,7 +380,7 @@ class PmxDocument:
         """Encode model edits while preserving every byte outside changed spans."""
         patches = self.build_patches()
         if not patches:
-            mismatch = _first_semantic_mismatch(self.model, self._baseline_model)
+            mismatch = find_semantic_mismatch(self.model, self._baseline_model)
             if mismatch is not None:
                 raise PmxPatchError(
                     "Edited field is not registered for fixed-width lossless patching: "
@@ -338,7 +388,7 @@ class PmxDocument:
                 )
             return self.source_bytes
         encoded, reparsed = self._apply_and_reparse(patches)
-        mismatch = _first_semantic_mismatch(reparsed, self.model)
+        mismatch = find_semantic_mismatch(reparsed, self.model)
         if mismatch is not None:
             raise PmxPatchError(
                 "Patched PMX semantics differ outside the fixed-field edit set: "
@@ -390,9 +440,10 @@ class PmxDocument:
             previous_end = end
 
         encoded = bytes(data)
-        return encoded, self._strict_reparse(encoded)
+        return encoded, self.strict_reparse(encoded)
 
-    def _strict_reparse(self, data: bytes) -> "PmxModel":
+    def strict_reparse(self, data: bytes) -> "PmxModel":
+        """Strictly parse candidate bytes under this document's resource limits."""
         from pypmxvmd.common.parsers.pmx_parser import PmxParser
 
         temporary_path: Path | None = None
@@ -444,7 +495,7 @@ def _resolve_field(root: Any, field_path: FieldPath) -> Any:
     return value
 
 
-def _first_semantic_mismatch(
+def find_semantic_mismatch(
     actual: Any, expected: Any, path: str = "model"
 ) -> str | None:
     if isinstance(expected, Enum):
@@ -471,7 +522,7 @@ def _first_semantic_mismatch(
         if type(actual) is not type(expected) or len(actual) != len(expected):
             return f"{path}: sequence type/length differs"
         for index, (actual_item, expected_item) in enumerate(zip(actual, expected)):
-            mismatch = _first_semantic_mismatch(
+            mismatch = find_semantic_mismatch(
                 actual_item, expected_item, f"{path}[{index}]"
             )
             if mismatch is not None:
@@ -481,7 +532,7 @@ def _first_semantic_mismatch(
         if type(actual) is not dict or actual.keys() != expected.keys():
             return f"{path}: mapping keys differ"
         for key in expected:
-            mismatch = _first_semantic_mismatch(
+            mismatch = find_semantic_mismatch(
                 actual[key], expected[key], f"{path}[{key!r}]"
             )
             if mismatch is not None:
@@ -496,7 +547,7 @@ def _first_semantic_mismatch(
         if actual_fields.keys() != expected_fields.keys():
             return f"{path}: object fields differ"
         for name in expected_fields:
-            mismatch = _first_semantic_mismatch(
+            mismatch = find_semantic_mismatch(
                 actual_fields[name], expected_fields[name], f"{path}.{name}"
             )
             if mismatch is not None:
@@ -505,4 +556,10 @@ def _first_semantic_mismatch(
     return None if actual == expected else f"{path}: {actual!r} != {expected!r}"
 
 
-__all__ = ["BinaryPatch", "BinarySpan", "FieldPath", "PmxDocument"]
+__all__ = [
+    "BinaryPatch",
+    "BinarySpan",
+    "FieldPath",
+    "PmxDocument",
+    "find_semantic_mismatch",
+]

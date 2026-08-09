@@ -76,6 +76,7 @@ class PmxCursor:
         self._spans: list[PmxByteSpan] = []
         self._track_fields = track_fields
         self._field_spans: list[BinarySpan] = []
+        self._record_spans: list[PmxByteSpan] = []
 
         if len(view) > limits.max_source_bytes:
             self._fail(
@@ -117,6 +118,21 @@ class PmxCursor:
     def field_spans(self) -> tuple[BinarySpan, ...]:
         """Completed fixed-width field spans in encounter order."""
         return tuple(self._field_spans)
+
+    @property
+    def record_spans(self) -> tuple[PmxByteSpan, ...]:
+        """Completed variable-width record spans in encounter order."""
+        return tuple(self._record_spans)
+
+    def mark_record(self, name: str, start_offset: int) -> None:
+        """Register a successfully consumed record when span tracking is active."""
+        if not self._track_fields:
+            return
+        if isinstance(start_offset, bool) or not isinstance(start_offset, int):
+            raise TypeError("PMX record span start must be an integer")
+        if not 0 <= start_offset < self._position:
+            raise ValueError("PMX record span must cover consumed source bytes")
+        self._record_spans.append(PmxByteSpan(name, start_offset, self._position))
 
     def set_section(self, section: str) -> None:
         """Attach a non-empty PMX section name to subsequent reads."""

@@ -24,8 +24,8 @@
 > `auto` 不再默认进入未完成的 Cython reader。活动 Cursor reader 现已完整消费 PMX 2.0
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
-> fail closed。W5 canonical writer、W7 公共 API 迁移和 W9 定长 lossless patch 已完成；
-> 下一阶段为 W11a 骨骼编辑。
+> fail closed。W5 canonical writer、W7 公共 API 迁移、W9 定长 lossless patch 和
+> W11a 骨骼安全编辑已完成；下一阶段为 W11b 刚体编辑。
 
 总体结论：
 
@@ -316,6 +316,7 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [x] Material 全字段 reader/model。
 - [x] Bone 模型及 reader：全 flags、inherit、axes、external parent 和 IK。
 - [x] Bone writer 与 read → write → read。
+- [x] 现有 Bone record 事务化 S2 编辑：变长名称、两种 tail、全 flags/条件载荷与 IK。
 - [x] 所有 PMX 2.0 Morph reader/model，Bone 旋转保留原始 quaternion。
 - [x] Display frame reader/model。
 - [x] Rigid body reader/model。
@@ -327,7 +328,9 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 当前读写证据（2026-08-09）：7 个 PMX 2.0 语料均完成 strict read-write-read 与深度
 语义比较，原件 SHA-256 前后不变；合计覆盖 Vertex Morph 845、Material Morph 184、
 Group Morph 36、UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 741 条记录。
-该结果证明 canonical S0/S1 读写覆盖，不证明 S2 页面编辑或源字节无损性。
+该结果证明 canonical S0/S1 读写覆盖。W11a 另以 22 项测试证明现有 Bone record
+的 S2 事务编辑；其中 7 个 UTF-16 真实 PMX 执行变长名称和层级联合修改，非目标字节及
+原件 SHA-256 均不变。该结果不代表其他页面已达 S2。
 
 ## P2：完整 PMX 2.1
 
@@ -731,7 +734,7 @@ PmxPhysicsRebuilder
 5. `[已完成]` 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
 6. `[已完成]` 完成公共 API 模式与兼容迁移。
 7. `[已完成]` 增加 source span、PmxDocument 和定长 lossless patch 模式。
-8. `[下一步]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
+8. `[骨骼已完成；下一步刚体]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
 9. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
 10. 让原生 fast/Cython 对齐标准 parser。
 

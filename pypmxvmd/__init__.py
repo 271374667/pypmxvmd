@@ -41,12 +41,19 @@ from .common.parsers.vpd_parser import VpdParser
 from .common.pmx import (
     IncompletePmxError,
     IncompletePmxWriterError,
+    PmxBoneEditError,
     PmxDocument,
     PmxParseReport,
     PmxParseResult,
     PmxPatchError,
     PmxValidationError,
     UnsupportedPmxFeatureError,
+)
+from .common.pmx.editing import (
+    PmxBoneEditor,
+    PmxBoneEditResult,
+    edit_pmx_bones,
+    ik_link,
 )
 
 __version__ = "2.7.1"
@@ -636,11 +643,16 @@ __all__ = [
     "VmdMotion",
     "PmxModel",
     "PmxDocument",
+    "PmxBoneEditResult",
+    "PmxBoneEditor",
+    "edit_pmx_bones",
+    "ik_link",
     "PmxParseReport",
     "PmxParseResult",
     "IncompletePmxError",
     "IncompletePmxWriterError",
     "PmxValidationError",
+    "PmxBoneEditError",
     "PmxPatchError",
     "UnsupportedPmxFeatureError",
     "VpdPose",
