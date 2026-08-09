@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0-W5 已完成；W2 的 PMX 2.0 范围已完成，下一步 W7）
+> 文档状态：执行中（W0-W5、W7 已完成；W2 的 PMX 2.0 范围已完成，下一步 W9）
 >
 > 基线日期：2026-07-30
 >
@@ -391,7 +391,7 @@ strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `sav
 
 退出门槛：支持范围在 README/API 文档中逐项列出；PMX 2.1 样本完整到 EOF 并可语义 round-trip。
 
-### W7：公共 API 迁移与兼容发布（P1/P2）
+### W7：公共 API 迁移与兼容发布（P1/P2，已完成）
 
 **依赖：** W3、W5。  
 **主要文件：** `pypmxvmd/__init__.py`、`common/parsers/pmx_parser.py`、`docs/API_CN.md`、
@@ -414,6 +414,13 @@ strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `sav
 - 运行 `mkdocs build --strict` 检查链接和 API 文档。
 
 退出门槛：旧 API 测试全绿；新 API 的不完整/未支持状态可被调用方区分；文档与签名一致。
+
+2026-08-09 交付结果：旧 `file_path`/`more_info`/`implementation` 位置参数保持兼容，
+新增参数均为 keyword-only。`load_pmx()`/`load()` 明确区分 strict 与 partial 返回契约，
+`save_pmx()`/`write_pmx()`/`save()` 提供 canonical mode。新增
+`UnsupportedPmxFeatureError`，使 document/span、preserve layout、lossless patch 与未知
+模式不会静默降级；W9 API 名称已 fail-closed 预留。API 兼容、模式矩阵和旧字段别名均有
+回归测试，README 及中英文 API 文档已与实际签名同步。
 
 ### W8：fast Python 与 Cython parity（P3）
 

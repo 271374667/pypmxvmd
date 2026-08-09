@@ -53,15 +53,16 @@ PyPMXVMD provides concise top-level helpers for loading and saving files.
 
 ### Binary Files
 
-#### `pypmxvmd.load(file_path, more_info=False)`
+#### `pypmxvmd.load(file_path, more_info=False, *, mode=None, implementation="auto", strict_eof=None, track_spans=False)`
 
 Auto-detect the file type and load it.
 
 **Args**:
 - `file_path` (str | Path): File path
 - `more_info` (bool): Whether to print detailed parsing info
+- `mode`, `implementation`, `strict_eof`, `track_spans`: PMX-only options
 
-**Returns**: `VmdMotion` | `PmxModel` | `VpdPose`
+**Returns**: `VmdMotion` | `PmxModel` | `PmxParseResult` | `VpdPose`
 
 **Raises**: `ValueError` - Unsupported file type
 
@@ -71,13 +72,14 @@ data = pypmxvmd.load("motion.vmd")
 
 ---
 
-#### `pypmxvmd.save(data, file_path)`
+#### `pypmxvmd.save(data, file_path, *, mode=None)`
 
 Auto-detect the data type and save it.
 
 **Args**:
 - `data`: `VmdMotion` | `PmxModel` | `VpdPose`
 - `file_path` (str | Path): Output path
+- `mode`: PMX-only output mode; defaults to `canonical`
 
 ```python
 pypmxvmd.save(model, "output.pmx")
@@ -97,16 +99,27 @@ Save a VMD motion file.
 
 ---
 
-#### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
+#### `pypmxvmd.load_pmx(file_path, more_info=False, *, mode="strict", implementation="auto", strict_eof=None, track_spans=False)`
 
-Load a complete PMX model or fail closed. PMX 2.0 is parsed through Spring 6DOF
-Joint and must end exactly at EOF. Unsupported PMX 2.1 content (Flip/Impulse
-Morph, additional Joint types and Soft Body) raises a format/completeness error
-instead of being silently omitted.
+`mode="strict"` returns a complete `PmxModel` and always requires exact EOF.
+`mode="partial"` returns `PmxParseResult`; set `strict_eof=True` if the caller
+wants a result object only when it is complete. `implementation` accepts `auto`,
+`python`, `fast`, or `cython`. `mode="document"` and `track_spans=True` are
+reserved for W9 and currently raise `UnsupportedPmxFeatureError`.
+
+PMX 2.0 is parsed through Spring 6DOF Joint. Unsupported PMX 2.1 content
+(Flip/Impulse Morph, additional Joint types and Soft Body) raises a
+format/completeness error instead of being silently omitted.
+
+```python
+model = pypmxvmd.load_pmx("model.pmx")
+result = pypmxvmd.load_pmx("model.pmx", mode="partial")
+print(result.report.missing_sections)
+```
 
 ---
 
-#### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto") -> PmxParseResult`
+#### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto", *, track_spans=False) -> PmxParseResult`
 
 Explicitly load with `python`, `fast`, or `cython`. The result contains `model`
 and an immutable `report` with loaded and missing sections, section byte spans,
@@ -114,8 +127,16 @@ final offset, file size and trailing byte count. A PMX 2.0 result can report
 `is_complete=True`; PMX 2.1 currently reports `soft_bodies` as missing or rejects
 an earlier unsupported PMX 2.1 record. `auto` uses the bounds-checked Python
 Cursor. Until the native ABI is completed, explicit `cython` still executes its
-probe but returns the Cursor's canonical semantic model. A complete read is not
-evidence that editing/saving is supported.
+probe but returns the Cursor's canonical semantic model. This legacy-compatible
+helper is equivalent to `load_pmx(..., mode="partial")`. A complete read/write
+model is not evidence that source-byte-preserving editing is supported.
+
+---
+
+#### `pypmxvmd.load_pmx_document(...)`
+
+Reserved API name for W9. It currently raises `UnsupportedPmxFeatureError`
+instead of returning a document without source bytes and field spans.
 
 ---
 
@@ -144,7 +165,7 @@ the currently supported semantic contract.
 
 ---
 
-#### `pypmxvmd.save_pmx(model, file_path)`
+#### `pypmxvmd.save_pmx(model, file_path, *, mode="canonical")`
 
 Validate and atomically save a canonical PMX 2.0 file. The writer covers Header
 through Spring 6DOF Joint, selects the smallest valid index widths, and preserves
@@ -154,6 +175,19 @@ unsupported Joint, or Soft Body input fails before the target is replaced.
 Canonical output guarantees semantic round-trip stability, not source-byte or
 source-layout equality. `PmxParser.write_file_partial()` remains an explicit,
 lossy fixture helper and rejects collections it cannot encode.
+
+`write_pmx()` is the equivalent explicit writer name. Recognized future modes
+`preserve_layout` and `lossless_patch` raise `UnsupportedPmxFeatureError` until
+W9; unknown mode names raise `ValueError`. All failures occur before replacing
+the target.
+
+| Operation | Available now | Result |
+|---|---|---|
+| Read `strict` | Yes | Complete PMX 2.0 `PmxModel` or fail closed |
+| Read `partial` | Yes | `PmxParseResult` with completeness report |
+| Read `document` / field spans | No (W9) | `UnsupportedPmxFeatureError` |
+| Write `canonical` | Yes | Atomic semantic PMX 2.0 output |
+| Write `preserve_layout` / `lossless_patch` | No (W9) | `UnsupportedPmxFeatureError` |
 
 ---
 
@@ -803,6 +837,7 @@ PyPMXVMD uses standard Python exceptions:
 | `IncompletePmxError` | A complete PMX read was requested but mandatory sections or EOF were not reached |
 | `IncompletePmxWriterError` | The explicit legacy partial PMX writer would discard unsupported sections |
 | `PmxValidationError` | A semantic model field failed validation; exposes `field`, `expected` and `actual` |
+| `UnsupportedPmxFeatureError` | A recognized PMX version/mode is not implemented; exposes `feature` and `available` |
 | `IOError` | I/O error |
 
 ```python

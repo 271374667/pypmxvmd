@@ -103,6 +103,24 @@ validation is also available through `PmxModel.validate()`. PMX 2.1
 Flip/Impulse Morphs, additional Joint types and Soft Body are not yet supported
 and fail closed instead of being silently discarded.
 
+PMX binary modes are explicit and keyword-only, so existing positional calls
+remain compatible:
+
+```python
+# Complete model or IncompletePmxError
+model = pypmxvmd.load_pmx("model.pmx", mode="strict")
+
+# Diagnostic model plus section/EOF evidence
+result = pypmxvmd.load_pmx("model.pmx", mode="partial")
+
+# Canonical PMX 2.0 output
+pypmxvmd.write_pmx(model, "output.pmx", mode="canonical")
+```
+
+`document`/field-span reads and `preserve_layout`/`lossless_patch` writes are
+reserved for the future lossless stage and currently raise
+`UnsupportedPmxFeatureError`. They never silently fall back to canonical output.
+
 ### Text Format Conversion
 
 PyPMXVMD supports converting binary files to readable text format for viewing and editing:
@@ -199,7 +217,10 @@ class VpdPose:
 | `load_vmd(path)` | Load VMD file |
 | `save_vmd(motion, path)` | Save VMD file |
 | `load_pmx(path)` | Load PMX file |
+| `load_pmx(path, mode="partial")` | Load PMX with completeness evidence |
+| `load_pmx_document(path)` | Reserved W9 API; currently fails closed |
 | `save_pmx(model, path)` | Save PMX file |
+| `write_pmx(model, path, mode="canonical")` | Explicit PMX writer mode |
 | `load_vpd(path)` | Load VPD file |
 | `save_vpd(pose, path)` | Save VPD file |
 | `load(path)` | Auto-detect and load |

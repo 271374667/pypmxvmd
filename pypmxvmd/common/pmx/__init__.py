@@ -7,6 +7,7 @@ from pypmxvmd.common.pmx.errors import (
     PmxError,
     PmxFormatError,
     PmxValidationError,
+    UnsupportedPmxFeatureError,
 )
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 from pypmxvmd.common.pmx.report import PmxParseReport, PmxParseResult, PmxSectionReport
@@ -32,6 +33,7 @@ __all__ = [
     "PmxError",
     "PmxFormatError",
     "PmxValidationError",
+    "UnsupportedPmxFeatureError",
     "PmxByteSpan",
     "PmxCursor",
     "PmxLimits",

@@ -44,6 +44,7 @@ from pypmxvmd.common.pmx.errors import (
     IncompletePmxError,
     IncompletePmxWriterError,
     PmxFormatError,
+    UnsupportedPmxFeatureError,
 )
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 from pypmxvmd.common.pmx.report import PmxParseReport, PmxParseResult, PmxSectionReport
@@ -60,9 +61,8 @@ except ImportError:
 class PmxParser:
     """PMX文件解析器
 
-    当前提供安全的部分读取、完整性报告和拒绝截断输出的公共边界。
-    PMX 2.0 reader 已完整消费到 Joint；PMX 2.1 Soft Body 和完整 writer
-    仍按执行计划实现。
+    当前提供 strict/partial 读取、完整性报告和 canonical PMX 2.0 写入。
+    PMX 2.1 Soft Body、source span document 和 lossless 写入仍 fail closed。
     """
 
     def __init__(self, limits: PmxLimits = DEFAULT_PMX_LIMITS):
@@ -101,7 +101,13 @@ class PmxParser:
         return self._last_parse_report
 
     def parse_file(
-        self, file_path: Union[str, Path], more_info: bool = False
+        self,
+        file_path: Union[str, Path],
+        more_info: bool = False,
+        *,
+        implementation: str = "auto",
+        strict_eof: bool = True,
+        track_spans: bool = False,
     ) -> PmxModel:
         """Parse a complete PMX file or fail closed.
 
@@ -112,6 +118,9 @@ class PmxParser:
         Args:
             file_path: PMX文件路径
             more_info: 是否显示更多解析信息
+            implementation: auto、python、fast 或 cython
+            strict_eof: 完整读取固定为 True；诊断读取使用 parse_file_partial
+            track_spans: W9 字段级 source span 的预留参数
 
         Returns:
             解析后的PMX模型对象
@@ -121,7 +130,25 @@ class PmxParser:
             IncompletePmxError: 当前实现没有加载全部必需 section
             ValueError: 文件格式错误
         """
-        result = self.parse_file_partial(file_path, more_info=more_info)
+        if type(strict_eof) is not bool:
+            raise ValueError("strict_eof must be a bool")
+        if not strict_eof:
+            raise ValueError(
+                "parse_file() is always strict; use parse_file_partial() "
+                "for diagnostic incomplete results"
+            )
+        if type(track_spans) is not bool:
+            raise ValueError("track_spans must be a bool")
+        if track_spans:
+            raise UnsupportedPmxFeatureError(
+                "track_spans=True",
+                available="section-level PmxParseReport; field spans are planned for W9",
+            )
+        result = self.parse_file_partial(
+            file_path,
+            more_info=more_info,
+            implementation=implementation,
+        )
         if not result.report.is_complete:
             raise IncompletePmxError(result.report)
         return result.model
@@ -131,6 +158,8 @@ class PmxParser:
         file_path: Union[str, Path],
         more_info: bool = False,
         implementation: str = "auto",
+        *,
+        track_spans: bool = False,
     ) -> PmxParseResult:
         """Explicitly parse the sections supported by a selected implementation.
 
@@ -138,6 +167,15 @@ class PmxParser:
         missing mandatory sections observable.  A partial result must not be
         passed to a complete PMX writer.
         """
+        if type(track_spans) is not bool:
+            raise ValueError("track_spans must be a bool")
+        if track_spans:
+            raise UnsupportedPmxFeatureError(
+                "track_spans=True",
+                available="section-level PmxParseReport; field spans are planned for W9",
+            )
+        if not isinstance(implementation, str):
+            raise ValueError("PMX implementation must be a string")
         file_path = Path(file_path)
         selected = implementation.lower()
         if selected == "auto":
@@ -1517,11 +1555,33 @@ class PmxParser:
         self._report_progress(material_count, material_count)
         return materials
 
-    def write_file(self, pmx_model: PmxModel, file_path: Union[str, Path]) -> None:
-        """Validate and atomically write a canonical PMX 2.0 file."""
+    def write_file(
+        self,
+        pmx_model: PmxModel,
+        file_path: Union[str, Path],
+        *,
+        mode: str = "canonical",
+    ) -> None:
+        """Write a PMX model using an explicit, fail-closed output mode."""
         from pypmxvmd.common.pmx.writer import PmxWriter
 
-        PmxWriter(limits=self._limits).write_file(pmx_model, file_path)
+        if not isinstance(mode, str):
+            raise ValueError("PMX write mode must be a string")
+        selected = mode.lower()
+        if selected == "canonical":
+            PmxWriter(limits=self._limits).write_file(pmx_model, file_path)
+            return
+        if selected in {"preserve_layout", "lossless_patch"}:
+            raise UnsupportedPmxFeatureError(
+                f"write mode {selected}",
+                available=(
+                    "canonical PMX 2.0; preserve/lossless modes are planned for W9"
+                ),
+            )
+        raise ValueError(
+            f"Unknown PMX write mode: {mode!r}; expected canonical, "
+            "preserve_layout, or lossless_patch"
+        )
 
     def write_file_partial(
         self, pmx_model: PmxModel, file_path: Union[str, Path]

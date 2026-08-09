@@ -2,7 +2,8 @@
 
 > 调研日期：2026-07-30
 >
-> 状态：长期路线已确认；PMX 2.0 canonical 读写与 validator 完成，下一步为公共 API
+> 状态：长期路线已确认；PMX 2.0 canonical 读写、validator 和公共 API 完成，下一步为
+> PmxDocument/lossless patch
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见

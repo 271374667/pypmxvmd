@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
-from pypmxvmd.common.pmx.errors import PmxValidationError
+from pypmxvmd.common.pmx.errors import PmxValidationError, UnsupportedPmxFeatureError
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 from pypmxvmd.common.pmx.types import MorphType, ToonSharing, WeightMode
 from pypmxvmd.common.pmx.validator import validate_pmx_model
@@ -84,8 +84,9 @@ class PmxWriter:
         """Validate and encode a complete PMX 2.0 model entirely in memory."""
         validate_pmx_model(model, limits=self.limits, strict_eof=True)
         if model.header.version != 2.0:
-            raise PmxValidationError(
-                "header.version", "2.0 for canonical PMX writer", model.header.version
+            raise UnsupportedPmxFeatureError(
+                f"PMX {model.header.version} canonical writing",
+                available="PMX 2.0 Header through Spring 6DOF Joint",
             )
         if model.softbodies:
             raise PmxValidationError(

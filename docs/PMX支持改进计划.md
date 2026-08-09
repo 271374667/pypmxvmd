@@ -24,7 +24,8 @@
 > `auto` 不再默认进入未完成的 Cython reader。活动 Cursor reader 现已完整消费 PMX 2.0
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
-> fail closed。W5 canonical writer 已完成；下一阶段为 W7 公共 API 迁移。
+> fail closed。W5 canonical writer 与 W7 公共 API 迁移已完成；下一阶段为 W9
+> PmxDocument 与 lossless patch。
 
 总体结论：
 
@@ -738,10 +739,11 @@ PmxPhysicsRebuilder
 3. `[已完成]` 以 Cursor 实现完整、严格的 PMX 2.0 reader。
 4. `[已完成]` 完成 PMX 2.0 validator 的规则和异常矩阵。
 5. `[已完成]` 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
-6. `[下一步]` 完成公共 API 模式与兼容迁移，再增加 source span 和 lossless patch 模式。
-7. 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
-8. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
-9. 让原生 fast/Cython 对齐标准 parser。
+6. `[已完成]` 完成公共 API 模式与兼容迁移。
+7. `[下一步]` 增加 source span、PmxDocument 和 lossless patch 模式。
+8. 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
+9. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
+10. 让原生 fast/Cython 对齐标准 parser。
 
 优先级原则是：
 

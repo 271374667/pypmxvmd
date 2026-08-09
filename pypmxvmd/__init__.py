@@ -24,7 +24,7 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Union
+from typing import Literal, NoReturn, Optional, Union, overload
 
 from .common.models.pmx import PmxModel
 
@@ -44,6 +44,7 @@ from .common.pmx import (
     PmxParseReport,
     PmxParseResult,
     PmxValidationError,
+    UnsupportedPmxFeatureError,
 )
 
 __version__ = "2.7.1"
@@ -89,28 +90,117 @@ def save_vmd(motion: VmdMotion, file_path: Union[str, Path]) -> None:
     _vmd_parser.write_file(motion, file_path)
 
 
-def load_pmx(file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
+@overload
+def load_pmx(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    *,
+    mode: Literal["strict"] = "strict",
+    implementation: str = "auto",
+    strict_eof: Optional[bool] = None,
+    track_spans: bool = False,
+) -> PmxModel: ...
+
+
+@overload
+def load_pmx(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    *,
+    mode: Literal["partial"],
+    implementation: str = "auto",
+    strict_eof: Optional[bool] = None,
+    track_spans: bool = False,
+) -> PmxParseResult: ...
+
+
+@overload
+def load_pmx(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    *,
+    mode: str,
+    implementation: str = "auto",
+    strict_eof: Optional[bool] = None,
+    track_spans: bool = False,
+) -> Union[PmxModel, PmxParseResult]: ...
+
+
+def load_pmx(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    *,
+    mode: str = "strict",
+    implementation: str = "auto",
+    strict_eof: Optional[bool] = None,
+    track_spans: bool = False,
+) -> Union[PmxModel, PmxParseResult]:
     """
     Load PMX model file.
 
     Args:
         file_path: Path to PMX file
         more_info: Whether to include additional parsing information
+        mode: ``strict`` returns PmxModel; ``partial`` returns PmxParseResult
+        implementation: ``auto``, ``python``, ``fast``, or ``cython``
+        strict_eof: Defaults to True for strict and False for partial mode
+        track_spans: Reserved for W9 field-level source span tracking
 
     Returns:
-        PmxModel object
+        PmxModel or an explicit PmxParseResult in partial mode
 
     Raises:
         FileNotFoundError: If file doesn't exist
-        ValueError: If file format is invalid
+        IncompletePmxError: If strict EOF was requested but not reached
+        UnsupportedPmxFeatureError: If document/span mode is not implemented
+        ValueError: If a mode, implementation, or file format is invalid
     """
-    return _pmx_parser.parse_file(file_path, more_info=more_info)
+    if not isinstance(mode, str):
+        raise ValueError("PMX read mode must be a string")
+    if strict_eof is not None and type(strict_eof) is not bool:
+        raise ValueError("strict_eof must be a bool or None")
+    if type(track_spans) is not bool:
+        raise ValueError("track_spans must be a bool")
+    selected = mode.lower()
+    if selected == "document":
+        raise UnsupportedPmxFeatureError(
+            "read mode document",
+            available="strict/partial PMX 2.0; PmxDocument is planned for W9",
+        )
+    if selected == "strict":
+        if strict_eof is False:
+            raise ValueError(
+                "strict PMX mode requires strict_eof=True; use mode='partial' "
+                "for diagnostic incomplete results"
+            )
+        return _pmx_parser.parse_file(
+            file_path,
+            more_info=more_info,
+            implementation=implementation,
+            strict_eof=True,
+            track_spans=track_spans,
+        )
+    if selected == "partial":
+        result = _pmx_parser.parse_file_partial(
+            file_path,
+            more_info=more_info,
+            implementation=implementation,
+            track_spans=track_spans,
+        )
+        if strict_eof is True and not result.report.is_complete:
+            raise IncompletePmxError(result.report)
+        return result
+    raise ValueError(
+        f"Unknown PMX read mode: {mode!r}; expected strict, partial, or document"
+    )
 
 
 def load_pmx_partial(
     file_path: Union[str, Path],
     more_info: bool = False,
     implementation: str = "auto",
+    *,
+    track_spans: bool = False,
 ) -> PmxParseResult:
     """Load PMX with an explicit implementation and return completeness evidence.
 
@@ -124,22 +214,54 @@ def load_pmx_partial(
         file_path,
         more_info=more_info,
         implementation=implementation,
+        track_spans=track_spans,
     )
 
 
-def save_pmx(model: PmxModel, file_path: Union[str, Path]) -> None:
+def load_pmx_document(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    *,
+    implementation: str = "auto",
+    track_spans: bool = True,
+) -> NoReturn:
+    """Reserved fail-closed entry point for the W9 source-backed document API."""
+    del file_path, more_info, implementation, track_spans
+    raise UnsupportedPmxFeatureError(
+        "PmxDocument/source span tracking",
+        available="strict/partial PMX 2.0 models and section-level parse reports",
+    )
+
+
+def write_pmx(
+    model: PmxModel,
+    file_path: Union[str, Path],
+    *,
+    mode: str = "canonical",
+) -> None:
+    """Validate and write PMX through an explicit fail-closed mode."""
+    _pmx_parser.write_file(model, file_path, mode=mode)
+
+
+def save_pmx(
+    model: PmxModel,
+    file_path: Union[str, Path],
+    *,
+    mode: str = "canonical",
+) -> None:
     """
     Validate and atomically save a canonical PMX 2.0 model.
 
     Args:
         model: PmxModel object to save
         file_path: Output file path
+        mode: ``canonical``; W9 modes currently fail closed
 
     Raises:
         PmxValidationError: If the model is invalid, incomplete, or unsupported
         IOError: If file cannot be written
     """
-    _pmx_parser.write_file(model, file_path)
+    write_pmx(model, file_path, mode=mode)
 
 
 def load_vpd(file_path: Union[str, Path], more_info: bool = False) -> VpdPose:
@@ -176,13 +298,25 @@ def save_vpd(pose: VpdPose, file_path: Union[str, Path]) -> None:
 
 
 # Convenience functions for auto-detection
-def load(file_path: Union[str, Path], more_info: bool = False):
+def load(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    *,
+    mode: Optional[str] = None,
+    implementation: str = "auto",
+    strict_eof: Optional[bool] = None,
+    track_spans: bool = False,
+) -> Union[VmdMotion, PmxModel, PmxParseResult, VpdPose]:
     """
     Automatically detect file type and load appropriate format.
 
     Args:
         file_path: Path to file
         more_info: Whether to include additional parsing information
+        mode: PMX read mode; omit for VMD/VPD
+        implementation: PMX parser implementation
+        strict_eof: PMX EOF policy
+        track_spans: Reserved PMX document option
 
     Returns:
         VmdMotion, PmxModel, or VpdPose object
@@ -193,32 +327,59 @@ def load(file_path: Union[str, Path], more_info: bool = False):
     path = Path(file_path)
     suffix = path.suffix.lower()
 
+    pmx_options_used = (
+        mode is not None
+        or implementation != "auto"
+        or strict_eof is not None
+        or track_spans
+    )
     if suffix == ".vmd":
+        if pmx_options_used:
+            raise ValueError("PMX mode options cannot be used when loading VMD")
         return load_vmd(file_path, more_info)
     elif suffix == ".pmx":
-        return load_pmx(file_path, more_info)
+        return load_pmx(
+            file_path,
+            more_info,
+            mode="strict" if mode is None else mode,
+            implementation=implementation,
+            strict_eof=strict_eof,
+            track_spans=track_spans,
+        )
     elif suffix == ".vpd":
+        if pmx_options_used:
+            raise ValueError("PMX mode options cannot be used when loading VPD")
         return load_vpd(file_path, more_info)
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
 
 
-def save(data, file_path: Union[str, Path]) -> None:
+def save(
+    data: Union[VmdMotion, PmxModel, VpdPose],
+    file_path: Union[str, Path],
+    *,
+    mode: Optional[str] = None,
+) -> None:
     """
     Automatically detect data type and save in appropriate format.
 
     Args:
         data: VmdMotion, PmxModel, or VpdPose object
         file_path: Output file path
+        mode: PMX write mode; omit for VMD/VPD
 
     Raises:
         ValueError: If data type is unsupported
     """
     if isinstance(data, VmdMotion):
+        if mode is not None:
+            raise ValueError("PMX write mode cannot be used when saving VMD")
         save_vmd(data, file_path)
     elif isinstance(data, PmxModel):
-        save_pmx(data, file_path)
+        save_pmx(data, file_path, mode="canonical" if mode is None else mode)
     elif isinstance(data, VpdPose):
+        if mode is not None:
+            raise ValueError("PMX write mode cannot be used when saving VPD")
         save_vpd(data, file_path)
     else:
         raise ValueError(f"Unsupported data type: {type(data)}")
@@ -411,7 +572,9 @@ __all__ = [
     "save_vmd",
     "load_pmx",
     "load_pmx_partial",
+    "load_pmx_document",
     "save_pmx",
+    "write_pmx",
     "load_vpd",
     "save_vpd",
     # Text file functions
@@ -434,5 +597,6 @@ __all__ = [
     "IncompletePmxError",
     "IncompletePmxWriterError",
     "PmxValidationError",
+    "UnsupportedPmxFeatureError",
     "VpdPose",
 ]

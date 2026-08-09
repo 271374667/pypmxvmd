@@ -50,15 +50,16 @@ PyPMXVMD 提供了简洁的顶层函数，用于文件的加载和保存。
 
 ### 二进制文件操作
 
-#### `pypmxvmd.load(file_path, more_info=False)`
+#### `pypmxvmd.load(file_path, more_info=False, *, mode=None, implementation="auto", strict_eof=None, track_spans=False)`
 
 自动检测文件类型并加载。
 
 **参数**:
 - `file_path` (str | Path): 文件路径
 - `more_info` (bool): 是否显示详细解析信息
+- `mode`、`implementation`、`strict_eof`、`track_spans`: 仅用于 PMX
 
-**返回**: `VmdMotion` | `PmxModel` | `VpdPose`
+**返回**: `VmdMotion` | `PmxModel` | `PmxParseResult` | `VpdPose`
 
 **异常**: `ValueError` - 不支持的文件类型
 
@@ -68,13 +69,14 @@ data = pypmxvmd.load("model.pmx")
 
 ---
 
-#### `pypmxvmd.save(data, file_path)`
+#### `pypmxvmd.save(data, file_path, *, mode=None)`
 
 自动检测数据类型并保存。
 
 **参数**:
 - `data`: `VmdMotion` | `PmxModel` | `VpdPose` 对象
 - `file_path` (str | Path): 输出文件路径
+- `mode`: 仅用于 PMX，默认 `canonical`
 
 ```python
 pypmxvmd.save(model, "output.pmx")
@@ -113,11 +115,15 @@ pypmxvmd.save_vmd(motion, "output.vmd")
 
 ---
 
-#### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
+#### `pypmxvmd.load_pmx(file_path, more_info=False, *, mode="strict", implementation="auto", strict_eof=None, track_spans=False)`
 
-完整加载 PMX，无法证明完整性时关闭失败。PMX 2.0 会完整解析到 Spring 6DOF Joint，
-并要求精确到达 EOF。遇到尚未支持的 PMX 2.1 Flip/Impulse Morph、其他 Joint 类型或
-Soft Body 时会抛出格式/完整性异常，不会静默丢弃。
+`mode="strict"` 返回完整 `PmxModel` 并固定要求精确 EOF；`mode="partial"` 返回
+`PmxParseResult`，调用方可再设置 `strict_eof=True` 要求结果必须完整。`implementation`
+可选 `auto`、`python`、`fast`、`cython`。`mode="document"` 和 `track_spans=True`
+预留给 W9，当前明确抛出 `UnsupportedPmxFeatureError`。
+
+PMX 2.0 会完整解析到 Spring 6DOF Joint。遇到尚未支持的 PMX 2.1 Flip/Impulse Morph、
+其他 Joint 类型或 Soft Body 时会抛出格式/完整性异常，不会静默丢弃。
 
 **参数**:
 - `file_path` (str | Path): PMX文件路径
@@ -130,18 +136,28 @@ try:
     model = pypmxvmd.load_pmx("character.pmx")
 except pypmxvmd.IncompletePmxError as error:
     print(error.report.missing_sections)
+
+result = pypmxvmd.load_pmx("character.pmx", mode="partial")
 ```
 
 ---
 
-#### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto") -> PmxParseResult`
+#### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto", *, track_spans=False) -> PmxParseResult`
 
 显式调用 `python`、`fast` 或 `cython` 读取能力。返回对象包含 `model` 和
 不可变的 `report`；报告记录已加载/缺失 section、各 section 字节范围、最终偏移、文件
 总长度和尾部未消费字节数。PMX 2.0 可返回 `is_complete=True`；PMX 2.1 当前会报告
 `soft_bodies` 缺失，或在更早的未支持 PMX 2.1 record 处明确失败。`auto` 使用带边界与
 资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
-Cursor 的 canonical 语义模型。完整读取不等于已经支持编辑和保存。
+Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
+完整 canonical 读写不等于已经支持源字节无损编辑。
+
+---
+
+#### `pypmxvmd.load_pmx_document(...)`
+
+W9 的预留 API 名称。当前抛出 `UnsupportedPmxFeatureError`，不会返回缺少源字节和字段
+span 的伪 document。
 
 ---
 
@@ -167,7 +183,7 @@ validate_pmx_model(
 
 ---
 
-#### `pypmxvmd.save_pmx(model, file_path)`
+#### `pypmxvmd.save_pmx(model, file_path, *, mode="canonical")`
 
 验证并原子保存 canonical PMX 2.0 文件。writer 覆盖 Header 至 Spring 6DOF Joint，
 自动选择可容纳模型的最小索引宽度，并保持模型中的纹理列表和索引顺序。无效、不完整、
@@ -175,6 +191,9 @@ PMX 2.1、QDEF、未支持 Joint 或 Soft Body 输入会在替换目标文件前
 
 canonical 输出保证语义 round-trip 稳定，不承诺与源文件逐字节或原布局相同。
 `PmxParser.write_file_partial()` 仍只是显式、有损的 fixture 工具，并拒绝它无法编码的集合。
+`write_pmx()` 是等价的显式 writer 名称。未来的 `preserve_layout` 和 `lossless_patch`
+模式在 W9 前抛出 `UnsupportedPmxFeatureError`；未知模式名抛出 `ValueError`。所有失败均
+发生在替换目标文件之前。
 
 **参数**:
 - `model` (PmxModel): PMX模型对象
@@ -183,6 +202,14 @@ canonical 输出保证语义 round-trip 稳定，不承诺与源文件逐字节�
 ```python
 pypmxvmd.save_pmx(model, "output.pmx")
 ```
+
+| 操作 | 当前可用 | 结果 |
+|---|---|---|
+| 读取 `strict` | 是 | 完整 PMX 2.0 `PmxModel`，否则 fail closed |
+| 读取 `partial` | 是 | 带完整性报告的 `PmxParseResult` |
+| 读取 `document` / 字段 span | 否（W9） | `UnsupportedPmxFeatureError` |
+| 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0 |
+| 写入 `preserve_layout` / `lossless_patch` | 否（W9） | `UnsupportedPmxFeatureError` |
 
 ---
 
@@ -1088,6 +1115,7 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `IncompletePmxError` | 完整 PMX 读取尚未到达全部 section/EOF |
 | `IncompletePmxWriterError` | 显式 legacy partial writer 会丢弃未支持 section，因而拒绝写入 |
 | `PmxValidationError` | 字段验证失败，包含 `field`、`expected`、`actual` |
+| `UnsupportedPmxFeatureError` | 已识别的 PMX 版本/模式尚未实现，包含 `feature`、`available` |
 
 ```python
 import pypmxvmd

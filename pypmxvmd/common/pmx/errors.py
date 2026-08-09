@@ -40,6 +40,17 @@ class PmxValidationError(PmxError):
         )
 
 
+class UnsupportedPmxFeatureError(PmxError):
+    """A recognized PMX mode or format feature is not implemented yet."""
+
+    def __init__(self, feature: str, *, available: str) -> None:
+        self.feature = feature
+        self.available = available
+        super().__init__(
+            f"Unsupported PMX feature {feature!r}; available support: {available}"
+        )
+
+
 class IncompletePmxError(PmxError):
     """A partial parser result was requested through the complete-read API."""
 
