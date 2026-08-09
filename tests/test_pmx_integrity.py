@@ -34,30 +34,31 @@ def _minimal_complete_pmx20_bytes() -> bytes:
     return bytes(data)
 
 
-def test_partial_parse_reports_loaded_sections_and_trailing_bytes(tmp_path):
+def _minimal_complete_pmx21_bytes() -> bytes:
+    data = bytearray(_minimal_complete_pmx20_bytes())
+    data[4:8] = struct.pack("<f", 2.1)
+    data.extend(struct.pack("<i", 0))  # Soft Body count.
+    return bytes(data)
+
+
+def test_pmx20_parse_reports_every_section_and_eof(tmp_path):
     path = tmp_path / "minimal-complete.pmx"
     path.write_bytes(_minimal_complete_pmx20_bytes())
 
     result = PmxParser().parse_file_partial(path, implementation="fast")
 
     assert result.report.implementation == "fast"
-    assert result.report.loaded_sections == frozenset(
-        {"header", "vertices", "faces", "textures", "materials"}
-    )
-    assert result.report.missing_sections == PMX_20_REQUIRED_SECTIONS[5:]
-    assert result.report.final_offset < result.report.file_size
-    assert result.report.trailing_bytes == 5 * 4
-    assert not result.report.is_complete
+    assert result.report.loaded_sections == frozenset(PMX_20_REQUIRED_SECTIONS)
+    assert result.report.missing_sections == ()
+    assert result.report.final_offset == result.report.file_size
+    assert result.report.trailing_bytes == 0
+    assert result.report.is_complete
     assert result.model.parse_report is result.report
     assert result.model.loaded_sections == result.report.loaded_sections
-    assert not result.model.is_complete
-    assert [section.name for section in result.report.sections] == [
-        "header",
-        "vertices",
-        "faces",
-        "textures",
-        "materials",
-    ]
+    assert result.model.is_complete
+    assert tuple(section.name for section in result.report.sections) == (
+        PMX_20_REQUIRED_SECTIONS
+    )
 
 
 @pytest.mark.parametrize(
@@ -74,48 +75,52 @@ def test_partial_parse_reports_loaded_sections_and_trailing_bytes(tmp_path):
         ),
     ],
 )
-def test_each_partial_implementation_reports_the_same_boundary(
-    tmp_path, implementation
-):
+def test_each_implementation_reports_complete_pmx20(tmp_path, implementation):
     path = tmp_path / f"minimal-{implementation}.pmx"
     path.write_bytes(_minimal_complete_pmx20_bytes())
 
     report = PmxParser().parse_file_partial(path, implementation=implementation).report
 
     assert report.implementation == implementation
-    assert report.final_offset == report.file_size - 20
-    assert report.missing_sections == (
-        "bones",
-        "morphs",
-        "display_frames",
-        "rigid_bodies",
-        "joints",
-    )
+    assert report.final_offset == report.file_size
+    assert report.missing_sections == ()
+    assert report.is_complete
 
 
-def test_complete_read_fails_closed_with_actionable_report(tmp_path):
+def test_complete_pmx20_read_succeeds(tmp_path):
     path = tmp_path / "minimal-complete.pmx"
     path.write_bytes(_minimal_complete_pmx20_bytes())
+
+    model = PmxParser().parse_file(path)
+
+    assert model.is_complete
+    assert model.header.version == pytest.approx(2.0)
+
+
+def test_pmx21_read_fails_closed_at_soft_body_boundary(tmp_path):
+    path = tmp_path / "minimal-pmx21.pmx"
+    path.write_bytes(_minimal_complete_pmx21_bytes())
 
     with pytest.raises(IncompletePmxError) as caught:
         PmxParser().parse_file(path)
 
     report = caught.value.report
-    assert report.final_offset == report.file_size - 20
-    assert report.trailing_bytes == 20
-    assert report.missing_sections[0] == "bones"
+    assert report.final_offset == report.file_size - 4
+    assert report.trailing_bytes == 4
+    assert report.missing_sections == ("soft_bodies",)
     assert "offset=" in str(caught.value)
     assert "missing_sections=" in str(caught.value)
 
 
-def test_public_partial_api_returns_model_and_report(tmp_path):
-    path = tmp_path / "minimal-complete.pmx"
-    path.write_bytes(_minimal_complete_pmx20_bytes())
+def test_public_partial_api_exposes_pmx21_soft_body_boundary(tmp_path):
+    path = tmp_path / "minimal-pmx21.pmx"
+    path.write_bytes(_minimal_complete_pmx21_bytes())
 
     result = pypmxvmd.load_pmx_partial(path, implementation="fast")
 
     assert result.model.header.name_en == "Minimal"
-    assert result.report.trailing_bytes == 20
+    assert result.report.trailing_bytes == 4
+    assert result.report.missing_sections == ("soft_bodies",)
     assert not result.report.is_complete
 
 

@@ -115,9 +115,9 @@ pypmxvmd.save_vmd(motion, "output.vmd")
 
 #### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
 
-完整加载 PMX，无法证明完整性时关闭失败。当前 PMX 实现只消费到 Material，因此该
-函数会抛出 `IncompletePmxError`，不会返回静默缺失 Bone、Morph、表示枠和物理 section
-的模型。
+完整加载 PMX，无法证明完整性时关闭失败。PMX 2.0 会完整解析到 Spring 6DOF Joint，
+并要求精确到达 EOF。遇到尚未支持的 PMX 2.1 Flip/Impulse Morph、其他 Joint 类型或
+Soft Body 时会抛出格式/完整性异常，不会静默丢弃。
 
 **参数**:
 - `file_path` (str | Path): PMX文件路径
@@ -136,19 +136,20 @@ except pypmxvmd.IncompletePmxError as error:
 
 #### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto") -> PmxParseResult`
 
-显式调用当前 `python`、`fast` 或 `cython` 的部分读取能力。返回对象包含 `model` 和
+显式调用 `python`、`fast` 或 `cython` 读取能力。返回对象包含 `model` 和
 不可变的 `report`；报告记录已加载/缺失 section、各 section 字节范围、最终偏移、文件
-总长度和尾部未消费字节数。`auto` 使用带边界与资源上限检查的 Python Cursor；显式
-`cython` 会先通过该 Cursor 验证当前支持的 section。部分模型仅用于检查，不能作为
-完整 PMX 保存。
+总长度和尾部未消费字节数。PMX 2.0 可返回 `is_complete=True`；PMX 2.1 当前会报告
+`soft_bodies` 缺失，或在更早的未支持 PMX 2.1 record 处明确失败。`auto` 使用带边界与
+资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
+Cursor 的 canonical 语义模型。完整读取不等于已经支持编辑和保存。
 
 ---
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
 完整且带验证的 PMX writer 交付前，该函数拒绝创建文件并抛出
-`IncompletePmxWriterError`。这会阻止旧的 Header 至 Material serializer 生成看似成功、
-实际丢失全部后续 section 的文件。
+`IncompletePmxWriterError`。显式 legacy fixture writer 会补空的 Material 后各 section
+计数，但仍是有损实现，并拒绝非空 Bone、Morph、表示枠、刚体、Joint 和 Soft Body。
 
 **参数**:
 - `model` (PmxModel): PMX模型对象
@@ -501,6 +502,9 @@ PMX顶点数据。
 | `additional_uvs` | `List[List[float]]` | 额外UV列表 |
 | `weight_mode` | `WeightMode` | 权重模式 |
 | `weight` | `List[List]` | 权重数据 [[bone_idx, weight], ...] |
+| `sdef_c` | `List[float] \| None` | 原始 SDEF C 向量 |
+| `sdef_r0` | `List[float] \| None` | 原始 SDEF R0 向量 |
+| `sdef_r1` | `List[float] \| None` | 原始 SDEF R1 向量 |
 | `edge_scale` | `float` | 边缘缩放 |
 
 ```python
@@ -608,6 +612,9 @@ PMX骨骼数据。
 | `ik_angle_limit` | `float` | IK角度限制 |
 | `ik_links` | `List[PmxBoneIkLink]` | IK链接列表 |
 
+`BoneFlags` 暴露全部已定义的 PMX 2.x 位。其中 `inherit_local` 对应 `0x0080`
+“本地付与”，`local_append` 是兼容别名；未定义位继续保留在原始 `value` 中。
+
 ---
 
 #### `PmxMorph`
@@ -622,7 +629,10 @@ PMX变形数据。
 | `name_en` | `str` | 英文名称 |
 | `panel` | `MorphPanel` | 面板位置 |
 | `morph_type` | `MorphType` | 变形类型 |
-| `items` | `List` | 变形项目列表 |
+| `items` | `List` | PMX 2.0 Group/Vertex/Bone/UV/Material 类型化项目 |
+
+Bone Morph 旋转以原始 `[x, y, z, w]` 四元数保存；Material Morph 保留乘算/加算操作以及
+扩散、反射、环境、边缘和三类纹理系数。PMX 2.1 Flip/Impulse Morph 尚未支持。
 
 ---
 

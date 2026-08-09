@@ -5,12 +5,17 @@ import copy
 from pypmxvmd.common.models.pmx import (
     BoneFlags,
     MaterialFlags,
+    MorphMaterialOperation,
     PmxBone,
     PmxBoneIkLink,
+    PmxFrameItem,
     PmxHeader,
     PmxJoint,
     PmxMaterial,
     PmxModel,
+    PmxMorphItemBone,
+    PmxMorphItemMaterial,
+    PmxMorphItemUv,
     PmxRigidBody,
     PmxTextEncoding,
     RigidBodyPhysMode,
@@ -114,6 +119,39 @@ def test_ik_link_keeps_zero_limits_as_present_values():
 
     assert link.has_limits
     assert link.validate()
+
+
+def test_morph_records_preserve_quaternion_uv_and_material_neutral_values():
+    bone_item = PmxMorphItemBone(rotation=[0.1, 0.2, 0.3, 0.9])
+    uv_item = PmxMorphItemUv(offset=[1.0, 2.0, 3.0, 4.0])
+    multiply = PmxMorphItemMaterial()
+    additive = PmxMorphItemMaterial(operation=MorphMaterialOperation.ADD)
+
+    assert bone_item.rotation_quaternion == [0.1, 0.2, 0.3, 0.9]
+    assert bone_item.validate()
+    assert uv_item.validate()
+    assert multiply.diffuse_color == [1.0, 1.0, 1.0, 1.0]
+    assert multiply.edge_size == 1.0
+    assert additive.diffuse_color == [0.0, 0.0, 0.0, 0.0]
+    assert additive.edge_size == 0.0
+    assert additive.is_add
+
+    additive.is_add = False
+    assert additive.operation == MorphMaterialOperation.MULTIPLY
+    assert additive.validate()
+
+
+def test_display_frame_item_typed_views_switch_target_kind():
+    item = PmxFrameItem(is_morph=False, index=2)
+
+    assert item.bone_index == 2
+    assert item.morph_index is None
+
+    item.morph_index = 4
+    assert item.is_morph
+    assert item.morph_index == 4
+    assert item.bone_index is None
+    assert item.validate()
 
 
 def test_rigid_body_exposes_raw_mask_and_legacy_group_views():

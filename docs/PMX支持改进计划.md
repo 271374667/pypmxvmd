@@ -21,18 +21,18 @@
 > 2026-08-09 状态更新：以下问题清单保留原始审计证据。W0/W1 已完成：公共 PMX
 > 读写现已 fail closed，显式 partial API 返回完整性报告；活动 Python reader 已迁移到
 > bounds-checked little-endian `PmxCursor`，所有直接 PMX `struct` 调用已有静态防回归，
-> `auto` 不再默认进入未完成的 Cython reader。当前仍只解析到 Material，下一工作包是
-> W2 完整语义模型。
+> `auto` 不再默认进入未完成的 Cython reader。活动 Cursor reader 现已完整消费 PMX 2.0
+> 至 Spring 6DOF Joint/EOF；PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍 fail closed。
 
 总体结论：
 
-- PMX 数据模型已经具备顶点、材质、骨骼、IK、刚体和关节等基础结构。
-- 审计时公共 `load_pmx()` 默认走 fast/Cython 路径，但这些路径只解析到材质段；现已
-  改为不完整时抛出 `IncompletePmxError`。
+- PMX 2.0 数据模型和 canonical reader 已覆盖 Header 至 Spring 6DOF Joint 的全部 section。
+- 审计时公共 `load_pmx()` 默认走 fast/Cython 路径且只解析到材质段；现已改为 PMX 2.0
+  完整到 EOF，PMX 2.1 未支持内容明确失败。
 - 审计时公共 `save_pmx()` 只写到材质段；现已在创建文件前抛出
   `IncompletePmxWriterError`。
 - 备用 Nuthouse parser/writer 覆盖范围较大，但存在二进制对齐、Morph 类型缺失和 PMX 2.1 Soft Body 未实现等问题。
-- 当前测试没有覆盖完整真实 PMX 的解析、写回、语义等价和字节无损性。
+- 当前 7 个真实 PMX 2.0 已覆盖完整解析与验证；写回、语义 round-trip 和字节无损性仍未覆盖。
 
 因此，在以下问题修复前，PyPMXVMD 不应把公共 PMX API 标记为“完整 PMX 读写支持”。
 
@@ -64,6 +64,10 @@
 - 骨骼、Morph、刚体、关节：全部为 `0`
 
 这类行为比直接抛出 `NotImplementedError` 更危险，因为调用方无法判断模型是否完整。
+
+> 当前修复状态（2026-08-09）：公共 `load_pmx()` 已可完整返回到 EOF 的 PMX 2.0；
+> Cursor reader 保存 Additional UV、SDEF、全部 PMX 2.0 Morph、表示枠、刚体和 Spring
+> 6DOF Joint。PMX 2.1 未支持内容仍明确失败。这里完成的是读取，不代表 writer 或页面编辑。
 
 ### 3.2 公共 writer 会生成截断或破坏性输出
 
@@ -280,32 +284,38 @@ PMX 2.1 的 Joint 类型也需要补全，不能只支持 `SPRING6DOF = 0`。
 
 P0 完成前不建议发布新的 PMX 完整读写版本。
 
-- [x] 公共 `load_pmx()` 不再返回不完整模型；当前不完整实现抛出
-  `IncompletePmxError`，显式 partial API 返回完整性报告。
+- [x] 公共 `load_pmx()` 不再返回不完整模型；PMX 2.0 完整到 EOF，PMX 2.1 未支持内容
+  抛出明确异常，显式 partial API 返回完整性报告。
 - [x] 公共 `save_pmx()` 在 writer 不完整时抛出 `IncompletePmxWriterError`，且在
   抛出前不创建目标文件。
 - [x] 所有直接 PMX `struct` 格式强制使用 `<`，裸兼容格式由 `BinaryIOHandler`
   归一化为 little-endian，并有 AST 静态回归。
-- [ ] 标准 Python parser 能完整解析 PMX 2.0 到 EOF。
+- [x] 标准 Python parser 能完整解析 PMX 2.0 到 EOF。
 - [x] 修复 parser 选择逻辑，不再把 partial fast/Cython parser 当成完整 parser，
   且不再因任意解析异常静默回退到 Nuthouse。
-- [ ] 增加至少一个真实 PMX 2.0 测试文件。
-- [ ] 对 truncated file、非法 count、越界 index 提供明确异常。
+- [x] 7 个本地真实 PMX 2.0 均逐文件解析到 EOF 并通过 `model.validate()`。
+- [x] 对 truncated file、非法 count、非法 enum 和主要越界 index 提供明确异常。
 
 ## P1：完整 PMX 2.0 语义读写
 
-- [ ] Header 完整布局字段。
-- [ ] Additional UV 0–4。
-- [ ] BDEF1/BDEF2/BDEF4/SDEF/QDEF。
-- [ ] Material 全字段。
-- [ ] Bone 全 flags、inherit、axes、external parent 和 IK。
-- [ ] 所有 PMX 2.0 Morph。
-- [ ] Display frame。
-- [ ] Rigid body。
-- [ ] Spring 6DOF Joint。
+- [x] Header 完整布局字段。
+- [x] Additional UV 0–4 reader/model。
+- [x] BDEF1/BDEF2/BDEF4/SDEF/QDEF reader/model，其中 SDEF 保留 C/R0/R1。
+- [x] Material 全字段 reader/model。
+- [x] Bone 模型及 reader：全 flags、inherit、axes、external parent 和 IK。
+- [ ] Bone writer 与 read → write → read。
+- [x] 所有 PMX 2.0 Morph reader/model，Bone 旋转保留原始 quaternion。
+- [x] Display frame reader/model。
+- [x] Rigid body reader/model。
+- [x] Spring 6DOF Joint reader/model。
 - [ ] 完整 writer。
 - [ ] 完整 cross-reference validator。
 - [ ] read → write → read 深度语义等价。
+
+当前只读证据（2026-08-09）：7 个 PMX 2.0 语料均到达 EOF 并通过
+`model.validate()`；合计覆盖 Vertex Morph 845、Material Morph 184、Group Morph 36、
+UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 741 条记录。该结果证明 S0/S1
+读取覆盖，不证明 S2 编辑或 writer 正确性。
 
 ## P2：完整 PMX 2.1
 
@@ -314,15 +324,15 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [ ] 全部 PMX 2.1 Joint 类型。
 - [ ] Soft Body 全字段。
 - [ ] PMX 2.1 真实样本 round-trip。
-- [ ] 未支持 feature 必须 fail closed。
+- [x] 当前未支持的 PMX 2.1 feature 必须 fail closed。
 
 ## P3：性能实现与统一行为
 
-- [ ] 标准 Python parser 作为语义基准。
-- [ ] fast Python parser 完整覆盖并通过字段级 parity test。
+- [x] 标准 Python Cursor parser 作为 PMX 2.0 语义基准。
+- [x] fast Python 公共路径通过 PMX 2.0 字段级 parity test。
 - [ ] Cython parser 完整覆盖并通过字段级 parity test。
-- [ ] Cython 不可用或失败时行为一致。
-- [ ] 性能测试只在完整性测试通过后作为发布门槛。
+- [x] 原生 Cython 未补齐前，公共 Cython 路径返回安全 Cursor 的 canonical 模型并保持行为一致。
+- [x] 性能测试只在完整性测试通过后运行。
 
 ## P4：可审计的无损补丁模式
 
@@ -502,25 +512,25 @@ write_pmx(document, path, mode="lossless_patch")
 
 - [ ] UTF-16LE。
 - [ ] UTF-8。
-- [ ] Additional UV：0、1、2、3、4。
-- [ ] Vertex index：1、2、4 字节。
-- [ ] Texture index：1、2、4 字节。
-- [ ] Material index：1、2、4 字节。
-- [ ] Bone index：1、2、4 字节。
-- [ ] Morph index：1、2、4 字节。
-- [ ] Rigid body index：1、2、4 字节。
+- [x] Additional UV：0、1、2、3、4。
+- [x] Vertex index：1、2、4 字节。
+- [x] Texture index：1、2、4 字节。
+- [x] Material index：1、2、4 字节。
+- [x] Bone index：1、2、4 字节。
+- [x] Morph index：1、2、4 字节。
+- [x] Rigid body index：1、2、4 字节。
 
 注意 Vertex index 为无符号，其余支持 `-1` sentinel 的索引通常为有符号。
 
 ### 7.2 Vertex
 
-- [ ] BDEF1。
-- [ ] BDEF2。
-- [ ] BDEF4。
-- [ ] SDEF。
-- [ ] QDEF。
-- [ ] 边缘倍率。
-- [ ] Additional UV 0–4。
+- [x] BDEF1。
+- [x] BDEF2。
+- [x] BDEF4。
+- [x] SDEF（含 C/R0/R1）。
+- [x] QDEF。
+- [x] 边缘倍率。
+- [x] Additional UV 0–4。
 - [ ] 非规范但可解析的权重值。
 
 ### 7.3 Material
@@ -536,36 +546,42 @@ write_pmx(document, path, mode="lossless_patch")
 
 ### 7.4 Bone 与 IK
 
-- [ ] Tail offset。
-- [ ] Tail bone index。
-- [ ] Rotate/translate/visible/enabled。
-- [ ] Inherit rotation/translation。
-- [ ] Fixed axis。
-- [ ] Local axes。
-- [ ] Deform after physics。
-- [ ] External parent。
-- [ ] IK 无链接限制。
-- [ ] IK 有链接限制。
-- [ ] 单链接和多链接 IK。
-- [ ] 极限值为零的合法 limits。
+字段顺序、`0x0080` 本地付与及 IK 弧度单位按
+[PmxEditor 0.236 附带 PMX 规格备份](https://gist.github.com/FlandreDaisuki/90ae5abf3138a15994526b6bfec73c2c)
+核对。
+
+- [x] Tail offset。
+- [x] Tail bone index。
+- [x] Rotate/translate/visible/enabled。
+- [x] Local append (`0x0080`) 与未知 flags 透传。
+- [x] Inherit rotation/translation。
+- [x] Fixed axis。
+- [x] Local axes。
+- [x] Deform layer（PMXEditor“表示先”）。
+- [x] Deform after physics。
+- [x] External parent。
+- [x] IK 无链接限制。
+- [x] IK 有链接限制。
+- [x] 单链接和多链接 IK。
+- [x] 极限值为零的合法 limits。
 - [ ] 左右脚 IK、脚尖 IK 等真实模型结构。
 
 ### 7.5 Morph
 
-- [ ] Group。
-- [ ] Vertex。
-- [ ] Bone quaternion。
-- [ ] UV。
-- [ ] Extended UV 1–4。
-- [ ] Material。
+- [x] Group。
+- [x] Vertex。
+- [x] Bone quaternion。
+- [x] UV。
+- [x] Extended UV 1–4。
+- [x] Material（乘算/加算及全部系数）。
 - [ ] Flip。
 - [ ] Impulse。
 
 ### 7.6 Physics 与 PMX 2.1
 
-- [ ] 所有 rigid body shape/mode。
-- [ ] 无骨骼绑定的 rigid body。
-- [ ] Spring 6DOF Joint。
+- [x] 所有 rigid body shape/mode。
+- [x] 无骨骼绑定的 rigid body。
+- [x] Spring 6DOF Joint。
 - [ ] PMX 2.1 其他 Joint。
 - [ ] Soft Body config/cluster/iteration/material。
 - [ ] Soft Body anchor。
@@ -579,10 +595,11 @@ write_pmx(document, path, mode="lossless_patch")
 - [x] 非法 encoding。
 - [x] 非法 index size。
 - [x] 负数或超大 count。
+- [x] Bone 条件字段截断及非法 IK limit flag。
 - [x] 字符串长度越界。
 - [x] record 中途截断。
-- [ ] 非法 enum。
-- [ ] 索引越界。
+- [x] 当前支持 section 的非法 enum。
+- [x] Bone/Morph/Frame/Rigid Body/Joint 主要索引越界。
 - [x] section 后存在未知 trailing bytes（当前由 `PmxParseReport` 明确报告；完整入口拒绝）。
 
 ## 8. 每次发布必须通过的验收标准
@@ -705,16 +722,15 @@ PmxPhysicsRebuilder
 
 建议按以下顺序开发，避免同时维护多条不完整路径：
 
-1. 冻结当前 partial PMX writer，避免误用。
-2. 在 Binary IO 层统一 `<` 并增加格式长度测试。
-3. 以纯 Python 实现完整、严格的 PMX 2.0 reader。
-4. 补全 PMX 2.0 数据模型和 validator。
-5. 实现 canonical PMX 2.0 writer。
-6. 建立真实模型与合成模型测试语料。
-7. 通过完整解析和语义 round-trip。
-8. 补全 PMX 2.1。
-9. 让 fast/Cython 对齐标准 parser。
-10. 增加 source span 和 lossless patch 模式。
+1. `[已完成]` 冻结 partial PMX writer，避免误用。
+2. `[已完成]` 在 Binary IO 层统一 `<` 并增加格式长度测试。
+3. `[已完成]` 以 Cursor 实现完整、严格的 PMX 2.0 reader。
+4. `[下一步]` 完成 PMX 2.0 validator 的剩余规则和异常矩阵。
+5. 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
+6. 增加 source span 和 lossless patch 模式。
+7. 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
+8. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
+9. 让原生 fast/Cython 对齐标准 parser。
 
 优先级原则是：
 

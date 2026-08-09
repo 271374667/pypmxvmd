@@ -16,6 +16,7 @@ from pypmxvmd.common.pmx.report import (
 )
 from pypmxvmd.common.pmx.types import (
     JointType,
+    MorphMaterialOperation,
     MorphPanel,
     MorphType,
     PmxIndexSize,
@@ -38,6 +39,7 @@ __all__ = [
     "PmxLimits",
     "DEFAULT_PMX_LIMITS",
     "JointType",
+    "MorphMaterialOperation",
     "MorphPanel",
     "MorphType",
     "PmxIndexSize",

@@ -2,7 +2,7 @@
 
 > 调研日期：2026-07-30
 >
-> 状态：长期路线已确认；二进制安全基座完成，优先模型层进行中
+> 状态：长期路线已确认；PMX 2.0 结构/语义读取完成，下一步为 validator 与骨骼编辑链
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -13,16 +13,24 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
 
 当前 PyPMXVMD **不具备全面且安全的 PMX 编辑能力**。
 
-- 公共 `load_pmx()` 已 fail closed；显式 partial 路径只解析至 Material，并用 report
-  明确标出 Bone、Morph、Display Frame、Rigid Body、Joint 与 Soft Body 尚未加载。
-- 公共 `save_pmx()` 已在创建文件前拒绝，旧 Header 至 Material serializer 只保留为
-  显式测试工具，不再允许生成看似成功的截断文件。
+- 公共 `load_pmx()` 已完整读取 PMX 2.0 至 Spring 6DOF Joint/EOF；PMX 2.1 的
+  Flip/Impulse、其他 Joint 与 Soft Body 仍明确失败。
+- 公共 `save_pmx()` 已在创建文件前拒绝；旧 serializer 只保留为生成“后续 section 为空”
+  的受限测试 fixture，不能用于用户模型。
 - 活动 Python reader 已使用 little-endian、bounds-checked Cursor；备用 Nuthouse 的直接
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
-- `PmxMaterial`、`PmxBone`、`PmxRigidBody` 和 `PmxJoint` 已完成第一批原始字段、条件字段、
-  collision mask 与兼容别名建模；尚无完整 reader/writer，因此仍未达到 S2 编辑支持。
+- PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
+  Spring 6DOF Joint 已完成结构与语义读取；W4 完整 validator 和 canonical writer 尚未完成。
 
 因此当前公开 API 不能承诺材料、骨骼、刚体、Joint 或 SoftBody 页面的安全修改和保存。
+
+| 页面/范围 | 当前读取 | 当前编辑结论 |
+|---|---|---|
+| 骨骼 | PMX 2.0 S0/S1 字段已读取，含“表示先”和 IK | 尚无 writer，未达到 S2 |
+| 刚体 | 三形状、三模式、group/mask 与物理参数已读取 | 尚无 writer，未达到 S2 |
+| Joint | Spring 6DOF 全向量按原始弧度读取 | 尚无 writer，未达到 S2 |
+| 材质 | 全序列化字段已读取 | “同步扩散-环境”仍是未来 S3 命令 |
+| Soft Body/PMX 2.1 | 未实现，明确 fail closed | 长期计划 |
 
 ## 2. “支持”的四个层级
 
@@ -66,10 +74,11 @@ PMXEditor 的一个控件只有达到 S2 才能称为“可编辑”；例如一
 - **骨骼模式**：显示尾端引用另一个骨骼。文件中写入一个随 Header 指定宽度变化的 bone index。
 - **相对模式**：显示尾端写为相对本骨位置的三个 `float32` 偏移量。
 
-现有代码中的 `BoneFlags.tail_usebonelink` 与 `PmxBone.tail` 已有雏形，但默认 API 尚不能
-安全读写。两种模式的 record 长度不同，不能用固定 offset 替换；必须由能重编码整个
-Bone record 的 Preserve-layout writer 实现。骨骼阶段应先限制为不增加/删除骨骼，仅修改
-字段；集合增删与全局 index 重编号另开子阶段。
+当前 reader 已完整读取 `BoneFlags.tail_usebonelink`、`tail_bone_index` 与 `tail_offset`，
+因此可在内存中区分并设置截图里的“骨骼/相对”两种形式；但尚不能安全写回。两种模式的
+record 长度不同，不能用固定 offset 替换，必须由能重编码整个 Bone record 的
+preserve-layout writer 实现。骨骼编辑阶段先限制为不增加/删除骨骼；集合增删与全局 index
+重编号另开子阶段。
 
 ### 3.2 刚体：第二优先级
 
@@ -103,8 +112,8 @@ PMX 2.0 阶段先完整支持 Spring 6DOF Joint：
 | 移动弹簧、旋转弹簧 | spring vectors | S2 |
 | “骨骼位置设定”等按钮 | 根据关联刚体/骨骼计算值的显式编辑命令 | S3，算法和异常条件必须单独定义 |
 
-模型 API 要固定旋转单位并全链路一致。当前备用 parser/writer把部分旋转做弧度/角度转换，
-但没有全字段 round-trip 证据；后续实现必须避免二次转换、精度漂移和不同路径单位不一致。
+canonical reader 已把 Joint 旋转、旋转限制和旋转弹簧按 PMX 原始 `float32`/弧度保存，
+不做角度转换。writer 和高层命令必须沿用这一契约，避免二次转换和精度漂移。
 PMX 2.1 的其他 Joint 类型不混入本阶段，随 PMX 2.1 长期路线处理。
 
 ### 3.4 材质：第四优先级
@@ -171,8 +180,8 @@ Header -> Vertex -> Face -> Texture -> Material -> Bone -> Morph
 
 编辑功能的发布顺序固定如下：
 
-1. `[安全层已完成，完整结构遍历待后续 reader]` 二进制安全基座：little-endian cursor、
-   EOF、count limits、完整性报告、partial 模型拒写。
+1. `[已完成]` PMX 2.0 结构/语义读取基座：little-endian Cursor、EOF、count limits、
+   完整性报告、全部 section 和 partial 模型拒写。
 2. 骨骼 S1/S2/S3：包含“表示先”骨骼/相对两种形式和全部 IK/付与/轴/外部亲字段。
 3. 刚体 S1/S2/S3：包含完整 collision mask 与骨骼/Joint 引用保护。
 4. PMX 2.0 Joint S1/S2/S3：包含 Spring 6DOF 全字段与单位一致性。

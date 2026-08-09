@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0/W1 已完成，W2 进行中）
+> 文档状态：执行中（W0/W1/W3 已完成；W2 的 PMX 2.0 范围已完成，下一步 W4）
 >
 > 基线日期：2026-07-30
 >
@@ -9,7 +9,8 @@
 本文件是 PMX 大规模重构的执行层计划。它回答“按什么顺序改、改哪些文件、
 每一步如何证明没有数据损坏”。PMX 格式现状、字段清单和设计背景以
 [PMX 支持改进计划](PMX支持改进计划.md)为准；当前工作区约束以
-[项目持续开发恢复指南](项目持续开发恢复指南.md)和`.agents`中的规范为准。
+[项目持续开发恢复指南](项目持续开发恢复指南.md)和`.agents`中的规范为准。最新阶段、
+下一任务和验证基线只在 `.agents/07-当前进度与接手指南.md` 动态维护。
 
 ## 1. 目标与边界
 
@@ -39,13 +40,13 @@
 
 | 区域 | 当前状态 | 影响 |
 |---|---|---|
-| 公共 reader | `PmxParser.parse_file()`优先走 Cython/fast，当前只可靠覆盖 Header、Vertex、Face、Texture、Material | 真实模型的 Bone、Morph、Frame、Physics 可能为空，属于静默数据丢失 |
-| 公共 writer | `write_file()`只编码到 Material，并固定 BDEF1、附加 UV=0 等布局 | 保存真实模型会生成截断或破坏性文件 |
+| 公共 reader | canonical Cursor 已完整读取 PMX 2.0 至 Joint/EOF；`load_pmx()` 可返回完整 PMX 2.0 | PMX 2.1 的 Flip/Impulse、其他 Joint 与 Soft Body 仍 fail closed |
+| 公共 writer | `write_file()` 已在创建文件前拒绝；legacy partial writer 只生成后续 section 为空的受限 fixture | 完整编辑和保存仍未交付，不得用完整读取混淆完整读写 |
 | 备用 Nuthouse | 覆盖较多 section，但仍有 native `struct`、字段缺失和 PMX 2.1 不完整 | 不能直接作为 correctness 基准 |
-| 数据模型 | `PmxHeader` 缺少 encoding/index size，Morph 只有部分 item，`PmxSoftBody`为空类 | reader/writer 无法表达完整布局 |
-| 验证 | `BaseModel`主要使用可被优化移除的`assert`，缺少跨 section 引用检查 | 畸形输入可能错位、超量分配或写出非法索引 |
+| 数据模型 | PMX 2.0 的 Header、Vertex/SDEF、Material、Bone/IK、Morph、Frame、Rigid Body、Spring 6DOF Joint 均可表达 | PMX 2.1 特有记录和 Soft Body 仍待 W6；高层编辑 API 尚未开始 |
+| 验证 | 已覆盖 Vertex/Bone/Morph/Frame/Rigid Body/Joint 的主要条件字段和跨引用 | W4 仍需补齐所有 count、cycle、enum 与错误路径，作为 writer 前置门槛 |
 | API 命名 | `frames`/`display_frames`、`rigidbodies`/`rigid_bodies`等并存 | 大面积重构时容易破坏调用方 |
-| 测试 | 现有 7 个本地 PMX 主要证明旧路径可返回，不证明完整 EOF 或 round-trip | 必须新增 section、偏移、异常和全字段测试 |
+| 测试 | 7 个本地 PMX 均完整读到 EOF 并通过 `model.validate()`；合成测试覆盖 PMX 2.0 全 section 与 1/2/4 字节索引 | 尚未证明 canonical writer round-trip |
 
 ### 2.2 不可改变的工程约束
 
@@ -186,12 +187,13 @@ PmxError
 非 PMX 测试仍保持 0 failed；没有向 tests/data 写文件。
 ```
 
-截至 2026-08-09，读取侧已交付：`PmxParseReport`、`PmxParseResult`、
+W0 在 2026-08-09 交付时，读取侧新增：`PmxParseReport`、`PmxParseResult`、
 `load_pmx_partial()`、逐 section span/offset/trailing bytes 证据，以及公共完整读取的
 `IncompletePmxError`。7 个真实 PMX 已逐文件报告 Material 后仍有未消费数据。
 公共 `save_pmx()` 也已冻结：它在创建目标文件前抛出
 `IncompletePmxWriterError`。旧 Header 至 Material serializer 只保留为显式
-`PmxParser.write_file_partial()` 测试工具，不能作为成功保存操作。W0 已关闭。
+`PmxParser.write_file_partial()` 测试工具，不能作为成功保存操作。W0 已关闭；后续 W3
+已将 reader 推进为完整 PMX 2.0，以上 Material 边界仅是历史基线。
 
 ### W1：二进制 Cursor 与格式安全层（P0，已完成）
 
@@ -225,7 +227,7 @@ sharing flag 语义错误已在 Python/Cython 中同步修复，并以 2 字节 
 覆盖。非 benchmark 全量结果为 `239 passed, 2 deselected`，benchmark 为
 `2 passed, 239 deselected`。W1 已关闭；下一阶段进入 W2 语义模型补全与兼容层。
 
-### W2：PMX 语义模型补全与兼容层（P0/P1，进行中）
+### W2：PMX 语义模型补全与兼容层（P0/P1，PMX 2.0 已完成）
 
 **依赖：** W1。  
 **主要文件：** `common/models/pmx.py`、`common/pmx/types.py`、`common/pmx/errors.py`。
@@ -250,13 +252,12 @@ sharing flag 语义错误已在 Python/Cython 中同步修复，并以 2 字节 
 
 退出门槛：模型能表达 PMX 2.0 全 section；旧公共导入路径仍可用；不改变 VMD/VPD 模型。
 
-截至 2026-08-09，W2 第一批已交付：完整 Header global layout、Material 原始纹理/
-Sphere/Toon 索引与 sharing mode、Bone 全 flags/表示先/付与/轴/IK 条件字段、Rigid Body
-原始 collision group/mask、Spring 6DOF Joint 字段、兼容别名，以及带字段路径的
-`PmxValidationError`。`PmxModel` 已提供 `parse_report`、`is_complete`、
-`loaded_sections` 和旧集合名称别名；模型与 PMX 安全包通过严格 mypy。当前基线为
-`258 passed, 2 deselected`。W2 尚未关闭：Morph item 全类型、Display Frame、PMX 2.1
-占位契约及完整跨引用策略仍需补齐；这些只建立模型表达能力，不代表页面已可编辑。
+截至 2026-08-09，W2 的 PMX 2.0 范围已交付：完整 Header global layout、Additional UV、
+SDEF C/R0/R1、Material 原始纹理/Sphere/Toon、Bone 全条件字段、全部 PMX 2.0 Morph item、
+Display Frame、Rigid Body 原始 collision group/mask 和 Spring 6DOF Joint。Bone Morph 保留
+原始四元数，所有旋转字段保持 PMX 原始弧度；`PmxModel` 已有完整性证据、兼容集合别名和
+上述 section 的主要跨引用验证。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 保留给
+W6。这一工作包只完成结构/语义表达，不代表 PMXEditor 页面已经可编辑。
 
 ### W3：标准 PMX 2.0 Reader（P0/P1）
 
@@ -276,6 +277,16 @@ Sphere/Toon 索引与 sharing mode、Bone 全 flags/表示先/付与/轴/IK 条�
 8. Display Frame 及 bone/morph item。
 9. Rigid Body。
 10. Joint 及其条件字段。
+
+截至 2026-08-09，W3 已完成。活动 Cursor reader 按顺序完整消费 PMX 2.0 的 Bone、Morph、
+Display Frame、Rigid Body 和 Spring 6DOF Joint，并要求 Joint 后精确到达 EOF；Additional UV
+和 SDEF 三向量也不再被跳过。合成 fixture 覆盖全部 9 种 PMX 2.0 Morph、两类 Frame item、
+三种刚体形状/模式、Spring 6DOF Joint、1/2/4 字节 Bone/Morph/Rigid Body index，以及非法
+enum、截断和 PMX 2.1 边界。7 个真实 PMX 全部读到 EOF 并通过 `model.validate()`；语料共
+覆盖 845 个 Vertex Morph、184 个 Material Morph、36 个 Group Morph、8 个 UV Morph、
+16 个 Bone Morph、827 个刚体和 741 个 Spring 6DOF Joint。原生 Cython ABI 仍会丢弃扩展
+顶点与 post-Material section，因此公共 `implementation="cython"` 暂返回安全 Cursor 的
+canonical 模型，原生迁移仍归 W8。非 benchmark 全量结果为 `315 passed`。
 
 每个 section 的实现必须同时完成：
 
@@ -347,10 +358,13 @@ Sphere/Toon 索引与 sharing mode、Bone 全 flags/表示先/付与/轴/IK 条�
 退出门槛：所有 PMX 2.0 合成 fixture 全字段 round-trip；真实 corpus 输出可再次 strict 解析；
 旧 partial 模型写入明确失败；原件 hash 不变。
 
-### W6：PMX 2.1 与 Soft Body（P2）
+### W6：PMX 2.1 与 Soft Body（P2，长期）
 
 **依赖：** W5。  
 **主要文件：** `common/pmx/reader.py`、`writer.py`、`types.py`、`validator.py`。
+
+调度约束：不进入当前近期迭代；先完成 W4/W5 以及 W11 的骨骼、刚体、Joint、材质
+优先链，除非用户显式调整优先级。
 
 实施范围：
 
@@ -446,6 +460,45 @@ no-op byte equality 通过；单字段修改只改变允许范围；before 不�
 发布前必须同时完成：README/API/计划文档、版本号、CHANGELOG（如项目采用）、CI、
 sdist/wheel 内容校验和用户迁移说明。
 
+### W11：PMXEditor 页面级安全编辑（骨骼 > 刚体 > Joint > 材质）
+
+**依赖：** W4、W5、W7、W9。
+**目标：** 按用户确认的固定优先级交付 S2 安全编辑和必要的 S3 便捷命令。
+
+共同前置：
+
+- 每个操作通过 transaction/patch 对象表达，先验证内存模型，再写入临时目标并 strict reparse。
+- 第一轮只修改现有 record，不增加/删除集合；涉及全局重编号的增删另立子阶段。
+- 每个页面建立字段白名单比较器，断言其他 section 语义不变、未修改字节区域不变。
+- 任一未支持条件字段、悬空引用或验证失败都不得创建/替换用户目标文件。
+
+交付顺序：
+
+1. **W11a 骨骼**：名称/位置/层级与 flags、`表示先`骨骼/相对、付与、固定轴、Local 轴、
+   外部亲和 IK；提供 `set_tail_bone()`、`set_tail_offset()` 等显式操作。退出门槛是两种
+   tail 变长 record 都能 read-modify-write-read，Bone/Rigid Body/Morph/Frame 引用无悬空。
+2. **W11b 刚体**：关联骨骼、三种形状/物理模式、group/mask、姿态和五个物理参数；退出
+   门槛是无骨骼 sentinel、16 组 collision mask 和所有 Joint 引用均通过验证。
+3. **W11c Joint**：PMX 2.0 Spring 6DOF 的 A/B 刚体、位置/旋转、移动/旋转限制和弹簧；
+   提供“按骨骼/刚体位置初始化”的可选 S3 命令，所有旋转内部保持原始弧度。
+4. **W11d 材质**：全部颜色、flags、轮郭、纹理/Sphere/Toon、备注与 face count；
+   “同步扩散-环境”只作为显式命令，不在读取或普通保存时自动执行。
+
+每个子阶段单独提交和发布能力矩阵；前一页面未达到 S2 验收时不启动下一页面。
+
+### W12：长期高层编辑（Vertex、Face、Morph、Display Frame）
+
+**依赖：** W11；PMX 2.1 类型还依赖 W6。
+**调度：** 不进入当前近期迭代，完成页面优先链后再排期。
+
+- Vertex：Additional UV、五种权重、SDEF/QDEF、edge scale 与骨骼重编号。
+- Face：拓扑增删、vertex index 重编号、Material face count 联动。
+- Morph：PMX 2.0 全 item 的增删/重排；W6 后再加入 Flip/Impulse。
+- Display Frame：bone/morph item 增删、重排、special frame 约束和重编号。
+- Soft Body 与所有 PMX 2.1 特有字段仍由 W6 先建立完整 reader/writer/validator，再开放编辑。
+
+退出门槛沿用 W11 的 transaction、白名单语义差异、strict reparse 和真实语料临时副本规则。
+
 ## 6. 测试与语料方案
 
 ### 6.1 Fixture 分层
@@ -529,10 +582,12 @@ git status --short
 6. validator（W4）
 7. canonical writer + PMX 2.0 round-trip（W5）
 8. public API migration（W7）
-9. PMX 2.1/Soft Body（W6）
-10. fast/Cython parity（W8）
-11. document/lossless patch（W9）
-12. integration/release/docs（W10）
+9. document/lossless patch（W9）
+10. 页面级编辑：Bone > Rigid Body > Joint > Material（W11）
+11. PMX 2.1/Soft Body（W6，长期）
+12. fast/Cython parity（W8）
+13. Vertex/Face/Morph/Display Frame 高层编辑（W12，长期）
+14. integration/release/docs（W10）
 ```
 
 每个提交只解决一个工作包；不要把 model、reader、writer、validator、Cython 和 patch
@@ -556,8 +611,8 @@ git status --short
 
 PMX 完整支持重构只有在下列项目全部满足时才可标记完成：
 
-- [ ] strict reader 对支持范围内的 PMX 2.0/2.1 到达 EOF。
-- [ ] partial reader 的状态、section 和 writer 拒绝行为可测试。
+- [x] strict reader 对 PMX 2.0 到达 EOF；PMX 2.1 未支持记录明确 fail closed。
+- [x] partial reader 的状态、section 和 writer 拒绝行为可测试。
 - [ ] canonical writer 覆盖所有已支持字段，没有固定 BDEF1/UV=0 等隐式简化。
 - [ ] 7 个本地 PMX 逐文件完成解析证据和临时 round-trip，原件 hash 未变。
 - [ ] 合成 fixture 覆盖所有 index size、weight、Morph、IK、Physics、Soft Body 分支。

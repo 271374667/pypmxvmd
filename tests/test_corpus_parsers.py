@@ -19,7 +19,9 @@ def corpus_cases(directory: str, suffix: str):
             pytest.param(
                 None,
                 id=f"no-{suffix}-corpus",
-                marks=pytest.mark.skip(reason=f"local {suffix.upper()} corpus not found"),
+                marks=pytest.mark.skip(
+                    reason=f"local {suffix.upper()} corpus not found"
+                ),
             )
         ]
     return [pytest.param(path, id=path.stem) for path in files]
@@ -28,19 +30,26 @@ def corpus_cases(directory: str, suffix: str):
 @pytest.mark.corpus
 @pytest.mark.slow
 @pytest.mark.parametrize("pmx_path", corpus_cases("test_models", "pmx"))
-def test_pmx_corpus_exposes_partial_parse_boundary(pmx_path):
-    """Every available PMX model must expose its incomplete parse boundary."""
-    result = PmxParser().parse_file_partial(pmx_path)
-    model = result.model
+def test_pmx20_corpus_parses_completely(pmx_path):
+    """Every available PMX 2.0 model must parse through Joint to EOF."""
+    parser = PmxParser()
+    result = parser.parse_file_partial(pmx_path)
+    model = parser.parse_file(pmx_path)
 
     assert model.header is not None
     assert model.vertices
     assert model.faces
     assert model.materials
-    assert result.report.final_offset < result.report.file_size
-    assert result.report.trailing_bytes > 0
-    assert result.report.missing_sections[0] == "bones"
-    assert not result.report.is_complete
+    assert model.bones
+    assert model.morphs
+    assert model.frames
+    assert model.rigidbodies
+    assert model.joints
+    assert result.report.final_offset == result.report.file_size
+    assert result.report.trailing_bytes == 0
+    assert result.report.missing_sections == ()
+    assert result.report.is_complete
+    assert model.validate()
 
 
 @pytest.mark.corpus

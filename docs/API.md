@@ -99,30 +99,32 @@ Save a VMD motion file.
 
 #### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
 
-Load a complete PMX model or fail closed. The current PMX implementations only
-consume through Material, so this function raises `IncompletePmxError` instead
-of returning a model that silently omits Bone, Morph, Display Frame and physics
-sections.
+Load a complete PMX model or fail closed. PMX 2.0 is parsed through Spring 6DOF
+Joint and must end exactly at EOF. Unsupported PMX 2.1 content (Flip/Impulse
+Morph, additional Joint types and Soft Body) raises a format/completeness error
+instead of being silently omitted.
 
 ---
 
 #### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto") -> PmxParseResult`
 
-Explicitly load the sections currently supported by `python`, `fast`, or
-`cython`. The result contains `model` and an immutable `report` with loaded and
-missing sections, section byte spans, final offset, file size and trailing byte
-count. `auto` uses the bounds-checked Python Cursor; explicit `cython` first
-validates all currently supported sections through that Cursor. Partial models
-are inspection-only and must not be saved as complete PMX.
+Explicitly load with `python`, `fast`, or `cython`. The result contains `model`
+and an immutable `report` with loaded and missing sections, section byte spans,
+final offset, file size and trailing byte count. A PMX 2.0 result can report
+`is_complete=True`; PMX 2.1 currently reports `soft_bodies` as missing or rejects
+an earlier unsupported PMX 2.1 record. `auto` uses the bounds-checked Python
+Cursor. Until the native ABI is completed, explicit `cython` still executes its
+probe but returns the Cursor's canonical semantic model. A complete read is not
+evidence that editing/saving is supported.
 
 ---
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
 Refuses to create output and raises `IncompletePmxWriterError` until the complete,
-validating PMX writer is implemented. This prevents the legacy Header-through-
-Material serializer from producing a file that appears successful but omits all
-later sections.
+validating PMX writer is implemented. The explicit legacy fixture writer emits
+empty post-Material counts but is lossy and rejects non-empty Bone, Morph,
+Display Frame, Rigid Body, Joint and Soft Body collections.
 
 ---
 
@@ -353,6 +355,9 @@ Rigid Body and Joint are not yet populated by the public reader. Use
 | `additional_uvs` | `List[List[float]]` | Additional UVs |
 | `weight_mode` | `WeightMode` | Weight mode |
 | `weight` | `List[List]` | Weights [[bone_idx, weight], ...] |
+| `sdef_c` | `List[float] \| None` | Raw SDEF C vector |
+| `sdef_r0` | `List[float] \| None` | Raw SDEF R0 vector |
+| `sdef_r1` | `List[float] \| None` | Raw SDEF R1 vector |
 | `edge_scale` | `float` | Edge scale |
 
 ---
@@ -422,6 +427,10 @@ Rigid Body and Joint are not yet populated by the public reader. Use
 | `ik_angle_limit` | `float` | IK angle limit |
 | `ik_links` | `List[PmxBoneIkLink]` | IK links |
 
+`BoneFlags` exposes all defined PMX 2.x bits. The `inherit_local` field represents
+bit `0x0080`; `local_append` is its compatibility alias. Unknown bits remain in
+the raw `value` for lossless semantic round-tripping.
+
 ---
 
 #### `PmxMorph`
@@ -432,7 +441,11 @@ Rigid Body and Joint are not yet populated by the public reader. Use
 | `name_en` | `str` | English name |
 | `panel` | `MorphPanel` | Panel |
 | `morph_type` | `MorphType` | Morph type |
-| `items` | `List` | Items |
+| `items` | `List` | Typed PMX 2.0 Group/Vertex/Bone/UV/Material items |
+
+Bone Morph rotations are stored as raw `[x, y, z, w]` quaternions. Material
+Morph items retain multiply/add operation plus all diffuse, specular, ambient,
+edge and texture tint factors. PMX 2.1 Flip and Impulse Morphs remain unsupported.
 
 ---
 

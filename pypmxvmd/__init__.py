@@ -111,11 +111,13 @@ def load_pmx_partial(
     more_info: bool = False,
     implementation: str = "auto",
 ) -> PmxParseResult:
-    """Explicitly load the PMX sections supported by a partial implementation.
+    """Load PMX with an explicit implementation and return completeness evidence.
 
     The result includes a :class:`PmxParseReport` describing loaded sections,
-    byte offsets and missing mandatory sections.  Partial models are for
-    inspection only and must not be saved as complete PMX files.
+    byte offsets and missing mandatory sections.  PMX 2.0 results can be
+    complete; unsupported PMX 2.1 content remains explicitly incomplete.
+    Models returned by this diagnostic API must not be passed to the legacy
+    writer as proof that safe PMX editing is available.
     """
     return _pmx_parser.parse_file_partial(
         file_path,

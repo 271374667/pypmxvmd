@@ -58,6 +58,11 @@ class MorphPanel(enum.IntEnum):
     OTHER = 4
 
 
+class MorphMaterialOperation(enum.IntEnum):
+    MULTIPLY = 0
+    ADD = 1
+
+
 class RigidBodyShape(enum.IntEnum):
     SPHERE = 0
     BOX = 1
@@ -77,6 +82,7 @@ class JointType(enum.IntEnum):
 __all__ = [
     "JointType",
     "MorphPanel",
+    "MorphMaterialOperation",
     "MorphType",
     "PmxIndexSize",
     "PmxTextEncoding",

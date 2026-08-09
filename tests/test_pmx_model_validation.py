@@ -4,13 +4,21 @@ import pytest
 
 from pypmxvmd.common.models.pmx import (
     BoneFlags,
+    MorphType,
     PmxBone,
+    PmxFrame,
+    PmxFrameItem,
     PmxHeader,
     PmxJoint,
     PmxMaterial,
     PmxModel,
+    PmxMorph,
+    PmxMorphItemBone,
+    PmxMorphItemVertex,
     PmxRigidBody,
+    PmxVertex,
     ToonSharing,
+    WeightMode,
 )
 from pypmxvmd.common.pmx import PmxValidationError
 
@@ -83,3 +91,41 @@ def test_model_validates_material_face_vertex_total():
         model.validate()
 
     assert caught.value.field == "materials.face_count"
+
+
+def test_sdef_vertex_requires_all_three_raw_vectors():
+    vertex = PmxVertex(weight_mode=WeightMode.SDEF)
+
+    with pytest.raises(PmxValidationError) as caught:
+        vertex.validate()
+
+    assert caught.value.field == "vertex.sdef_c"
+
+
+def test_morph_item_type_must_match_declared_morph_type():
+    morph = PmxMorph(
+        morph_type=MorphType.VERTEX,
+        items=[PmxMorphItemBone()],
+    )
+
+    with pytest.raises(PmxValidationError) as caught:
+        morph.validate()
+
+    assert caught.value.field == "morph.items"
+
+
+def test_display_frame_reference_uses_target_collection():
+    model = PmxModel()
+    model.morphs = [
+        PmxMorph(
+            morph_type=MorphType.VERTEX,
+            items=[PmxMorphItemVertex(vertex_index=0)],
+        )
+    ]
+    model.vertices = [PmxVertex()]
+    model.frames = [PmxFrame(items=[PmxFrameItem(is_morph=True, index=1)])]
+
+    with pytest.raises(PmxValidationError) as caught:
+        model.validate()
+
+    assert caught.value.field == "display_frames[0].items[0].index"

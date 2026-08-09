@@ -11,6 +11,7 @@ from pypmxvmd.common.models.base import BaseModel, is_valid_vector
 from pypmxvmd.common.pmx.errors import PmxValidationError
 from pypmxvmd.common.pmx.types import (
     JointType,
+    MorphMaterialOperation,
     MorphPanel,
     MorphType,
     PmxIndexSize,
@@ -313,6 +314,9 @@ class PmxVertex(PmxRecord):
         weight_mode: WeightMode = WeightMode.BDEF1,
         weight: Optional[List[List[Union[int, float]]]] = None,
         edge_scale: float = 1.0,
+        sdef_c: Optional[List[float]] = None,
+        sdef_r0: Optional[List[float]] = None,
+        sdef_r1: Optional[List[float]] = None,
     ) -> None:
         """初始化PMX顶点
 
@@ -324,6 +328,9 @@ class PmxVertex(PmxRecord):
             weight_mode: 权重模式
             weight: 权重数据 [[bone_idx, weight_value], ...]
             edge_scale: 边缘缩放
+            sdef_c: SDEF C vector
+            sdef_r0: SDEF R0 vector
+            sdef_r1: SDEF R1 vector
         """
         super().__init__()
         self.position = position or [0.0, 0.0, 0.0]
@@ -333,6 +340,9 @@ class PmxVertex(PmxRecord):
         self.weight_mode = weight_mode
         self.weight = weight or []
         self.edge_scale = edge_scale
+        self.sdef_c = sdef_c
+        self.sdef_r0 = sdef_r0
+        self.sdef_r1 = sdef_r1
 
     def to_list(self) -> List[Any]:
         return [
@@ -343,6 +353,9 @@ class PmxVertex(PmxRecord):
             self.weight_mode,
             self.weight,
             self.edge_scale,
+            self.sdef_c,
+            self.sdef_r0,
+            self.sdef_r1,
         ]
 
     def _validate_data(self, parent_list: Optional[List] = None) -> None:
@@ -381,6 +394,22 @@ class PmxVertex(PmxRecord):
             "number",
             self.edge_scale,
         )
+        if self.weight_mode == WeightMode.SDEF:
+            for name in ("sdef_c", "sdef_r0", "sdef_r1"):
+                value = getattr(self, name)
+                self._require(
+                    is_valid_vector(3, value),
+                    f"vertex.{name}",
+                    "SDEF vec3",
+                    value,
+                )
+        else:
+            self._require(
+                self.sdef_c is None and self.sdef_r0 is None and self.sdef_r1 is None,
+                "vertex.sdef",
+                "None outside SDEF mode",
+                (self.sdef_c, self.sdef_r0, self.sdef_r1),
+            )
 
 
 class PmxMaterial(PmxRecord):
@@ -558,7 +587,7 @@ class PmxMaterial(PmxRecord):
 class BoneFlags:
     """All PMX 2.0 bone flag bits with compatibility spellings."""
 
-    _KNOWN_MASK = 0x3F3F
+    _KNOWN_MASK = 0x3FBF
 
     def __init__(
         self,
@@ -568,6 +597,7 @@ class BoneFlags:
         visible: bool = True,
         enabled: bool = True,
         ik: bool = False,
+        inherit_local: bool = False,
         inherit_rot: bool = False,
         inherit_trans: bool = False,
         has_fixedaxis: bool = False,
@@ -587,6 +617,7 @@ class BoneFlags:
             visible = bool(value & 0x0008)
             enabled = bool(value & 0x0010)
             ik = bool(value & 0x0020)
+            inherit_local = bool(value & 0x0080)
             inherit_rot = bool(value & 0x0100)
             inherit_trans = bool(value & 0x0200)
             has_fixedaxis = bool(value & 0x0400)
@@ -600,6 +631,7 @@ class BoneFlags:
         self.visible = visible
         self.enabled = enabled
         self.ik = ik
+        self.inherit_local = inherit_local
         self.inherit_rot = inherit_rot
         self.inherit_trans = inherit_trans
         self.has_fixedaxis = has_fixedaxis
@@ -617,6 +649,7 @@ class BoneFlags:
             (self.visible, 0x0008),
             (self.enabled, 0x0010),
             (self.ik, 0x0020),
+            (self.inherit_local, 0x0080),
             (self.inherit_rot, 0x0100),
             (self.inherit_trans, 0x0200),
             (self.has_fixedaxis, 0x0400),
@@ -644,6 +677,15 @@ class BoneFlags:
     def translatable(self, value: bool) -> None:
         self.translateable = bool(value)
 
+    @property
+    def local_append(self) -> bool:
+        """Compatibility name for PMX flag ``0x0080`` (local grant)."""
+        return self.inherit_local
+
+    @local_append.setter
+    def local_append(self, value: bool) -> None:
+        self.inherit_local = bool(value)
+
     def to_list(self) -> List[bool]:
         return [
             self.tail_usebonelink,
@@ -652,6 +694,7 @@ class BoneFlags:
             self.visible,
             self.enabled,
             self.ik,
+            self.inherit_local,
             self.inherit_rot,
             self.inherit_trans,
             self.has_fixedaxis,
@@ -908,6 +951,20 @@ class PmxMorphItemGroup(PmxRecord):
         self.morph_index = morph_index
         self.value = value
 
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.morph_index, int),
+            "morph.group.morph_index",
+            "int",
+            self.morph_index,
+        )
+        self._require(
+            isinstance(self.value, (int, float)),
+            "morph.group.value",
+            "number",
+            self.value,
+        )
+
 
 class PmxMorphItemVertex(PmxRecord):
     """PMX顶点变形项目"""
@@ -918,6 +975,20 @@ class PmxMorphItemVertex(PmxRecord):
         super().__init__()
         self.vertex_index = vertex_index
         self.offset = offset or [0.0, 0.0, 0.0]
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.vertex_index, int),
+            "morph.vertex.vertex_index",
+            "int",
+            self.vertex_index,
+        )
+        self._require(
+            is_valid_vector(3, self.offset),
+            "morph.vertex.offset",
+            "vec3",
+            self.offset,
+        )
 
 
 class PmxMorphItemBone(PmxRecord):
@@ -932,7 +1003,143 @@ class PmxMorphItemBone(PmxRecord):
         super().__init__()
         self.bone_index = bone_index
         self.translation = translation or [0.0, 0.0, 0.0]
-        self.rotation = rotation or [0.0, 0.0, 0.0]
+        self.rotation = rotation or [0.0, 0.0, 0.0, 1.0]
+
+    @property
+    def rotation_quaternion(self) -> List[float]:
+        """Raw PMX quaternion in ``x, y, z, w`` order."""
+        return self.rotation
+
+    @rotation_quaternion.setter
+    def rotation_quaternion(self, value: List[float]) -> None:
+        self.rotation = value
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.bone_index, int),
+            "morph.bone.bone_index",
+            "int",
+            self.bone_index,
+        )
+        self._require(
+            is_valid_vector(3, self.translation),
+            "morph.bone.translation",
+            "vec3",
+            self.translation,
+        )
+        self._require(
+            is_valid_vector(4, self.rotation),
+            "morph.bone.rotation",
+            "quaternion vec4 (x, y, z, w)",
+            self.rotation,
+        )
+
+
+class PmxMorphItemUv(PmxRecord):
+    """PMX UV or additional-UV morph item."""
+
+    def __init__(
+        self, vertex_index: int = 0, offset: Optional[List[float]] = None
+    ) -> None:
+        super().__init__()
+        self.vertex_index = vertex_index
+        self.offset = offset or [0.0, 0.0, 0.0, 0.0]
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.vertex_index, int),
+            "morph.uv.vertex_index",
+            "int",
+            self.vertex_index,
+        )
+        self._require(
+            is_valid_vector(4, self.offset),
+            "morph.uv.offset",
+            "vec4",
+            self.offset,
+        )
+
+
+class PmxMorphItemMaterial(PmxRecord):
+    """PMX 2.0 material morph item with every raw factor."""
+
+    def __init__(
+        self,
+        material_index: int = -1,
+        operation: MorphMaterialOperation = MorphMaterialOperation.MULTIPLY,
+        diffuse_color: Optional[List[float]] = None,
+        specular_color: Optional[List[float]] = None,
+        specular_strength: Optional[float] = None,
+        ambient_color: Optional[List[float]] = None,
+        edge_color: Optional[List[float]] = None,
+        edge_size: Optional[float] = None,
+        texture_tint: Optional[List[float]] = None,
+        sphere_tint: Optional[List[float]] = None,
+        toon_tint: Optional[List[float]] = None,
+    ) -> None:
+        super().__init__()
+        self.material_index = material_index
+        self.operation = MorphMaterialOperation(operation)
+        neutral = 1.0 if self.operation == MorphMaterialOperation.MULTIPLY else 0.0
+        self.diffuse_color = diffuse_color or [neutral] * 4
+        self.specular_color = specular_color or [neutral] * 3
+        self.specular_strength = (
+            neutral if specular_strength is None else specular_strength
+        )
+        self.ambient_color = ambient_color or [neutral] * 3
+        self.edge_color = edge_color or [neutral] * 4
+        self.edge_size = neutral if edge_size is None else edge_size
+        self.texture_tint = texture_tint or [neutral] * 4
+        self.sphere_tint = sphere_tint or [neutral] * 4
+        self.toon_tint = toon_tint or [neutral] * 4
+
+    @property
+    def is_add(self) -> bool:
+        return self.operation == MorphMaterialOperation.ADD
+
+    @is_add.setter
+    def is_add(self, value: bool) -> None:
+        self.operation = (
+            MorphMaterialOperation.ADD if value else MorphMaterialOperation.MULTIPLY
+        )
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.material_index, int),
+            "morph.material.material_index",
+            "int",
+            self.material_index,
+        )
+        self._require(
+            isinstance(self.operation, MorphMaterialOperation),
+            "morph.material.operation",
+            "MorphMaterialOperation",
+            self.operation,
+        )
+        for name, size in (
+            ("diffuse_color", 4),
+            ("specular_color", 3),
+            ("ambient_color", 3),
+            ("edge_color", 4),
+            ("texture_tint", 4),
+            ("sphere_tint", 4),
+            ("toon_tint", 4),
+        ):
+            value = getattr(self, name)
+            self._require(
+                is_valid_vector(size, value),
+                f"morph.material.{name}",
+                f"vec{size}",
+                value,
+            )
+        for name in ("specular_strength", "edge_size"):
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, (int, float)),
+                f"morph.material.{name}",
+                "number",
+                value,
+            )
 
 
 class PmxMorph(PmxRecord):
@@ -949,9 +1156,52 @@ class PmxMorph(PmxRecord):
         super().__init__()
         self.name_jp = name_jp
         self.name_en = name_en
-        self.panel = panel
-        self.morph_type = morph_type
+        self.panel = MorphPanel(panel)
+        self.morph_type = MorphType(morph_type)
         self.items = items or []
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in ("name_jp", "name_en"):
+            value = getattr(self, name)
+            self._require(isinstance(value, str), f"morph.{name}", "str", value)
+        self._require(
+            isinstance(self.panel, MorphPanel),
+            "morph.panel",
+            "MorphPanel",
+            self.panel,
+        )
+        self._require(
+            isinstance(self.morph_type, MorphType),
+            "morph.morph_type",
+            "MorphType",
+            self.morph_type,
+        )
+        expected_item_types = {
+            MorphType.GROUP: PmxMorphItemGroup,
+            MorphType.VERTEX: PmxMorphItemVertex,
+            MorphType.BONE: PmxMorphItemBone,
+            MorphType.UV: PmxMorphItemUv,
+            MorphType.EXTENDED_UV1: PmxMorphItemUv,
+            MorphType.EXTENDED_UV2: PmxMorphItemUv,
+            MorphType.EXTENDED_UV3: PmxMorphItemUv,
+            MorphType.EXTENDED_UV4: PmxMorphItemUv,
+            MorphType.MATERIAL: PmxMorphItemMaterial,
+        }
+        expected_type = expected_item_types.get(self.morph_type)
+        self._require(
+            expected_type is not None,
+            "morph.morph_type",
+            "PMX 2.0 morph type",
+            self.morph_type,
+        )
+        for item in self.items:
+            self._require(
+                isinstance(item, expected_type),
+                "morph.items",
+                expected_type.__name__,
+                item,
+            )
+            item.validate(self.items)
 
 
 class PmxFrameItem(PmxRecord):
@@ -961,6 +1211,38 @@ class PmxFrameItem(PmxRecord):
         super().__init__()
         self.is_morph = is_morph
         self.index = index
+
+    @property
+    def bone_index(self) -> Optional[int]:
+        return None if self.is_morph else self.index
+
+    @bone_index.setter
+    def bone_index(self, value: int) -> None:
+        self.is_morph = False
+        self.index = value
+
+    @property
+    def morph_index(self) -> Optional[int]:
+        return self.index if self.is_morph else None
+
+    @morph_index.setter
+    def morph_index(self, value: int) -> None:
+        self.is_morph = True
+        self.index = value
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.is_morph, bool),
+            "display_frame.item.is_morph",
+            "bool",
+            self.is_morph,
+        )
+        self._require(
+            isinstance(self.index, int),
+            "display_frame.item.index",
+            "int",
+            self.index,
+        )
 
 
 class PmxFrame(PmxRecord):
@@ -978,6 +1260,25 @@ class PmxFrame(PmxRecord):
         self.name_en = name_en
         self.is_special = is_special
         self.items = items or []
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in ("name_jp", "name_en"):
+            value = getattr(self, name)
+            self._require(isinstance(value, str), f"display_frame.{name}", "str", value)
+        self._require(
+            isinstance(self.is_special, bool),
+            "display_frame.is_special",
+            "bool",
+            self.is_special,
+        )
+        for item in self.items:
+            self._require(
+                isinstance(item, PmxFrameItem),
+                "display_frame.items",
+                "PmxFrameItem",
+                item,
+            )
+            item.validate(self.items)
 
 
 class PmxRigidBody(PmxRecord):
@@ -1377,6 +1678,76 @@ class PmxModel(PmxRecord):
                     )
 
         self._validate_parent_cycles()
+
+        morph_count = len(self.morphs)
+        for morph_index, morph in enumerate(self.morphs):
+            self._require(
+                isinstance(morph, PmxMorph),
+                f"morphs[{morph_index}]",
+                "PmxMorph",
+                morph,
+            )
+            morph.validate(self.morphs)
+            for item_index, item in enumerate(morph.items):
+                field_prefix = f"morphs[{morph_index}].items[{item_index}]"
+                if isinstance(item, PmxMorphItemGroup):
+                    self._require(
+                        0 <= item.morph_index < morph_count,
+                        f"{field_prefix}.morph_index",
+                        f"0..{morph_count - 1}",
+                        item.morph_index,
+                    )
+                    self._require(
+                        item.morph_index != morph_index,
+                        f"{field_prefix}.morph_index",
+                        "non-self reference",
+                        item.morph_index,
+                    )
+                    self._require(
+                        self.morphs[item.morph_index].morph_type != MorphType.GROUP,
+                        f"{field_prefix}.morph_index",
+                        "non-group morph target",
+                        item.morph_index,
+                    )
+                elif isinstance(item, (PmxMorphItemVertex, PmxMorphItemUv)):
+                    self._require(
+                        0 <= item.vertex_index < vertex_count,
+                        f"{field_prefix}.vertex_index",
+                        f"0..{vertex_count - 1}",
+                        item.vertex_index,
+                    )
+                elif isinstance(item, PmxMorphItemBone):
+                    self._require(
+                        0 <= item.bone_index < bone_count,
+                        f"{field_prefix}.bone_index",
+                        f"0..{bone_count - 1}",
+                        item.bone_index,
+                    )
+                elif isinstance(item, PmxMorphItemMaterial):
+                    self._require(
+                        -1 <= item.material_index < len(self.materials),
+                        f"{field_prefix}.material_index",
+                        f"-1..{len(self.materials) - 1}",
+                        item.material_index,
+                    )
+
+        for frame_index, frame in enumerate(self.frames):
+            self._require(
+                isinstance(frame, PmxFrame),
+                f"display_frames[{frame_index}]",
+                "PmxFrame",
+                frame,
+            )
+            frame.validate(self.frames)
+            for item_index, item in enumerate(frame.items):
+                upper_bound = morph_count if item.is_morph else bone_count
+                target = "morph" if item.is_morph else "bone"
+                self._require(
+                    0 <= item.index < upper_bound,
+                    f"display_frames[{frame_index}].items[{item_index}].index",
+                    f"{target} index in 0..{upper_bound - 1}",
+                    item.index,
+                )
 
         rigid_body_count = len(self.rigidbodies)
         for index, rigid_body in enumerate(self.rigidbodies):

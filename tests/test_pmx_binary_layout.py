@@ -109,4 +109,5 @@ def test_material_toon_layout_obeys_sharing_flag_and_index_width(
     result = PmxParser().parse_file_partial(path, implementation="fast")
 
     assert result.model.materials[0].toon_path == expected_path
-    assert result.report.trailing_bytes == 20
+    assert result.report.trailing_bytes == 0
+    assert result.report.is_complete
