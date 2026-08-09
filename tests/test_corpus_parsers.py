@@ -28,14 +28,19 @@ def corpus_cases(directory: str, suffix: str):
 @pytest.mark.corpus
 @pytest.mark.slow
 @pytest.mark.parametrize("pmx_path", corpus_cases("test_models", "pmx"))
-def test_pmx_corpus_parses_through_public_path(pmx_path):
-    """Every available PMX model must parse through the default path."""
-    model = PmxParser().parse_file(pmx_path)
+def test_pmx_corpus_exposes_partial_parse_boundary(pmx_path):
+    """Every available PMX model must expose its incomplete parse boundary."""
+    result = PmxParser().parse_file_partial(pmx_path)
+    model = result.model
 
     assert model.header is not None
     assert model.vertices
     assert model.faces
     assert model.materials
+    assert result.report.final_offset < result.report.file_size
+    assert result.report.trailing_bytes > 0
+    assert result.report.missing_sections[0] == "bones"
+    assert not result.report.is_complete
 
 
 @pytest.mark.corpus

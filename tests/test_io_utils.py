@@ -50,6 +50,15 @@ def test_binary_io_handler_roundtrip(tmp_path):
         handler.set_position(-1)
 
 
+def test_binary_io_bare_struct_formats_are_little_endian_without_alignment():
+    handler = BinaryIOHandler()
+
+    payload = handler.pack_data("BI", 1, 0x12345678)
+
+    assert payload == b"\x01\x78\x56\x34\x12"
+    assert handler.unpack_data("BI", bytearray(payload)) == (1, 0x12345678)
+
+
 def test_text_io_handler_basic(tmp_path):
     handler = TextIOHandler(encoding="utf-8")
     file_path = tmp_path / "sample.txt"

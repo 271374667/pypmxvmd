@@ -45,6 +45,7 @@ from pypmxvmd.common.models.vpd import (
     VpdBonePose,
     VpdMorphPose,
 )
+from pypmxvmd.common.parsers.pmx_parser import PmxParser
 
 
 # ============================================================================
@@ -224,9 +225,10 @@ class TestApiAutoDetection:
         model.header = PmxHeader(version=2.0, name_jp="Test", name_en="Test")
 
         output_file = tmp_dir / "output.pmx"
-        pypmxvmd.save(model, output_file)
+        with pytest.raises(pypmxvmd.IncompletePmxWriterError):
+            pypmxvmd.save(model, output_file)
 
-        assert output_file.exists()
+        assert not output_file.exists()
 
     def test_save_unsupported_type_raises_error(self, tmp_dir):
         """Test that unsupported data type raises ValueError."""
@@ -1188,9 +1190,15 @@ class TestPmxCompleteModel:
 
         # Save and load
         pmx_file = tmp_dir / "complete.pmx"
-        pypmxvmd.save_pmx(model, pmx_file)
+        with pytest.raises(pypmxvmd.IncompletePmxWriterError):
+            pypmxvmd.save_pmx(model, pmx_file)
 
-        loaded = pypmxvmd.load_pmx(pmx_file)
+        assert not pmx_file.exists()
+
+        PmxParser().write_file_partial(model, pmx_file)
+        loaded = PmxParser().parse_file_partial(
+            pmx_file, implementation="fast"
+        ).model
 
         assert loaded.header.name_jp == "CompleteModel"
         assert len(loaded.vertices) == 3

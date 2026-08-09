@@ -45,10 +45,22 @@ class BinaryIOHandler:
 
     @classmethod
     def _get_struct(cls, format_string: str) -> struct.Struct:
-        """获取预编译的struct对象（带缓存）"""
-        if format_string not in cls._struct_cache:
-            cls._struct_cache[format_string] = struct.Struct(format_string)
-        return cls._struct_cache[format_string]
+        """获取预编译的struct对象（带缓存）。
+
+        MMD binary formats are little-endian.  Historical callers often omit
+        an explicit byte-order prefix, so normalize those compatibility calls
+        instead of inheriting host-native alignment and byte order.
+        """
+        if not format_string:
+            raise ValueError("struct格式字符串不能为空")
+        normalized = (
+            format_string
+            if format_string[0] in "@=<>!"
+            else f"<{format_string}"
+        )
+        if normalized not in cls._struct_cache:
+            cls._struct_cache[normalized] = struct.Struct(normalized)
+        return cls._struct_cache[normalized]
 
     def set_encoding(self, encoding: str) -> None:
         """设置字符串编码格式

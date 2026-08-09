@@ -9,6 +9,7 @@ PUBLIC_FUNCTIONS = (
     "load_vmd",
     "save_vmd",
     "load_pmx",
+    "load_pmx_partial",
     "save_pmx",
     "load_vpd",
     "save_vpd",
@@ -20,6 +21,7 @@ PUBLIC_FUNCTIONS = (
 def test_public_binary_api_is_exported():
     for name in PUBLIC_FUNCTIONS:
         assert callable(getattr(pypmxvmd, name))
+    assert issubclass(pypmxvmd.PmxValidationError, ValueError)
 
 
 def test_vmd_public_api_roundtrip(tmp_path, sample_vmd_motion):
@@ -37,20 +39,15 @@ def test_vmd_public_api_roundtrip(tmp_path, sample_vmd_motion):
     assert loaded.morph_frames[0].weight == pytest.approx(0.75)
 
 
-def test_pmx_public_api_roundtrip(tmp_path, sample_pmx_model):
+def test_pmx_public_writer_refuses_incomplete_output(
+    tmp_path, sample_pmx_model
+):
     path = tmp_path / "model.pmx"
-    pypmxvmd.save_pmx(sample_pmx_model, path)
 
-    loaded = pypmxvmd.load_pmx(path)
+    with pytest.raises(pypmxvmd.IncompletePmxWriterError):
+        pypmxvmd.save_pmx(sample_pmx_model, path)
 
-    assert loaded.header.version == pytest.approx(2.0)
-    assert loaded.header.name_jp == "テストモデル"
-    assert len(loaded.vertices) == len(sample_pmx_model.vertices)
-    for actual, expected in zip(loaded.vertices, sample_pmx_model.vertices):
-        assert actual.position == pytest.approx(expected.position)
-    assert loaded.faces == [[0, 1, 2]]
-    assert loaded.materials[0].name_jp == "材質"
-    assert loaded.materials[0].face_count == 3
+    assert not path.exists()
 
 
 def test_vpd_public_api_roundtrip(tmp_path, sample_vpd_pose):
@@ -80,6 +77,12 @@ def test_auto_save_and_load(
 ):
     value = request.getfixturevalue(fixture_name)
     path = tmp_path / f"auto{suffix}"
+
+    if suffix == ".pmx":
+        with pytest.raises(pypmxvmd.IncompletePmxWriterError):
+            pypmxvmd.save(value, path)
+        assert not path.exists()
+        return
 
     pypmxvmd.save(value, path)
     loaded = pypmxvmd.load(path)

@@ -30,7 +30,7 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 ### Install
 
 ```bash
-pip install pypmxvmd
+uv add pypmxvmd
 ```
 
 ### Basic Usage
@@ -39,10 +39,10 @@ pip install pypmxvmd
 import pypmxvmd
 
 # Auto-detect file type and load
-model = pypmxvmd.load("model.pmx")
+motion = pypmxvmd.load("motion.vmd")
 
 # Save
-pypmxvmd.save(model, "output.pmx")
+pypmxvmd.save(motion, "output.vmd")
 ```
 
 ---
@@ -99,13 +99,30 @@ Save a VMD motion file.
 
 #### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
 
-Load a PMX model file.
+Load a complete PMX model or fail closed. The current PMX implementations only
+consume through Material, so this function raises `IncompletePmxError` instead
+of returning a model that silently omits Bone, Morph, Display Frame and physics
+sections.
+
+---
+
+#### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto") -> PmxParseResult`
+
+Explicitly load the sections currently supported by `python`, `fast`, or
+`cython`. The result contains `model` and an immutable `report` with loaded and
+missing sections, section byte spans, final offset, file size and trailing byte
+count. `auto` uses the bounds-checked Python Cursor; explicit `cython` first
+validates all currently supported sections through that Cursor. Partial models
+are inspection-only and must not be saved as complete PMX.
 
 ---
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
-Save a PMX model file.
+Refuses to create output and raises `IncompletePmxWriterError` until the complete,
+validating PMX writer is implemented. This prevents the legacy Header-through-
+Material serializer from producing a file that appears successful but omits all
+later sections.
 
 ---
 
@@ -284,6 +301,10 @@ VMD (Vocaloid Motion Data) stores motion and camera data.
 
 PMX (Polygon Model eXtended) stores 3D model data.
 
+The priority semantic fields below are available as model contracts, but Bone,
+Rigid Body and Joint are not yet populated by the public reader. Use
+`parse_report`/`is_complete` to distinguish modeled fields from loaded sections.
+
 #### `PmxModel`
 
 | Field | Type | Description |
@@ -299,6 +320,9 @@ PMX (Polygon Model eXtended) stores 3D model data.
 | `rigidbodies` | `List[PmxRigidBody]` | Rigid bodies |
 | `joints` | `List[PmxJoint]` | Joints |
 | `softbodies` | `List[PmxSoftBody]` | Soft bodies (PMX 2.1) |
+| `parse_report` | `PmxParseReport | None` | Parse completeness evidence |
+| `is_complete` | `bool` | Whether every required section reached EOF |
+| `loaded_sections` | `frozenset[str]` | Sections actually loaded |
 
 ---
 
@@ -311,6 +335,11 @@ PMX (Polygon Model eXtended) stores 3D model data.
 | `name_en` | `str` | English name |
 | `comment_jp` | `str` | Japanese comment |
 | `comment_en` | `str` | English comment |
+| `encoding` | `PmxTextEncoding` | UTF-16LE or UTF-8 layout flag |
+| `additional_uv_count` | `int` | Additional UV count (0–4) |
+| `*_index_size` | `int` | Six PMX index widths (1, 2 or 4 bytes) |
+| `global_flags` | `bytes` | Canonical eight-byte global layout |
+| `raw_global_flags` | `bytes` | Original eight bytes for audit |
 
 ---
 
@@ -342,9 +371,13 @@ PMX (Polygon Model eXtended) stores 3D model data.
 | `edge_color` | `List[float]` | Edge color [r, g, b, a] |
 | `edge_size` | `float` | Edge size |
 | `texture_path` | `str` | Texture path |
+| `texture_index` | `int` | Raw texture table index |
 | `sphere_path` | `str` | Sphere texture path |
+| `sphere_texture_index` | `int` | Raw sphere texture index |
 | `sphere_mode` | `SphMode` | Sphere mode |
 | `toon_path` | `str` | Toon texture path |
+| `toon_sharing` | `ToonSharing` | Separate or shared Toon layout |
+| `toon_texture_index` | `int` | Raw texture/shared Toon index |
 | `comment` | `str` | Comment |
 | `face_count` | `int` | Face count |
 
@@ -376,6 +409,8 @@ PMX (Polygon Model eXtended) stores 3D model data.
 | `deform_layer` | `int` | Deform layer |
 | `bone_flags` | `BoneFlags` | Bone flags |
 | `tail` | `int | List[float]` | Tail (bone index or offset) |
+| `tail_bone_index` | `int | None` | Typed tail target view |
+| `tail_offset` | `List[float] | None` | Typed relative-tail view |
 | `inherit_parent_index` | `int` | Inherit parent index |
 | `inherit_ratio` | `float` | Inherit ratio |
 | `fixed_axis` | `List[float]` | Fixed axis |
@@ -410,6 +445,8 @@ PMX (Polygon Model eXtended) stores 3D model data.
 | `bone_index` | `int` | Bone index |
 | `group` | `int` | Collision group |
 | `nocollide_groups` | `List[int]` | No-collide groups |
+| `collision_group` | `int` | Raw group value (0–15) |
+| `collision_mask` | `int` | Raw uint16 collision mask |
 | `shape` | `RigidBodyShape` | Shape |
 | `size` | `List[float]` | Size [x, y, z] |
 | `position` | `List[float]` | Position [x, y, z] |
@@ -432,6 +469,8 @@ PMX (Polygon Model eXtended) stores 3D model data.
 | `joint_type` | `JointType` | Joint type |
 | `rigidbody1_index` | `int` | Rigid body 1 index |
 | `rigidbody2_index` | `int` | Rigid body 2 index |
+| `rigid_body_a_index` | `int` | Clear alias for rigid body 1 |
+| `rigid_body_b_index` | `int` | Clear alias for rigid body 2 |
 | `position` | `List[float]` | Position |
 | `rotation` | `List[float]` | Rotation |
 | `position_min` | `List[float]` | Position min |
@@ -626,7 +665,7 @@ for frame in motion.bone_frames[:5]:
     print(frame.bone_name, frame.frame_number, frame.position)
 ```
 
-### Example 2: Create a simple PMX model
+### Example 2: Build and validate an in-memory PMX model
 
 ```python
 import pypmxvmd
@@ -644,7 +683,8 @@ model.materials = [
     PmxMaterial(name_jp="Material", name_en="Material", diffuse_color=[0.8, 0.8, 0.8, 1.0], face_count=3)
 ]
 
-pypmxvmd.save_pmx(model, "triangle.pmx")
+model.validate()
+# Complete PMX output is intentionally unavailable until the canonical writer ships.
 ```
 
 ### Example 3: Modify VMD motion
@@ -704,7 +744,7 @@ model = pypmxvmd.load_pmx("model.pmx")
 try:
     model.validate()
     print("Model validation passed")
-except AssertionError as e:
+except pypmxvmd.PmxValidationError as e:
     print(f"Validation failed: {e}")
 ```
 
@@ -718,8 +758,10 @@ PyPMXVMD uses standard Python exceptions:
 |----------|------|
 | `FileNotFoundError` | File not found |
 | `ValueError` | Invalid format or data |
+| `IncompletePmxError` | A complete PMX read was requested but mandatory sections or EOF were not reached |
+| `IncompletePmxWriterError` | Complete PMX output was requested while only the legacy partial writer exists |
+| `PmxValidationError` | A semantic model field failed validation; exposes `field`, `expected` and `actual` |
 | `IOError` | I/O error |
-| `AssertionError` | Validation failure |
 
 ```python
 import pypmxvmd

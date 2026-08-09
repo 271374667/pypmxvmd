@@ -1,0 +1,57 @@
+# Python bytecode and native extensions
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# Centralized tool caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build outputs
+build/
+dist/
+site/
+*.egg-info/
+
+# Cython generated C sources
+pypmxvmd/common/io/_fast_binary.c
+pypmxvmd/common/parsers/_fast_pmx.c
+pypmxvmd/common/parsers/_fast_vmd.c
+
+# IDE and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local real-world corpus. Tests discover these directories when present.
+/tests/data/test_models/
+/tests/data/test_vmds/
+
+# Legacy tests that still use fixed output names
+/tests/api_output.*
+/tests/api_test.*
+/tests/auto_output.*
+/tests/auto_test.*
+/tests/comprehensive_test.*
+/tests/quick_output.*
+/tests/quick_test.*
+/tests/test_detailed.pmx
+/tests/test_large.pmx
+/tests/test_output.*
+/tests/test_output_comprehensive.*
+/tests/test_pmx.txt
+/tests/test_pose.vpd
+/tests/test_vmd.txt
+/tests/test_vpd.txt
+.agents

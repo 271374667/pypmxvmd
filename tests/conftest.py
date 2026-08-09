@@ -74,7 +74,7 @@ def sample_pmx_model():
 def sample_pmx_file(tmp_path, sample_pmx_model):
     """Write the synthetic PMX model to an isolated path."""
     path = tmp_path / "sample.pmx"
-    PmxParser().write_file(sample_pmx_model, path)
+    PmxParser().write_file_partial(sample_pmx_model, path)
     return path
 
 
@@ -177,12 +177,12 @@ def _assert_semantic_equal(actual, expected, path="root"):
         expected_fields = {
             key: value
             for key, value in vars(expected).items()
-            if key != "_validated"
+            if key not in {"_validated", "parse_report"}
         }
         actual_fields = {
             key: value
             for key, value in vars(actual).items()
-            if key != "_validated"
+            if key not in {"_validated", "parse_report"}
         }
         assert actual_fields.keys() == expected_fields.keys(), (
             f"{path}: model fields differ: "

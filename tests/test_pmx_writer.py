@@ -4,6 +4,7 @@ import struct
 
 import pytest
 
+import pypmxvmd
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
 
 
@@ -11,13 +12,13 @@ def test_pmx_writer_roundtrip(tmp_path, sample_pmx_model):
     parser = PmxParser()
     path = tmp_path / "model.pmx"
 
-    parser.write_file(sample_pmx_model, path)
+    parser.write_file_partial(sample_pmx_model, path)
 
     data = path.read_bytes()
     assert data[:4] == b"PMX "
     assert struct.unpack("<f", data[4:8])[0] == pytest.approx(2.0)
 
-    loaded = parser.parse_file(path)
+    loaded = parser.parse_file_partial(path, implementation="fast").model
     assert loaded.header.name_jp == sample_pmx_model.header.name_jp
     assert loaded.header.name_en == sample_pmx_model.header.name_en
     assert loaded.faces == sample_pmx_model.faces
@@ -29,3 +30,17 @@ def test_pmx_writer_roundtrip(tmp_path, sample_pmx_model):
     assert loaded.materials[0].name_jp == "材質"
     assert loaded.materials[0].diffuse_color == pytest.approx([0.8, 0.7, 0.6, 1.0])
     assert loaded.materials[0].face_count == 3
+
+
+def test_public_pmx_writer_fails_before_creating_output(
+    tmp_path, sample_pmx_model
+):
+    path = tmp_path / "must-not-exist.pmx"
+
+    with pytest.raises(
+        pypmxvmd.IncompletePmxWriterError,
+        match="Complete PMX writing is not implemented",
+    ):
+        pypmxvmd.save_pmx(sample_pmx_model, path)
+
+    assert not path.exists()

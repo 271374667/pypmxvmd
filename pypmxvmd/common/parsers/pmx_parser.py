@@ -2,13 +2,25 @@
 PyPMXVMD PMX解析器
 
 负责解析和写入PMX格式文件。
-支持PMX 2.0和2.1格式的完整解析。
+当前 binary reader 只消费至 Material；完整入口会 fail closed。
 """
 
 import struct
 from pathlib import Path
 from typing import List, Optional, Union
 
+from pypmxvmd.common.pmx.cursor import PmxCursor
+from pypmxvmd.common.pmx.errors import (
+    IncompletePmxError,
+    IncompletePmxWriterError,
+    PmxFormatError,
+)
+from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
+from pypmxvmd.common.pmx.report import (
+    PmxParseReport,
+    PmxParseResult,
+    PmxSectionReport,
+)
 from pypmxvmd.common.models.pmx import (
     PmxModel, PmxHeader, PmxVertex, PmxMaterial, WeightMode, SphMode, MaterialFlags
 )
@@ -25,16 +37,19 @@ except ImportError:
 
 class PmxParser:
     """PMX文件解析器
-    
-    负责PMX文件的读取和写入操作。
-    支持PMX 2.0和2.1格式的完整解析和验证。
+
+    当前提供安全的部分读取、完整性报告和拒绝截断输出的公共边界。
+    Bone 之后的完整 PMX 2.0/2.1 reader/writer 仍按执行计划实现。
     """
     
-    def __init__(self):
+    def __init__(self, limits: PmxLimits = DEFAULT_PMX_LIMITS):
         """初始化PMX解析器"""
         self._io_handler = BinaryIOHandler("utf-16le")  # PMX默认使用UTF-16LE
+        self._limits = limits
+        self._cursor: Optional[PmxCursor] = None
         self._use_utf8 = False  # 编码标志
         self._progress_callback = None
+        self._last_parse_report: Optional[PmxParseReport] = None
         
         # 索引类型格式字符串
         self._vertex_index_format = "B"  # 顶点索引格式
@@ -57,27 +72,17 @@ class PmxParser:
         if self._progress_callback:
             self._progress_callback(current, total)
     
+    @property
+    def last_parse_report(self) -> Optional[PmxParseReport]:
+        """Return the most recent parse report produced by this parser."""
+        return self._last_parse_report
+
     def parse_file(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
-        """解析PMX文件
+        """Parse a complete PMX file or fail closed.
 
-        默认使用Cython优化解析，如果不可用或失败则回退到快速解析，
-        最后回退到Nuthouse保守实现。
-
-        Args:
-            file_path: PMX文件路径
-            more_info: 是否显示更多解析信息
-
-        Returns:
-            解析后的PMX模型对象
-
-        Raises:
-            FileNotFoundError: 文件不存在
-            ValueError: 文件格式错误
-        """
-        return self.parse_file_cython(file_path, more_info)
-
-    def _parse_file_python(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
-        """纯Python解析PMX文件（原始实现）
+        The current optimized implementations only consume through the Material
+        section.  Call :meth:`parse_file_partial` explicitly when that partial
+        geometry result is intended.
 
         Args:
             file_path: PMX文件路径
@@ -88,100 +93,193 @@ class PmxParser:
 
         Raises:
             FileNotFoundError: 文件不存在
+            IncompletePmxError: 当前实现没有加载全部必需 section
             ValueError: 文件格式错误
         """
+        result = self.parse_file_partial(file_path, more_info=more_info)
+        if not result.report.is_complete:
+            raise IncompletePmxError(result.report)
+        return result.model
+
+    def parse_file_partial(
+        self,
+        file_path: Union[str, Path],
+        more_info: bool = False,
+        implementation: str = "auto",
+    ) -> PmxParseResult:
+        """Explicitly parse the sections supported by a selected implementation.
+
+        The returned report makes the loaded sections, final byte offset and
+        missing mandatory sections observable.  A partial result must not be
+        passed to a complete PMX writer.
+        """
+        file_path = Path(file_path)
+        selected = implementation.lower()
+        if selected == "auto":
+            # The Cursor path is the fail-closed implementation.  Cython stays
+            # explicitly selectable until its reader adopts the same limits
+            # and diagnostics in W8.
+            selected = "fast"
+
+        if selected == "python":
+            model = self._parse_file_python(file_path, more_info)
+        elif selected == "fast":
+            model = self.parse_file_fast(file_path, more_info)
+        elif selected == "cython":
+            if not _CYTHON_AVAILABLE:
+                raise RuntimeError(
+                    "Cython PMX parser is not available; choose 'fast' or 'python'"
+                )
+            # Validate every byte range understood by the current Cython ABI
+            # before entering code compiled with disabled bounds checks.
+            probe = PmxParser(limits=self._limits)
+            probe.parse_file_fast(file_path, more_info=False)
+            probe_report = probe.last_parse_report
+            if probe_report is None:
+                raise RuntimeError("Fast PMX parser did not produce a parse report")
+            model = parse_pmx_cython(file_path.read_bytes(), more_info)
+
+            # The current Cython ABI returns only a model.  Reuse the safe
+            # cursor probe's section boundary until W8 adds a native report.
+            self._last_parse_report = PmxParseReport(
+                implementation="cython",
+                version=model.header.version,
+                file_size=probe_report.file_size,
+                final_offset=probe_report.final_offset,
+                sections=probe_report.sections,
+            )
+            model.parse_report = self._last_parse_report
+        else:
+            raise ValueError(
+                "Unknown PMX implementation: "
+                f"{implementation!r}; expected auto, python, fast, or cython"
+            )
+
+        report = self._last_parse_report
+        if report is None:
+            raise RuntimeError("PMX parser did not produce a parse report")
+        return PmxParseResult(model=model, report=report)
+
+    def _parse_file_python(
+        self, file_path: Union[str, Path], more_info: bool = False
+    ) -> PmxModel:
+        """Parse supported PMX sections through the safe Python Cursor."""
+        return self._parse_file_cursor(file_path, more_info, implementation="python")
+
+    def parse_file_fast(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
+        """Parse supported PMX sections through the bounds-checked Cursor."""
+        return self._parse_file_cursor(file_path, more_info, implementation="fast")
+
+    def _parse_file_cursor(
+        self,
+        file_path: Union[str, Path],
+        more_info: bool,
+        *,
+        implementation: str,
+    ) -> PmxModel:
+        """Shared Cursor-backed reader for the current Python implementations."""
         file_path = Path(file_path)
         if more_info:
             print(f"开始解析PMX文件: {file_path}")
 
-        # 读取文件数据
-        data = self._io_handler.read_file(file_path)
-
-        # 创建PMX模型对象
+        cursor = PmxCursor(file_path.read_bytes(), limits=self._limits)
+        self._cursor = cursor
         pmx_model = PmxModel()
+        sections: List[PmxSectionReport] = []
+        current_section = "header"
 
         try:
-            # 解析文件头
-            pmx_model.header = self._parse_header(data)
+            start = cursor.position
+            with cursor.span("header"):
+                pmx_model.header = self._parse_header_fast()
+            sections.append(PmxSectionReport("header", start, cursor.position, 1))
 
-            # 根据头信息设置解析参数
-            self._setup_parsing_parameters(data)
-
-            # 解析各个数据段
-            pmx_model.vertices = self._parse_vertices(data)
-            pmx_model.faces = self._parse_faces(data)
-            pmx_model.textures = self._parse_textures(data)
-            pmx_model.materials = self._parse_materials(data, pmx_model.textures)
-
-            # TODO: 解析其他数据段（骨骼、变形等）
-            # pmx_model.bones = self._parse_bones(data)
-            # pmx_model.morphs = self._parse_morphs(data)
-
-            if more_info:
-                print(f"PMX解析完成: {len(pmx_model.vertices)}个顶点, "
-                      f"{len(pmx_model.faces)}个面, {len(pmx_model.materials)}个材质")
-
-            return pmx_model
-
-        except Exception as e:
-            raise ValueError(f"PMX文件解析失败: {e}")
-
-    def parse_file_fast(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
-        """快速解析PMX文件（性能优化版本）
-
-        使用内部缓冲区和偏移量追踪，避免O(n)的切片删除操作。
-        对于大型PMX文件，性能提升显著。
-
-        Args:
-            file_path: PMX文件路径
-            more_info: 是否显示更多解析信息
-
-        Returns:
-            解析后的PMX模型对象
-
-        Raises:
-            FileNotFoundError: 文件不存在
-            ValueError: 文件格式错误
-        """
-        file_path = Path(file_path)
-        if more_info:
-            print(f"开始快速解析PMX文件: {file_path}")
-
-        # 使用快速读取方法
-        self._io_handler.read_file_fast(file_path)
-
-        # 创建PMX模型对象
-        pmx_model = PmxModel()
-
-        try:
-            # 解析文件头
-            pmx_model.header = self._parse_header_fast()
-
-            # 根据头信息设置解析参数（使用快速版本）
-            self._setup_parsing_parameters_fast()
-
-            # 解析各个数据段
-            pmx_model.vertices = self._parse_vertices_fast(more_info)
-            pmx_model.faces = self._parse_faces_fast(more_info)
-            pmx_model.textures = self._parse_textures_fast(more_info)
-            pmx_model.materials = self._parse_materials_fast(
-                more_info, pmx_model.textures
+            current_section = "vertices"
+            start = cursor.position
+            with cursor.span(current_section):
+                pmx_model.vertices = self._parse_vertices_fast(more_info)
+            sections.append(
+                PmxSectionReport(
+                    current_section, start, cursor.position, len(pmx_model.vertices)
+                )
             )
 
+            current_section = "faces"
+            start = cursor.position
+            with cursor.span(current_section):
+                pmx_model.faces = self._parse_faces_fast(more_info)
+            sections.append(
+                PmxSectionReport(
+                    current_section, start, cursor.position, len(pmx_model.faces)
+                )
+            )
+
+            current_section = "textures"
+            start = cursor.position
+            with cursor.span(current_section):
+                pmx_model.textures = self._parse_textures_fast(more_info)
+            sections.append(
+                PmxSectionReport(
+                    current_section, start, cursor.position, len(pmx_model.textures)
+                )
+            )
+
+            current_section = "materials"
+            start = cursor.position
+            with cursor.span(current_section):
+                pmx_model.materials = self._parse_materials_fast(
+                    more_info, pmx_model.textures
+                )
+            sections.append(
+                PmxSectionReport(
+                    current_section, start, cursor.position, len(pmx_model.materials)
+                )
+            )
+
+            self._last_parse_report = PmxParseReport(
+                implementation=implementation,
+                version=pmx_model.header.version,
+                file_size=cursor.size,
+                final_offset=cursor.position,
+                sections=tuple(sections),
+            )
+            pmx_model.parse_report = self._last_parse_report
+
             if more_info:
-                print(f"PMX快速解析完成: {len(pmx_model.vertices)}个顶点, "
-                      f"{len(pmx_model.faces)}个面, {len(pmx_model.materials)}个材质")
-
+                print(
+                    f"PMX解析完成: {len(pmx_model.vertices)}个顶点, "
+                    f"{len(pmx_model.faces)}个面, "
+                    f"{len(pmx_model.materials)}个材质"
+                )
             return pmx_model
-
-        except Exception as e:
-            raise ValueError(f"PMX文件快速解析失败: {e}")
+        except Exception as exc:
+            offset = cursor.position
+            version = getattr(pmx_model.header, "version", 0.0)
+            self._last_parse_report = PmxParseReport(
+                implementation=implementation,
+                version=version,
+                file_size=cursor.size,
+                final_offset=offset,
+                sections=tuple(sections),
+                failed_section=current_section,
+                failed_offset=offset,
+            )
+            if isinstance(exc, PmxFormatError):
+                exc.report = self._last_parse_report
+                raise
+            raise PmxFormatError(
+                f"PMX parsing failed: {exc}",
+                section=current_section,
+                offset=offset,
+                report=self._last_parse_report,
+            ) from exc
 
     def parse_file_cython(self, file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
-        """使用Cython解析PMX文件（最高性能版本）
+        """Explicitly parse the currently supported sections with Cython.
 
-        需要编译Cython模块后才能使用。
-        如果Cython模块不可用，将自动回退到parse_file_fast，再回退到Nuthouse实现。
+        If the extension is unavailable this method uses the fast Python
+        implementation.  Parse errors are never swallowed or routed through an
+        unrelated fallback parser.
 
         Args:
             file_path: PMX文件路径
@@ -194,31 +292,12 @@ class PmxParser:
             FileNotFoundError: 文件不存在
             ValueError: 文件格式错误
         """
-        if _CYTHON_AVAILABLE:
-            file_path = Path(file_path)
-            if more_info:
-                print(f"开始Cython解析PMX文件: {file_path}")
-
-            # 读取文件数据
-            with open(file_path, 'rb') as f:
-                data = f.read()
-
-            try:
-                # 使用Cython模块解析
-                pmx_model = parse_pmx_cython(data, more_info)
-                return pmx_model
-            except Exception as e:
-                if more_info:
-                    print(f"Cython解析失败，回退到快速解析: {e}")
-
-        # 回退到快速解析
-        try:
-            return self.parse_file_fast(file_path, more_info)
-        except Exception as e:
-            if more_info:
-                print(f"快速解析失败，回退到Nuthouse解析: {e}")
-
-        return self._parse_file_nuthouse(file_path, more_info)
+        implementation = "cython" if _CYTHON_AVAILABLE else "fast"
+        return self.parse_file_partial(
+            file_path,
+            more_info=more_info,
+            implementation=implementation,
+        ).model
 
     def _parse_file_nuthouse(self, file_path: Union[str, Path],
                             more_info: bool = False) -> PmxModel:
@@ -332,109 +411,128 @@ class PmxParser:
 
     # ===== 快速解析方法（性能优化版本） =====
 
+    def _require_cursor(self) -> PmxCursor:
+        if self._cursor is None:
+            raise RuntimeError("PMX Cursor is not initialized")
+        return self._cursor
+
     def _parse_header_fast(self) -> PmxHeader:
-        """快速解析PMX文件头（使用内部缓冲区）"""
-        # 检查魔数
-        magic = self._io_handler.unpack_from_buffer("4s")[0]
+        """Parse and validate the PMX header through the active Cursor."""
+        cursor = self._require_cursor()
+        magic = cursor.read_exact(4)
         if magic != b"PMX ":
-            print(f"警告: 文件魔数不正确，期望'PMX '，实际'{magic.hex()}'")
+            raise PmxFormatError(
+                f"Invalid PMX magic {magic!r}; expected b'PMX '",
+                section=cursor.section,
+                offset=0,
+            )
 
-        # 读取版本号
-        version = self._io_handler.unpack_from_buffer("f")[0]
-        version = round(version, 5)  # 修正浮点精度问题
+        version = round(float(cursor.unpack("<f")[0]), 5)
+        if version not in (2.0, 2.1):
+            raise PmxFormatError(
+                f"Unsupported PMX version {version}",
+                section=cursor.section,
+                offset=4,
+            )
 
-        # 读取全局标志数量
-        global_flag_count = self._io_handler.unpack_from_buffer("B")[0]
+        global_flag_count = int(cursor.unpack("<B")[0])
         if global_flag_count != 8:
-            print(f"警告: 全局标志数量异常: {global_flag_count}")
+            raise PmxFormatError(
+                f"Invalid PMX global flag count {global_flag_count}; expected 8",
+                section=cursor.section,
+                offset=8,
+            )
 
-        # 读取全局标志
-        format_string = f"{global_flag_count}B"
-        global_flags = self._io_handler.unpack_from_buffer(format_string)
+        global_flags = tuple(int(value) for value in cursor.unpack("<8B"))
+        self._apply_global_flags(global_flags)
 
-        # 设置编码类型
         text_encoding = global_flags[0]
         if text_encoding == 0:
             self._use_utf8 = False
-            self._io_handler.set_encoding("utf-16le")
-        else:
+            encoding = "utf-16le"
+        elif text_encoding == 1:
             self._use_utf8 = True
-            self._io_handler.set_encoding("utf-8")
+            encoding = "utf-8"
+        else:
+            raise PmxFormatError(
+                f"Invalid PMX text encoding flag {text_encoding}",
+                section=cursor.section,
+                offset=9,
+            )
 
-        # 读取文本信息
-        name_jp = self._io_handler.read_variable_string_from_buffer()
-        name_en = self._io_handler.read_variable_string_from_buffer()
-        comment_jp = self._io_handler.read_variable_string_from_buffer()
-        comment_en = self._io_handler.read_variable_string_from_buffer()
+        name_jp = cursor.read_string(encoding)
+        name_en = cursor.read_string(encoding)
+        comment_jp = cursor.read_string(encoding)
+        comment_en = cursor.read_string(encoding)
 
         return PmxHeader(
             version=version,
             name_jp=name_jp,
             name_en=name_en,
             comment_jp=comment_jp,
-            comment_en=comment_en
+            comment_en=comment_en,
+            encoding=text_encoding,
+            additional_uv_count=global_flags[1],
+            vertex_index_size=global_flags[2],
+            texture_index_size=global_flags[3],
+            material_index_size=global_flags[4],
+            bone_index_size=global_flags[5],
+            morph_index_size=global_flags[6],
+            rigid_body_index_size=global_flags[7],
+            global_flags=bytes(global_flags),
         )
 
-    def _setup_parsing_parameters_fast(self) -> None:
-        """设置解析参数（快速版本）
+    def _apply_global_flags(self, global_flags: tuple[int, ...]) -> None:
+        """Validate and cache PMX header layout parameters."""
+        cursor = self._require_cursor()
+        additional_uv_count = global_flags[1]
+        if not 0 <= additional_uv_count <= 4:
+            raise PmxFormatError(
+                f"Invalid PMX additional UV count {additional_uv_count}; expected 0..4",
+                section=cursor.section,
+                offset=10,
+            )
 
-        从全局标志中读取各种索引类型的字节数。
-        """
-        # 保存当前位置
-        current_pos = self._io_handler.get_position()
+        index_names = (
+            "vertex",
+            "texture",
+            "material",
+            "bone",
+            "morph",
+            "rigid body",
+        )
+        index_sizes = global_flags[2:8]
+        for offset, (name, size) in enumerate(zip(index_names, index_sizes), start=11):
+            if size not in (1, 2, 4):
+                raise PmxFormatError(
+                    f"Invalid PMX {name} index size {size}; expected 1, 2, or 4",
+                    section=cursor.section,
+                    offset=offset,
+                )
 
-        # 重置到文件开头
-        self._io_handler.reset_position()
+        self._additional_uv_count = additional_uv_count
+        (
+            self._vertex_index_size,
+            self._texture_index_size,
+            self._material_index_size,
+            self._bone_index_size,
+            self._morph_index_size,
+            self._rigidbody_index_size,
+        ) = index_sizes
 
-        # 跳过魔数(4) + 版本号(4) + 标志数量(1) = 9字节
-        self._io_handler.skip_bytes(9)
-
-        # 读取全局标志
-        global_flags = self._io_handler.unpack_from_buffer("8B")
-
-        # 设置索引格式
-        index_formats = {
-            1: "B",  # unsigned byte
-            2: "H",  # unsigned short
-            4: "I"   # unsigned int
-        }
-
-        non_vertex_formats = {
-            1: "b",  # signed byte
-            2: "h",  # signed short
-            4: "i"   # signed int
-        }
-
-        # 存储附加UV数量
-        self._additional_uv_count = global_flags[1]
-
-        # 顶点索引（无符号）
-        vertex_size = global_flags[2]
-        self._vertex_index_format = index_formats.get(vertex_size, "I")
-
-        # 其他索引（有符号）
-        tex_size = global_flags[3]
-        self._texture_index_format = non_vertex_formats.get(tex_size, "i")
-
-        mat_size = global_flags[4]
-        self._material_index_format = non_vertex_formats.get(mat_size, "i")
-
-        bone_size = global_flags[5]
-        self._bone_index_format = non_vertex_formats.get(bone_size, "i")
-
-        morph_size = global_flags[6]
-        self._morph_index_format = non_vertex_formats.get(morph_size, "i")
-
-        rb_size = global_flags[7]
-        self._rigidbody_index_format = non_vertex_formats.get(rb_size, "i")
-
-        # 恢复读取位置
-        self._io_handler.set_position(current_pos)
+        unsigned_formats = {1: "B", 2: "H", 4: "I"}
+        signed_formats = {1: "b", 2: "h", 4: "i"}
+        self._vertex_index_format = unsigned_formats[self._vertex_index_size]
+        self._texture_index_format = signed_formats[self._texture_index_size]
+        self._material_index_format = signed_formats[self._material_index_size]
+        self._bone_index_format = signed_formats[self._bone_index_size]
+        self._morph_index_format = signed_formats[self._morph_index_size]
+        self._rigidbody_index_format = signed_formats[self._rigidbody_index_size]
 
     def _parse_vertices_fast(self, more_info: bool) -> List[PmxVertex]:
-        """快速解析顶点数据（使用内部缓冲区）"""
-        # 读取顶点数量
-        vertex_count = self._io_handler.unpack_from_buffer("I")[0]
+        """Parse the currently modeled vertex fields through the Cursor."""
+        cursor = self._require_cursor()
+        vertex_count = cursor.read_count("vertex count")
         vertices = []
 
         if more_info:
@@ -449,47 +547,51 @@ class PmxParser:
                 self._report_progress(i, vertex_count)
 
             # 基础顶点数据
-            pos_x, pos_y, pos_z = self._io_handler.unpack_from_buffer("3f")
-            norm_x, norm_y, norm_z = self._io_handler.unpack_from_buffer("3f")
-            uv_u, uv_v = self._io_handler.unpack_from_buffer("2f")
+            pos_x, pos_y, pos_z = cursor.unpack("<3f")
+            norm_x, norm_y, norm_z = cursor.unpack("<3f")
+            uv_u, uv_v = cursor.unpack("<2f")
 
             # 跳过扩展UV
             if additional_uv_count > 0:
-                self._io_handler.skip_bytes(additional_uv_count * 16)  # 每个附加UV 4个float
+                cursor.skip(additional_uv_count * 16)
 
             # 权重模式
-            weight_mode_value = self._io_handler.unpack_from_buffer("B")[0]
+            weight_mode_value = int(cursor.unpack("<B")[0])
             weight_mode = WeightMode(weight_mode_value)
 
             # 权重数据
             weight_data = []
             if weight_mode == WeightMode.BDEF1:
-                bone_idx = self._io_handler.unpack_from_buffer(self._bone_index_format)[0]
+                bone_idx = cursor.read_index(self._bone_index_size)
                 weight_data = [[bone_idx, 1.0]]
             elif weight_mode == WeightMode.BDEF2:
-                bone1_idx = self._io_handler.unpack_from_buffer(self._bone_index_format)[0]
-                bone2_idx = self._io_handler.unpack_from_buffer(self._bone_index_format)[0]
-                bone1_weight = self._io_handler.unpack_from_buffer("f")[0]
+                bone1_idx = cursor.read_index(self._bone_index_size)
+                bone2_idx = cursor.read_index(self._bone_index_size)
+                bone1_weight = float(cursor.unpack("<f")[0])
                 weight_data = [[bone1_idx, bone1_weight], [bone2_idx, 1.0 - bone1_weight]]
             elif weight_mode == WeightMode.BDEF4:
-                bone_indices = self._io_handler.unpack_from_buffer(f"4{self._bone_index_format}")
-                bone_weights = self._io_handler.unpack_from_buffer("4f")
+                bone_indices = [
+                    cursor.read_index(self._bone_index_size) for _ in range(4)
+                ]
+                bone_weights = cursor.unpack("<4f")
                 weight_data = list(zip(bone_indices, bone_weights))
             elif weight_mode == WeightMode.SDEF:
-                bone1_idx = self._io_handler.unpack_from_buffer(self._bone_index_format)[0]
-                bone2_idx = self._io_handler.unpack_from_buffer(self._bone_index_format)[0]
-                bone1_weight = self._io_handler.unpack_from_buffer("f")[0]
+                bone1_idx = cursor.read_index(self._bone_index_size)
+                bone2_idx = cursor.read_index(self._bone_index_size)
+                bone1_weight = float(cursor.unpack("<f")[0])
                 # 跳过SDEF参数（C, R0, R1向量）
-                self._io_handler.skip_bytes(36)  # 9 floats = 36 bytes
+                cursor.skip(36)
                 weight_data = [[bone1_idx, bone1_weight], [bone2_idx, 1.0 - bone1_weight]]
             elif weight_mode == WeightMode.QDEF:
                 # QDEF模式：类似BDEF4
-                bone_indices = self._io_handler.unpack_from_buffer(f"4{self._bone_index_format}")
-                bone_weights = self._io_handler.unpack_from_buffer("4f")
+                bone_indices = [
+                    cursor.read_index(self._bone_index_size) for _ in range(4)
+                ]
+                bone_weights = cursor.unpack("<4f")
                 weight_data = list(zip(bone_indices, bone_weights))
 
             # 边缘倍率
-            edge_scale = self._io_handler.unpack_from_buffer("f")[0]
+            edge_scale = float(cursor.unpack("<f")[0])
 
             # 创建顶点对象
             vertex = PmxVertex(
@@ -507,37 +609,48 @@ class PmxParser:
         return vertices
 
     def _parse_faces_fast(self, more_info: bool) -> List[List[int]]:
-        """快速解析面数据（使用内部缓冲区）"""
+        """Parse triangle vertex indices through the Cursor."""
+        cursor = self._require_cursor()
         # 读取面数量（实际是索引数量）
-        index_count = self._io_handler.unpack_from_buffer("I")[0]
+        count_offset = cursor.position
+        index_count = cursor.read_count("face vertex index count")
+        if index_count % 3:
+            raise PmxFormatError(
+                f"PMX face vertex index count {index_count} is not divisible by 3",
+                section=cursor.section,
+                offset=count_offset,
+            )
         face_count = index_count // 3
 
         if more_info:
             print(f"解析 {face_count} 个面...")
 
         faces = []
-        format_string = f"3{self._vertex_index_format}"
 
         for i in range(face_count):
             if i % 1000 == 0:
                 self._report_progress(i, face_count)
 
-            indices = list(self._io_handler.unpack_from_buffer(format_string))
+            indices = [
+                cursor.read_index(self._vertex_index_size, signed=False)
+                for _ in range(3)
+            ]
             faces.append(indices)
 
         self._report_progress(face_count, face_count)
         return faces
 
     def _parse_textures_fast(self, more_info: bool) -> List[str]:
-        """快速解析纹理列表（使用内部缓冲区）"""
-        texture_count = self._io_handler.unpack_from_buffer("I")[0]
+        """Parse texture strings through the Cursor."""
+        cursor = self._require_cursor()
+        texture_count = cursor.read_count("texture count")
         textures = []
 
         if more_info:
             print(f"解析 {texture_count} 个纹理...")
 
         for i in range(texture_count):
-            texture_path = self._io_handler.read_variable_string_from_buffer()
+            texture_path = cursor.read_string("utf-8" if self._use_utf8 else "utf-16le")
             textures.append(texture_path)
 
         return textures
@@ -545,9 +658,11 @@ class PmxParser:
     def _parse_materials_fast(
         self, more_info: bool, textures: List[str]
     ) -> List[PmxMaterial]:
-        """快速解析材质数据（使用内部缓冲区）"""
+        """Parse the currently modeled material fields through the Cursor."""
+        cursor = self._require_cursor()
+        encoding = "utf-8" if self._use_utf8 else "utf-16le"
         # 读取材质数量
-        material_count = self._io_handler.unpack_from_buffer("I")[0]
+        material_count = cursor.read_count("material count")
         materials = []
 
         if more_info:
@@ -557,47 +672,60 @@ class PmxParser:
             self._report_progress(i, material_count)
 
             # 材质名称
-            name_jp = self._io_handler.read_variable_string_from_buffer()
-            name_en = self._io_handler.read_variable_string_from_buffer()
+            name_jp = cursor.read_string(encoding)
+            name_en = cursor.read_string(encoding)
 
             # 颜色数据
-            diffuse_color = list(self._io_handler.unpack_from_buffer("4f"))
-            specular_color = list(self._io_handler.unpack_from_buffer("3f"))
-            specular_strength = self._io_handler.unpack_from_buffer("f")[0]
-            ambient_color = list(self._io_handler.unpack_from_buffer("3f"))
+            diffuse_color = list(cursor.unpack("<4f"))
+            specular_color = list(cursor.unpack("<3f"))
+            specular_strength = float(cursor.unpack("<f")[0])
+            ambient_color = list(cursor.unpack("<3f"))
 
             # 标志位
-            flag_byte = self._io_handler.unpack_from_buffer("B")[0]
+            flag_byte = int(cursor.unpack("<B")[0])
             flags_list = [(flag_byte >> j) & 1 == 1 for j in range(8)]
             flags = MaterialFlags(flags_list)
 
             # 边缘数据
-            edge_color = list(self._io_handler.unpack_from_buffer("4f"))
-            edge_size = self._io_handler.unpack_from_buffer("f")[0]
+            edge_color = list(cursor.unpack("<4f"))
+            edge_size = float(cursor.unpack("<f")[0])
 
             # 纹理索引
-            tex_index = self._io_handler.unpack_from_buffer(self._texture_index_format)[0]
+            tex_index = cursor.read_index(self._texture_index_size)
             texture_path = textures[tex_index] if 0 <= tex_index < len(textures) else ""
 
             # 球面纹理索引
-            sphere_index = self._io_handler.unpack_from_buffer(self._texture_index_format)[0]
+            sphere_index = cursor.read_index(self._texture_index_size)
             sphere_path = textures[sphere_index] if 0 <= sphere_index < len(textures) else ""
-            sphere_mode = SphMode(self._io_handler.unpack_from_buffer("B")[0])
+            sphere_mode = SphMode(int(cursor.unpack("<B")[0]))
 
             # 卡通渲染
-            toon_flag = self._io_handler.unpack_from_buffer("B")[0]
+            toon_flag_offset = cursor.position
+            toon_flag = int(cursor.unpack("<B")[0])
             if toon_flag == 0:
-                # 使用内置卡通纹理
-                toon_index = self._io_handler.unpack_from_buffer("B")[0]
-                toon_path = f"toon{toon_index:02d}.bmp"
-            else:
-                # 使用自定义卡通纹理
-                toon_index = self._io_handler.unpack_from_buffer(self._texture_index_format)[0]
+                # 使用独立的纹理表索引
+                toon_index = cursor.read_index(self._texture_index_size)
                 toon_path = textures[toon_index] if 0 <= toon_index < len(textures) else ""
+            elif toon_flag == 1:
+                # 使用内置共享 Toon（toon01.bmp 至 toon10.bmp）
+                toon_index = int(cursor.unpack("<B")[0])
+                if toon_index > 9:
+                    raise PmxFormatError(
+                        f"Invalid shared Toon texture index {toon_index}; expected 0..9",
+                        section=cursor.section,
+                        offset=cursor.position - 1,
+                    )
+                toon_path = f"toon{toon_index + 1:02d}.bmp"
+            else:
+                raise PmxFormatError(
+                    f"Invalid PMX Toon sharing flag {toon_flag}; expected 0 or 1",
+                    section=cursor.section,
+                    offset=toon_flag_offset,
+                )
 
             # 注释和面数
-            comment = self._io_handler.read_variable_string_from_buffer()
-            face_count = self._io_handler.unpack_from_buffer("I")[0]
+            comment = cursor.read_string(encoding)
+            face_count = cursor.read_count("material face vertex count")
 
             # 创建材质对象
             material = PmxMaterial(
@@ -611,11 +739,15 @@ class PmxParser:
                 edge_color=edge_color,
                 edge_size=edge_size,
                 texture_path=texture_path,
+                texture_index=tex_index,
                 sphere_path=sphere_path,
+                sphere_texture_index=sphere_index,
                 sphere_mode=sphere_mode,
                 toon_path=toon_path,
+                toon_sharing=toon_flag,
+                toon_texture_index=toon_index,
                 comment=comment,
-                face_count=face_count
+                face_count=face_count,
             )
 
             materials.append(material)
@@ -830,9 +962,25 @@ class PmxParser:
         self._report_progress(material_count, material_count)
         return materials
     
-    def write_file(self, pmx_model: PmxModel, 
-                  file_path: Union[str, Path]) -> None:
-        """写入PMX文件
+    def write_file(
+        self, pmx_model: PmxModel, file_path: Union[str, Path]
+    ) -> None:
+        """Refuse complete PMX output until every mandatory section is encoded.
+
+        The arguments remain in the public signature for compatibility.  No
+        target file is opened or created.
+        """
+        del pmx_model, file_path
+        raise IncompletePmxWriterError()
+
+    def write_file_partial(
+        self, pmx_model: PmxModel, file_path: Union[str, Path]
+    ) -> None:
+        """Write the legacy Header-through-Material test format explicitly.
+
+        This output is not a complete PMX file.  It exists only to preserve
+        isolated geometry fixtures while the canonical writer is implemented.
+        Never use it for user assets or as a successful save operation.
         
         Args:
             pmx_model: PMX模型对象

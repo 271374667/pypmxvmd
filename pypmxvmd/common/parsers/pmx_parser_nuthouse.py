@@ -176,7 +176,16 @@ class PmxParserNuthouse:
             name_jp=name_jp,
             name_en=name_en,
             comment_jp=comment_jp,
-            comment_en=comment_en
+            comment_en=comment_en,
+            encoding=globalflags[0],
+            additional_uv_count=globalflags[1],
+            vertex_index_size=globalflags[2],
+            texture_index_size=globalflags[3],
+            material_index_size=globalflags[4],
+            bone_index_size=globalflags[5],
+            morph_index_size=globalflags[6],
+            rigid_body_index_size=globalflags[7],
+            global_flags=bytes(globalflags),
         )
     
     def _parse_pmx_vertices(self, data: bytearray, more_info: bool) -> List[PmxVertex]:
@@ -315,7 +324,6 @@ class PmxParserNuthouse:
             
             comment = self._io_handler.read_variable_string(data)
             surface_ct = self._io_handler.unpack_data("i", data)[0]
-            faces_ct = int(surface_ct / 3)
             
             # 转换索引为路径
             try:
@@ -342,11 +350,15 @@ class PmxParserNuthouse:
                 edge_color=[edgeR, edgeG, edgeB, edgeA],  # 包含alpha
                 edge_size=edgescale,
                 texture_path=tex_path,
+                texture_index=tex_idx,
                 sphere_path=sph_path,
+                sphere_texture_index=sph_idx,
                 sphere_mode=SphMode(sph_mode_int),
                 toon_path=toon_path,
+                toon_sharing=builtin_toon,
+                toon_texture_index=toon_idx,
                 comment=comment,
-                face_count=faces_ct
+                face_count=surface_ct,
             )
             
             materials.append(material)
@@ -974,7 +986,7 @@ class PmxParserNuthouse:
         
         # 魔法字节和版本
         magic = b"PMX "
-        output += struct.pack("4s f b", magic, header.version, 8)
+        output += struct.pack("<4s f b", magic, header.version, 8)
         
         # 全局标志
         globalflags = [0] * 8  # UTF-16LE编码
@@ -999,7 +1011,7 @@ class PmxParserNuthouse:
         self.idx_morph = conv[globalflags[6]]
         self.idx_rb = conv[globalflags[7]]
         
-        output += struct.pack("8b", *globalflags)
+        output += struct.pack("<8b", *globalflags)
         
         # 设置编码并写入字符串
         self._io_handler.set_encoding("utf_16_le")
@@ -1013,11 +1025,11 @@ class PmxParserNuthouse:
     def _encode_pmx_vertices(self, vertices: List[PmxVertex]) -> bytearray:
         """编码顶点数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(vertices))
+        output += struct.pack("<i", len(vertices))
         
         for vertex in vertices:
             # 基础数据
-            output += struct.pack("8f", 
+            output += struct.pack("<8f",
                                  vertex.position[0], vertex.position[1], vertex.position[2],
                                  vertex.normal[0], vertex.normal[1], vertex.normal[2],
                                  vertex.uv[0], vertex.uv[1])
@@ -1025,31 +1037,31 @@ class PmxParserNuthouse:
             # 额外vec4数据
             for i in range(self.addl_vertex_vec4):
                 if i < len(vertex.additional_uvs):
-                    output += struct.pack("4f", *vertex.additional_uvs[i])
+                    output += struct.pack("<4f", *vertex.additional_uvs[i])
                 else:
-                    output += struct.pack("4f", 0, 0, 0, 0)
+                    output += struct.pack("<4f", 0, 0, 0, 0)
             
             # 权重数据
-            output += struct.pack("b", vertex.weight_mode.value)
+            output += struct.pack("<b", vertex.weight_mode.value)
             
             # 根据权重类型编码权重数据
             weights = self._weightpairs_to_weightbinary(vertex.weight_mode, vertex.weight)
             
             if vertex.weight_mode == WeightMode.BDEF1:
-                output += struct.pack(self.idx_bone, weights[0])
+                output += struct.pack(f"<{self.idx_bone}", weights[0])
             elif vertex.weight_mode == WeightMode.BDEF2:
-                output += struct.pack(f"2{self.idx_bone}f", *weights)
+                output += struct.pack(f"<2{self.idx_bone}f", *weights)
             elif vertex.weight_mode == WeightMode.BDEF4:
-                output += struct.pack(f"4{self.idx_bone}4f", *weights)
+                output += struct.pack(f"<4{self.idx_bone}4f", *weights)
             elif vertex.weight_mode == WeightMode.SDEF:
-                output += struct.pack(f"2{self.idx_bone}f", weights[0], weights[1], weights[2])
+                output += struct.pack(f"<2{self.idx_bone}f", weights[0], weights[1], weights[2])
                 # 注意：weight_sdef在vertex.__init__中没有设置，需要额外处理
                 # 这里假设vertex对象有这个属性
                 flat_sdef = [x for sublist in getattr(vertex, 'weight_sdef', [[0]*3]*3) for x in sublist]
-                output += struct.pack("9f", *flat_sdef)
+                output += struct.pack("<9f", *flat_sdef)
             
             # 边缘缩放
-            output += struct.pack("f", vertex.edge_scale)
+            output += struct.pack("<f", vertex.edge_scale)
         
         return output
     
@@ -1070,17 +1082,17 @@ class PmxParserNuthouse:
     def _encode_pmx_surfaces(self, faces: List[List[int]]) -> bytearray:
         """编码面数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(faces) * 3)
+        output += struct.pack("<i", len(faces) * 3)
         
         for face in faces:
-            output += struct.pack(f"3{self.idx_vert}", *face)
+            output += struct.pack(f"<3{self.idx_vert}", *face)
         
         return output
     
     def _encode_pmx_textures(self, textures: List[str]) -> bytearray:
         """编码纹理数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(textures))
+        output += struct.pack("<i", len(textures))
         
         for texture in textures:
             output += self._io_handler.write_variable_string(texture)
@@ -1090,7 +1102,7 @@ class PmxParserNuthouse:
     def _encode_pmx_materials(self, materials: List[PmxMaterial], tex_list: List[str]) -> bytearray:
         """编码材质数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(materials))
+        output += struct.pack("<i", len(materials))
         
         for material in materials:
             output += self._io_handler.write_variable_string(material.name_jp)
@@ -1117,21 +1129,21 @@ class PmxParserNuthouse:
             ]
             
             if builtin_toon:
-                fmt = f"4f 4f 3f B 5f 2{self.idx_tex} b b b"
+                fmt = f"<4f 4f 3f B 5f 2{self.idx_tex} b b b"
                 output += struct.pack(fmt, *mat_data, toon_idx)
             else:
-                fmt = f"4f 4f 3f B 5f 2{self.idx_tex} b b {self.idx_tex}"
+                fmt = f"<4f 4f 3f B 5f 2{self.idx_tex} b b {self.idx_tex}"
                 output += struct.pack(fmt, *mat_data, toon_idx)
             
             output += self._io_handler.write_variable_string(material.comment)
-            output += struct.pack("i", material.face_count * 3)
+            output += struct.pack("<i", material.face_count)
         
         return output
     
     def _encode_pmx_bones(self, bones: List[PmxBone]) -> bytearray:
         """编码骨骼数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(bones))
+        output += struct.pack("<i", len(bones))
         
         for bone in bones:
             output += self._io_handler.write_variable_string(bone.name_jp)
@@ -1156,29 +1168,29 @@ class PmxParserNuthouse:
             
             # 基础数据
             bone_data = [*bone.position, bone.parent_index, bone.deform_layer, flags1, flags2]
-            output += struct.pack(f"3f{self.idx_bone}i 2B", *bone_data)
+            output += struct.pack(f"<3f{self.idx_bone}i 2B", *bone_data)
             
             # 尾部数据
             if bone.bone_flags.tail_usebonelink:
-                output += struct.pack(self.idx_bone, bone.tail)
+                output += struct.pack(f"<{self.idx_bone}", bone.tail)
             else:
-                output += struct.pack("3f", *bone.tail)
+                output += struct.pack("<3f", *bone.tail)
             
             # 可选数据
             if bone.bone_flags.inherit_rot or bone.bone_flags.inherit_trans:
-                output += struct.pack(f"{self.idx_bone}f", bone.inherit_parent_index, bone.inherit_ratio)
+                output += struct.pack(f"<{self.idx_bone}f", bone.inherit_parent_index, bone.inherit_ratio)
             
             if bone.bone_flags.has_fixedaxis:
-                output += struct.pack("3f", *bone.fixed_axis)
+                output += struct.pack("<3f", *bone.fixed_axis)
             
             if bone.bone_flags.has_localaxis:
-                output += struct.pack("6f", *bone.local_axis_x, *bone.local_axis_z)
+                output += struct.pack("<6f", *bone.local_axis_x, *bone.local_axis_z)
             
             if bone.bone_flags.has_external_parent:
-                output += struct.pack("i", bone.external_parent_index)
+                output += struct.pack("<i", bone.external_parent_index)
             
             if bone.bone_flags.ik:
-                output += struct.pack(f"{self.idx_bone}i f i", 
+                output += struct.pack(f"<{self.idx_bone}i f i",
                                      bone.ik_target_index, bone.ik_loop_count,
                                      math.radians(bone.ik_angle_limit), len(bone.ik_links))
                 
@@ -1187,32 +1199,32 @@ class PmxParserNuthouse:
                         limit_data = [link.bone_index, True]
                         limit_data.extend([math.radians(x) for x in link.limit_min])
                         limit_data.extend([math.radians(x) for x in link.limit_max])
-                        output += struct.pack(f"{self.idx_bone}b 6f", *limit_data)
+                        output += struct.pack(f"<{self.idx_bone}b 6f", *limit_data)
                     else:
-                        output += struct.pack(f"{self.idx_bone}b", link.bone_index, False)
+                        output += struct.pack(f"<{self.idx_bone}b", link.bone_index, False)
         
         return output
     
     def _encode_pmx_morphs(self, morphs: List[PmxMorph]) -> bytearray:
         """编码变形数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(morphs))
+        output += struct.pack("<i", len(morphs))
         
         for morph in morphs:
             output += self._io_handler.write_variable_string(morph.name_jp)
             output += self._io_handler.write_variable_string(morph.name_en)
-            output += struct.pack("b b i", morph.panel.value, morph.morph_type.value, len(morph.items))
+            output += struct.pack("<b b i", morph.panel.value, morph.morph_type.value, len(morph.items))
             
             # 编码变形项目
             for item in morph.items:
                 if morph.morph_type == MorphType.GROUP:
-                    output += struct.pack(f"{self.idx_morph}f", item.morph_index, item.value)
+                    output += struct.pack(f"<{self.idx_morph}f", item.morph_index, item.value)
                 elif morph.morph_type == MorphType.VERTEX:
-                    output += struct.pack(f"{self.idx_vert}3f", item.vertex_index, *item.offset)
+                    output += struct.pack(f"<{self.idx_vert}3f", item.vertex_index, *item.offset)
                 elif morph.morph_type == MorphType.BONE:
                     # 欧拉角转四元数
                     quat = self._euler_to_quaternion(item.rotation)
-                    output += struct.pack(f"{self.idx_bone}3f 4f", 
+                    output += struct.pack(f"<{self.idx_bone}3f 4f",
                                          item.bone_index, *item.translation, 
                                          quat[1], quat[2], quat[3], quat[0])  # XYZW格式
         
@@ -1239,25 +1251,25 @@ class PmxParserNuthouse:
     def _encode_pmx_dispframes(self, frames: List[PmxFrame]) -> bytearray:
         """编码显示框架 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(frames))
+        output += struct.pack("<i", len(frames))
         
         for frame in frames:
             output += self._io_handler.write_variable_string(frame.name_jp)
             output += self._io_handler.write_variable_string(frame.name_en)
-            output += struct.pack("b i", int(frame.is_special), len(frame.items))
+            output += struct.pack("<b i", int(frame.is_special), len(frame.items))
             
             for item in frame.items:
                 if item.is_morph:
-                    output += struct.pack(f"b{self.idx_morph}", int(item.is_morph), item.index)
+                    output += struct.pack(f"<b{self.idx_morph}", int(item.is_morph), item.index)
                 else:
-                    output += struct.pack(f"b{self.idx_bone}", int(item.is_morph), item.index)
+                    output += struct.pack(f"<b{self.idx_bone}", int(item.is_morph), item.index)
         
         return output
     
     def _encode_pmx_rigidbodies(self, rigidbodies: List[PmxRigidBody]) -> bytearray:
         """编码刚体数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(rigidbodies))
+        output += struct.pack("<i", len(rigidbodies))
         
         for rb in rigidbodies:
             output += self._io_handler.write_variable_string(rb.name_jp)
@@ -1279,14 +1291,14 @@ class PmxParserNuthouse:
                 rb.repulsion, rb.friction, rb.physics_mode.value
             ]
             
-            output += struct.pack(f"{self.idx_bone}b H b 3f 3f 3f 5f b", *rb_data)
+            output += struct.pack(f"<{self.idx_bone}b H b 3f 3f 3f 5f b", *rb_data)
         
         return output
     
     def _encode_pmx_joints(self, joints: List[PmxJoint]) -> bytearray:
         """编码关节数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(joints))
+        output += struct.pack("<i", len(joints))
         
         for joint in joints:
             output += self._io_handler.write_variable_string(joint.name_jp)
@@ -1303,14 +1315,14 @@ class PmxParserNuthouse:
                 *rotmin_rads, *rotmax_rads, *joint.position_spring, *joint.rotation_spring
             ]
             
-            output += struct.pack(f"b 2{self.idx_rb} 3f 3f 3f 3f 3f 3f 3f 3f", *joint_data)
+            output += struct.pack(f"<b 2{self.idx_rb} 3f 3f 3f 3f 3f 3f 3f 3f", *joint_data)
         
         return output
     
     def _encode_pmx_softbodies(self, softbodies: List[PmxSoftBody]) -> bytearray:
         """编码软体数据 - 复刻原项目"""
         output = bytearray()
-        output += struct.pack("i", len(softbodies))
+        output += struct.pack("<i", len(softbodies))
         
         # 简化处理软体数据
         for sb in softbodies:

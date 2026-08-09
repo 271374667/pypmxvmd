@@ -27,7 +27,7 @@ PyPMXVMD 是一个用于解析和修改 MikuMikuDance (MMD) 文件的 Python 库
 ### 安装
 
 ```bash
-pip install pypmxvmd
+uv add pypmxvmd
 ```
 
 ### 基础用法
@@ -115,7 +115,9 @@ pypmxvmd.save_vmd(motion, "output.vmd")
 
 #### `pypmxvmd.load_pmx(file_path, more_info=False) -> PmxModel`
 
-加载PMX模型文件。
+完整加载 PMX，无法证明完整性时关闭失败。当前 PMX 实现只消费到 Material，因此该
+函数会抛出 `IncompletePmxError`，不会返回静默缺失 Bone、Morph、表示枠和物理 section
+的模型。
 
 **参数**:
 - `file_path` (str | Path): PMX文件路径
@@ -124,15 +126,29 @@ pypmxvmd.save_vmd(motion, "output.vmd")
 **返回**: `PmxModel` 对象
 
 ```python
-model = pypmxvmd.load_pmx("character.pmx")
-print(f"顶点数: {len(model.vertices)}")
+try:
+    model = pypmxvmd.load_pmx("character.pmx")
+except pypmxvmd.IncompletePmxError as error:
+    print(error.report.missing_sections)
 ```
+
+---
+
+#### `pypmxvmd.load_pmx_partial(file_path, more_info=False, implementation="auto") -> PmxParseResult`
+
+显式调用当前 `python`、`fast` 或 `cython` 的部分读取能力。返回对象包含 `model` 和
+不可变的 `report`；报告记录已加载/缺失 section、各 section 字节范围、最终偏移、文件
+总长度和尾部未消费字节数。`auto` 使用带边界与资源上限检查的 Python Cursor；显式
+`cython` 会先通过该 Cursor 验证当前支持的 section。部分模型仅用于检查，不能作为
+完整 PMX 保存。
 
 ---
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
-保存PMX模型文件。
+完整且带验证的 PMX writer 交付前，该函数拒绝创建文件并抛出
+`IncompletePmxWriterError`。这会阻止旧的 Header 至 Material serializer 生成看似成功、
+实际丢失全部后续 section 的文件。
 
 **参数**:
 - `model` (PmxModel): PMX模型对象
@@ -407,6 +423,9 @@ PMX (Polygon Model eXtended) 用于存储3D模型数据。
 
 PMX模型主类。
 
+下列优先语义字段已经可作为模型契约使用，但公共 reader 尚未填充 Bone、Rigid Body、
+Joint section。必须通过 `parse_report`/`is_complete` 区分“类中有字段”和“文件已加载”。
+
 **属性**:
 
 | 属性 | 类型 | 说明 |
@@ -422,6 +441,9 @@ PMX模型主类。
 | `rigidbodies` | `List[PmxRigidBody]` | 刚体列表 |
 | `joints` | `List[PmxJoint]` | 关节列表 |
 | `softbodies` | `List[PmxSoftBody]` | 软体列表 (PMX 2.1) |
+| `parse_report` | `PmxParseReport | None` | 解析完整性证据 |
+| `is_complete` | `bool` | 是否加载全部必需 section 并到达 EOF |
+| `loaded_sections` | `frozenset[str]` | 实际已加载 section |
 
 **方法**:
 
@@ -447,6 +469,11 @@ PMX文件头信息。
 | `name_en` | `str` | 英文名称 |
 | `comment_jp` | `str` | 日文注释 |
 | `comment_en` | `str` | 英文注释 |
+| `encoding` | `PmxTextEncoding` | UTF-16LE/UTF-8 布局标志 |
+| `additional_uv_count` | `int` | 附加 UV 数量 (0–4) |
+| `*_index_size` | `int` | 六类 PMX 索引宽度 (1、2、4) |
+| `global_flags` | `bytes` | 当前规范化 8 字节布局 |
+| `raw_global_flags` | `bytes` | 原始 8 字节审计值 |
 
 ```python
 header = PmxHeader(
@@ -504,9 +531,13 @@ PMX材质数据。
 | `edge_color` | `List[float]` | 边缘颜色 [r, g, b, a] |
 | `edge_size` | `float` | 边缘大小 |
 | `texture_path` | `str` | 纹理路径 |
+| `texture_index` | `int` | 原始纹理表索引 |
 | `sphere_path` | `str` | 球面纹理路径 |
+| `sphere_texture_index` | `int` | 原始球面纹理索引 |
 | `sphere_mode` | `SphMode` | 球面纹理模式 |
 | `toon_path` | `str` | 卡通渲染纹理路径 |
+| `toon_sharing` | `ToonSharing` | 独立/共享 Toon 布局 |
+| `toon_texture_index` | `int` | 原始纹理或共享 Toon 索引 |
 | `comment` | `str` | 注释 |
 | `face_count` | `int` | 面顶点数 |
 
@@ -564,6 +595,8 @@ PMX骨骼数据。
 | `deform_layer` | `int` | 变形层级 |
 | `bone_flags` | `BoneFlags` | 骨骼标志位 |
 | `tail` | `int \| List[float]` | 尾端 (骨骼索引或偏移量) |
+| `tail_bone_index` | `int \| None` | “表示先：骨骼”的类型化视图 |
+| `tail_offset` | `List[float] \| None` | “表示先：相对”的类型化视图 |
 | `inherit_parent_index` | `int` | 继承父索引 |
 | `inherit_ratio` | `float` | 继承比率 |
 | `fixed_axis` | `List[float]` | 固定轴 |
@@ -606,6 +639,8 @@ PMX刚体数据。
 | `bone_index` | `int` | 关联骨骼索引 |
 | `group` | `int` | 碰撞组 |
 | `nocollide_groups` | `List[int]` | 非碰撞组列表 |
+| `collision_group` | `int` | PMX 原始 group (0–15) |
+| `collision_mask` | `int` | PMX 原始 uint16 碰撞 mask |
 | `shape` | `RigidBodyShape` | 形状类型 |
 | `size` | `List[float]` | 尺寸 [x, y, z] |
 | `position` | `List[float]` | 位置 [x, y, z] |
@@ -632,6 +667,8 @@ PMX关节数据。
 | `joint_type` | `JointType` | 关节类型 |
 | `rigidbody1_index` | `int` | 刚体1索引 |
 | `rigidbody2_index` | `int` | 刚体2索引 |
+| `rigid_body_a_index` | `int` | 刚体 A 清晰别名 |
+| `rigid_body_b_index` | `int` | 刚体 B 清晰别名 |
 | `position` | `List[float]` | 位置 |
 | `rotation` | `List[float]` | 旋转 |
 | `position_min` | `List[float]` | 位置最小值 |
@@ -889,7 +926,7 @@ for frame in motion.bone_frames[:5]:
     print(f"骨骼: {frame.bone_name}, 帧: {frame.frame_number}, 位置: {frame.position}")
 ```
 
-### 示例2: 创建简单的PMX模型
+### 示例2: 创建并验证内存中的简单 PMX 模型
 
 ```python
 import pypmxvmd
@@ -925,8 +962,8 @@ model.materials = [
     )
 ]
 
-# 保存
-pypmxvmd.save_pmx(model, "triangle.pmx")
+# 当前可验证内存模型；canonical writer 完成前不会输出完整 PMX
+model.validate()
 ```
 
 ### 示例3: 修改VMD动作
@@ -991,14 +1028,14 @@ pypmxvmd.save_vmd(motion, "pose_as_motion.vmd")
 ```python
 import pypmxvmd
 
-# 加载模型
-model = pypmxvmd.load_pmx("model.pmx")
+# 显式加载当前支持的 section
+model = pypmxvmd.load_pmx_partial("model.pmx").model
 
 # 验证数据完整性
 try:
     model.validate()
     print("模型数据验证通过")
-except AssertionError as e:
+except pypmxvmd.PmxValidationError as e:
     print(f"模型数据验证失败: {e}")
 ```
 
@@ -1013,7 +1050,9 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `FileNotFoundError` | 文件不存在 |
 | `ValueError` | 文件格式无效或数据错误 |
 | `IOError` | 文件读写错误 |
-| `AssertionError` | 数据验证失败 |
+| `IncompletePmxError` | 完整 PMX 读取尚未到达全部 section/EOF |
+| `IncompletePmxWriterError` | 完整 writer 未交付，拒绝生成截断 PMX |
+| `PmxValidationError` | 字段验证失败，包含 `field`、`expected`、`actual` |
 
 ```python
 import pypmxvmd

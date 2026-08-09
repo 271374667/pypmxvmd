@@ -67,12 +67,16 @@ class TestPmxParserParity:
         assert_model_equal(cython, standard, "pmx")
 
     @pytest.mark.parametrize("pmx_path", PMX_CASES)
-    def test_default_path_matches_standard(self, pmx_path, assert_model_equal):
+    def test_explicit_partial_path_matches_standard(
+        self, pmx_path, assert_model_equal
+    ):
         parser = PmxParser()
         standard = parser._parse_file_python(pmx_path)
-        default = parser.parse_file(pmx_path)
+        partial = parser.parse_file_partial(pmx_path)
 
-        assert_model_equal(default, standard, "pmx")
+        assert_model_equal(partial.model, standard, "pmx")
+        assert not partial.report.is_complete
+        assert partial.report.missing_sections[0] == "bones"
 
 
 @pytest.mark.corpus

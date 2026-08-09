@@ -45,8 +45,10 @@ def test_large_vertex_indexes_roundtrip(tmp_path):
     model = create_large_pmx_model()
     path = tmp_path / "large.pmx"
 
-    PmxParser().write_file(model, path)
-    loaded = PmxParser().parse_file(path)
+    PmxParser().write_file_partial(model, path)
+    loaded = PmxParser().parse_file_partial(
+        path, implementation="fast"
+    ).model
 
     assert len(model.vertices) == 400
     assert max(index for face in model.faces for index in face) > 255

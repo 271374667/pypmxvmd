@@ -26,6 +26,15 @@ Usage:
 from pathlib import Path
 from typing import Union
 
+# PMX completeness contracts
+from .common.pmx import (
+    IncompletePmxError,
+    IncompletePmxWriterError,
+    PmxParseReport,
+    PmxParseResult,
+    PmxValidationError,
+)
+
 # Import parsers
 from .common.parsers.vmd_parser import VmdParser
 from .common.parsers.pmx_parser import PmxParser
@@ -49,14 +58,14 @@ _vpd_parser = VpdParser()
 def load_vmd(file_path: Union[str, Path], more_info: bool = False) -> VmdMotion:
     """
     Load VMD motion file.
-    
+
     Args:
         file_path: Path to VMD file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         VmdMotion object
-        
+
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid
@@ -67,11 +76,11 @@ def load_vmd(file_path: Union[str, Path], more_info: bool = False) -> VmdMotion:
 def save_vmd(motion: VmdMotion, file_path: Union[str, Path]) -> None:
     """
     Save VMD motion to file.
-    
+
     Args:
         motion: VmdMotion object to save
         file_path: Output file path
-        
+
     Raises:
         ValueError: If motion data is invalid
         IOError: If file cannot be written
@@ -82,14 +91,14 @@ def save_vmd(motion: VmdMotion, file_path: Union[str, Path]) -> None:
 def load_pmx(file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
     """
     Load PMX model file.
-    
+
     Args:
         file_path: Path to PMX file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         PmxModel object
-        
+
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid
@@ -97,14 +106,32 @@ def load_pmx(file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
     return _pmx_parser.parse_file(file_path, more_info=more_info)
 
 
+def load_pmx_partial(
+    file_path: Union[str, Path],
+    more_info: bool = False,
+    implementation: str = "auto",
+) -> PmxParseResult:
+    """Explicitly load the PMX sections supported by a partial implementation.
+
+    The result includes a :class:`PmxParseReport` describing loaded sections,
+    byte offsets and missing mandatory sections.  Partial models are for
+    inspection only and must not be saved as complete PMX files.
+    """
+    return _pmx_parser.parse_file_partial(
+        file_path,
+        more_info=more_info,
+        implementation=implementation,
+    )
+
+
 def save_pmx(model: PmxModel, file_path: Union[str, Path]) -> None:
     """
     Save PMX model to file.
-    
+
     Args:
         model: PmxModel object to save
         file_path: Output file path
-        
+
     Raises:
         ValueError: If model data is invalid
         IOError: If file cannot be written
@@ -115,14 +142,14 @@ def save_pmx(model: PmxModel, file_path: Union[str, Path]) -> None:
 def load_vpd(file_path: Union[str, Path], more_info: bool = False) -> VpdPose:
     """
     Load VPD pose file.
-    
+
     Args:
         file_path: Path to VPD file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         VpdPose object
-        
+
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid
@@ -133,11 +160,11 @@ def load_vpd(file_path: Union[str, Path], more_info: bool = False) -> VpdPose:
 def save_vpd(pose: VpdPose, file_path: Union[str, Path]) -> None:
     """
     Save VPD pose to file.
-    
+
     Args:
         pose: VpdPose object to save
         file_path: Output file path
-        
+
     Raises:
         ValueError: If pose data is invalid
         IOError: If file cannot be written
@@ -149,25 +176,25 @@ def save_vpd(pose: VpdPose, file_path: Union[str, Path]) -> None:
 def load(file_path: Union[str, Path], more_info: bool = False):
     """
     Automatically detect file type and load appropriate format.
-    
+
     Args:
         file_path: Path to file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         VmdMotion, PmxModel, or VpdPose object
-        
+
     Raises:
         ValueError: If file type cannot be determined or is unsupported
     """
     path = Path(file_path)
     suffix = path.suffix.lower()
-    
-    if suffix == '.vmd':
+
+    if suffix == ".vmd":
         return load_vmd(file_path, more_info)
-    elif suffix == '.pmx':
+    elif suffix == ".pmx":
         return load_pmx(file_path, more_info)
-    elif suffix == '.vpd':
+    elif suffix == ".vpd":
         return load_vpd(file_path, more_info)
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
@@ -176,11 +203,11 @@ def load(file_path: Union[str, Path], more_info: bool = False):
 def save(data, file_path: Union[str, Path]) -> None:
     """
     Automatically detect data type and save in appropriate format.
-    
+
     Args:
         data: VmdMotion, PmxModel, or VpdPose object
         file_path: Output file path
-        
+
     Raises:
         ValueError: If data type is unsupported
     """
@@ -196,17 +223,18 @@ def save(data, file_path: Union[str, Path]) -> None:
 
 # ===== 文本解析和导出功能 =====
 
+
 def load_vmd_text(file_path: Union[str, Path], more_info: bool = False) -> VmdMotion:
     """
     Load VMD motion file from text format.
-    
+
     Args:
         file_path: Path to VMD text file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         VmdMotion object
-        
+
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid
@@ -217,11 +245,11 @@ def load_vmd_text(file_path: Union[str, Path], more_info: bool = False) -> VmdMo
 def save_vmd_text(motion: VmdMotion, file_path: Union[str, Path]) -> None:
     """
     Save VMD motion to text file.
-    
+
     Args:
         motion: VmdMotion object to save
         file_path: Output text file path
-        
+
     Raises:
         ValueError: If motion data is invalid
         IOError: If file cannot be written
@@ -232,14 +260,14 @@ def save_vmd_text(motion: VmdMotion, file_path: Union[str, Path]) -> None:
 def load_pmx_text(file_path: Union[str, Path], more_info: bool = False) -> PmxModel:
     """
     Load PMX model file from text format.
-    
+
     Args:
         file_path: Path to PMX text file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         PmxModel object
-        
+
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid
@@ -250,11 +278,11 @@ def load_pmx_text(file_path: Union[str, Path], more_info: bool = False) -> PmxMo
 def save_pmx_text(model: PmxModel, file_path: Union[str, Path]) -> None:
     """
     Save PMX model to text file.
-    
+
     Args:
         model: PmxModel object to save
         file_path: Output text file path
-        
+
     Raises:
         ValueError: If model data is invalid
         IOError: If file cannot be written
@@ -265,14 +293,14 @@ def save_pmx_text(model: PmxModel, file_path: Union[str, Path]) -> None:
 def load_vpd_text(file_path: Union[str, Path], more_info: bool = False) -> VpdPose:
     """
     Load VPD pose file from structured text format.
-    
+
     Args:
         file_path: Path to VPD text file (can be original VPD or structured text)
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         VpdPose object
-        
+
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid
@@ -283,11 +311,11 @@ def load_vpd_text(file_path: Union[str, Path], more_info: bool = False) -> VpdPo
 def save_vpd_text(pose: VpdPose, file_path: Union[str, Path]) -> None:
     """
     Save VPD pose to structured text file.
-    
+
     Args:
         pose: VpdPose object to save
         file_path: Output text file path
-        
+
     Raises:
         ValueError: If pose data is invalid
         IOError: If file cannot be written
@@ -298,40 +326,44 @@ def save_vpd_text(pose: VpdPose, file_path: Union[str, Path]) -> None:
 def load_text(file_path: Union[str, Path], more_info: bool = False):
     """
     Automatically detect text file type and load appropriate format.
-    
+
     Args:
         file_path: Path to text file
         more_info: Whether to include additional parsing information
-        
+
     Returns:
         VmdMotion, PmxModel, or VpdPose object
-        
+
     Raises:
         ValueError: If file type cannot be determined or is unsupported
     """
     path = Path(file_path)
-    
+
     # Try to detect format by reading first few lines
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             first_lines = [f.readline().strip() for _ in range(3)]
     except UnicodeDecodeError:
         # Try shift_jis encoding for VPD files
-        with open(path, 'r', encoding='shift_jis') as f:
+        with open(path, "r", encoding="shift_jis") as f:
             first_lines = [f.readline().strip() for _ in range(3)]
-    
+
     # Check for file format indicators
-    if any('version:' in line for line in first_lines):
-        if any('boneframe_ct:' in line or 'morphframe_ct:' in line for line in first_lines):
+    if any("version:" in line for line in first_lines):
+        if any(
+            "boneframe_ct:" in line or "morphframe_ct:" in line for line in first_lines
+        ):
             return load_vmd_text(file_path, more_info)
-        elif any('vertex_count:' in line for line in first_lines):
+        elif any("vertex_count:" in line for line in first_lines):
             return load_pmx_text(file_path, more_info)
-    elif first_lines[0] == "Vocaloid Pose Data file" or any('model_name:' in line for line in first_lines):
+    elif first_lines[0] == "Vocaloid Pose Data file" or any(
+        "model_name:" in line for line in first_lines
+    ):
         return load_vpd_text(file_path, more_info)
-    
+
     # Fallback to file extension
     suffix = path.suffix.lower()
-    if suffix == '.txt':
+    if suffix == ".txt":
         # Try VMD text format first (most common)
         try:
             return load_vmd_text(file_path, more_info)
@@ -347,11 +379,11 @@ def load_text(file_path: Union[str, Path], more_info: bool = False):
 def save_text(data, file_path: Union[str, Path]) -> None:
     """
     Automatically detect data type and save in appropriate text format.
-    
+
     Args:
         data: VmdMotion, PmxModel, or VpdPose object
         file_path: Output text file path
-        
+
     Raises:
         ValueError: If data type is unsupported
     """
@@ -368,34 +400,36 @@ def save_text(data, file_path: Union[str, Path]) -> None:
 # Export public API
 __all__ = [
     # Version info
-    '__version__',
-    '__author__',
-    '__description__',
-    
+    "__version__",
+    "__author__",
+    "__description__",
     # Binary file functions
-    'load_vmd',
-    'save_vmd',
-    'load_pmx',
-    'save_pmx',
-    'load_vpd',
-    'save_vpd',
-    
+    "load_vmd",
+    "save_vmd",
+    "load_pmx",
+    "load_pmx_partial",
+    "save_pmx",
+    "load_vpd",
+    "save_vpd",
     # Text file functions
-    'load_vmd_text',
-    'save_vmd_text',
-    'load_pmx_text',
-    'save_pmx_text',
-    'load_vpd_text',
-    'save_vpd_text',
-    
+    "load_vmd_text",
+    "save_vmd_text",
+    "load_pmx_text",
+    "save_pmx_text",
+    "load_vpd_text",
+    "save_vpd_text",
     # Auto-detection functions
-    'load',
-    'save',
-    'load_text',
-    'save_text',
-    
+    "load",
+    "save",
+    "load_text",
+    "save_text",
     # Model classes (for type hints)
-    'VmdMotion',
-    'PmxModel',
-    'VpdPose',
+    "VmdMotion",
+    "PmxModel",
+    "PmxParseReport",
+    "PmxParseResult",
+    "IncompletePmxError",
+    "IncompletePmxWriterError",
+    "PmxValidationError",
+    "VpdPose",
 ]

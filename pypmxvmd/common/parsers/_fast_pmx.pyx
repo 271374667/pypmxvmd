@@ -260,7 +260,25 @@ cpdef parse_pmx_cython(bytes data, bint more_info=False):
         name_jp=name_jp,
         name_en=name_en,
         comment_jp=comment_jp,
-        comment_en=comment_en
+        comment_en=comment_en,
+        encoding=text_encoding,
+        additional_uv_count=reader._additional_uv_count,
+        vertex_index_size=reader._vertex_index_size,
+        texture_index_size=reader._texture_index_size,
+        material_index_size=reader._material_index_size,
+        bone_index_size=reader._bone_index_size,
+        morph_index_size=reader._morph_index_size,
+        rigid_body_index_size=reader._rigidbody_index_size,
+        global_flags=bytes((
+            text_encoding,
+            reader._additional_uv_count,
+            reader._vertex_index_size,
+            reader._texture_index_size,
+            reader._material_index_size,
+            reader._bone_index_size,
+            reader._morph_index_size,
+            reader._rigidbody_index_size,
+        )),
     )
 
     # 解析顶点
@@ -604,17 +622,21 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
         reader._pos += 1
 
         if toon_flag == 0:
-            # 使用内置Toon纹理
-            toon_index_builtin = ptr[reader._pos]
-            reader._pos += 1
-            toon_path = f"toon{toon_index_builtin:02d}.bmp"
-        else:
-            # 使用自定义Toon纹理
+            # 使用独立的纹理表索引
             toon_index = reader._read_texture_index_inline()
             if 0 <= toon_index < texture_count:
                 toon_path = textures[toon_index]
             else:
                 toon_path = ""
+        elif toon_flag == 1:
+            # 使用内置共享 Toon（存储值 0..9 对应 toon01..toon10）
+            toon_index_builtin = ptr[reader._pos]
+            reader._pos += 1
+            if toon_index_builtin > 9:
+                raise ValueError(f"共享Toon纹理索引异常: {toon_index_builtin}")
+            toon_path = f"toon{toon_index_builtin + 1:02d}.bmp"
+        else:
+            raise ValueError(f"Toon共享标志异常: {toon_flag}")
 
         # 注释和面数
         comment = reader.read_variable_string()
@@ -632,9 +654,13 @@ cdef list _parse_materials_cython(FastPmxReader reader, list textures, bint more
             edge_color=[edge_r, edge_g, edge_b, edge_a],
             edge_size=edge_size,
             texture_path=texture_path,
+            texture_index=tex_index,
             sphere_path=sphere_path,
+            sphere_texture_index=sphere_index,
             sphere_mode=SphMode(sphere_mode_val),
             toon_path=toon_path,
+            toon_sharing=toon_flag,
+            toon_texture_index=(toon_index_builtin if toon_flag == 1 else toon_index),
             comment=comment,
             face_count=face_count
         )
