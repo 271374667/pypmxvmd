@@ -145,6 +145,28 @@ Cursor 的 canonical 语义模型。完整读取不等于已经支持编辑和�
 
 ---
 
+#### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
+
+集中验证 PMX 语义且不依赖 `assert`。当前覆盖 PMX 2.0 权重布局、条件字段、跨 section
+引用、Bone parent/inherit cycle、有限数值、资源上限以及 parse report 的 count/EOF
+一致性。失败时抛出 `PmxValidationError`，并提供稳定的 `field`、`expected`、`actual`。
+
+```python
+from pypmxvmd.common.pmx import PmxLimits, validate_pmx_model
+
+model.validate()  # 有 parse_report 时默认要求 strict EOF
+validate_pmx_model(
+    model,
+    limits=PmxLimits(max_count=2_000_000),
+    strict_eof=False,  # 仅诊断 partial 模型，报告和尾部字节仍保留
+)
+```
+
+`strict_eof=False` 不会把 partial 结果标成完整，也不会丢弃 trailing bytes。PMX 2.1
+专属 Morph、Joint 和 Soft Body 仍不属于当前支持的语义契约。
+
+---
+
 #### `pypmxvmd.save_pmx(model, file_path)`
 
 完整且带验证的 PMX writer 交付前，该函数拒绝创建文件并抛出
@@ -424,8 +446,8 @@ PMX (Polygon Model eXtended) 用于存储3D模型数据。
 
 PMX模型主类。
 
-下列优先语义字段已经可作为模型契约使用，但公共 reader 尚未填充 Bone、Rigid Body、
-Joint section。必须通过 `parse_report`/`is_complete` 区分“类中有字段”和“文件已加载”。
+公共 PMX 2.0 reader 已填充到 Spring 6DOF Joint 的全部 section。必须通过
+`parse_report`/`is_complete` 区分完整 PMX 2.0 读取和显式 partial 的 PMX 2.1 诊断结果。
 
 **属性**:
 

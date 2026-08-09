@@ -2,7 +2,7 @@
 
 > 调研日期：2026-07-30
 >
-> 状态：长期路线已确认；PMX 2.0 结构/语义读取完成，下一步为 validator 与骨骼编辑链
+> 状态：长期路线已确认；PMX 2.0 读取与 validator 完成，下一步为 canonical writer
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -20,7 +20,8 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
 - 活动 Python reader 已使用 little-endian、bounds-checked Cursor；备用 Nuthouse 的直接
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
 - PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
-  Spring 6DOF Joint 已完成结构与语义读取；W4 完整 validator 和 canonical writer 尚未完成。
+  Spring 6DOF Joint 已完成结构与语义读取；W4 完整 validator 已完成，canonical writer
+  尚未完成。
 
 因此当前公开 API 不能承诺材料、骨骼、刚体、Joint 或 SoftBody 页面的安全修改和保存。
 

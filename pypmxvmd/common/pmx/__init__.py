@@ -27,6 +27,7 @@ from pypmxvmd.common.pmx.types import (
     ToonSharing,
     WeightMode,
 )
+from pypmxvmd.common.pmx.validator import PmxValidator, validate_pmx_model
 
 __all__ = [
     "IncompletePmxError",
@@ -52,4 +53,6 @@ __all__ = [
     "PmxParseReport",
     "PmxParseResult",
     "PmxSectionReport",
+    "PmxValidator",
+    "validate_pmx_model",
 ]

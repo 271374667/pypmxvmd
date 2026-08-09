@@ -22,7 +22,9 @@
 > 读写现已 fail closed，显式 partial API 返回完整性报告；活动 Python reader 已迁移到
 > bounds-checked little-endian `PmxCursor`，所有直接 PMX `struct` 调用已有静态防回归，
 > `auto` 不再默认进入未完成的 Cython reader。活动 Cursor reader 现已完整消费 PMX 2.0
-> 至 Spring 6DOF Joint/EOF；PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍 fail closed。
+> 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
+> cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
+> fail closed；下一阶段为 W5 canonical writer。
 
 总体结论：
 
@@ -242,7 +244,7 @@ PMX 2.1 的 Joint 类型也需要补全，不能只支持 `SPRING6DOF = 0`。
 
 ### 3.8 模型验证深度不足
 
-当前 `PmxModel.validate()` 主要验证 Header、Vertex、Material 和 Face，缺少完整的交叉引用校验。
+审计时 `PmxModel.validate()` 主要验证 Header、Vertex、Material 和 Face，缺少完整的交叉引用校验。
 
 建议增加：
 
@@ -261,6 +263,11 @@ PMX 2.1 的 Joint 类型也需要补全，不能只支持 `SPRING6DOF = 0`。
 - parse 完成后必须到达 EOF；如果允许 trailing bytes，必须显式保存和报告。
 
 不要使用可以被 `python -O` 移除的 `assert` 作为生产输入验证。应抛出明确的异常类型。
+
+> 当前修复状态（2026-08-09）：W4 已新增 `PmxValidator`/`validate_pmx_model()`，并让
+> `PmxModel.validate()` 统一转发。上述 PMX 2.0 引用、Bone parent/inherit cycle、条件字段、
+> enum/flags、有限数值、字符串/count/source 限制和 parse report strict EOF 均已有稳定
+> 字段路径与回归测试；`python -O` 行为不变。Soft Body 引用留待 W6。
 
 ### 3.9 模型 API 命名不一致
 
@@ -309,7 +316,7 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [x] Rigid body reader/model。
 - [x] Spring 6DOF Joint reader/model。
 - [ ] 完整 writer。
-- [ ] 完整 cross-reference validator。
+- [x] 完整 PMX 2.0 cross-reference validator。
 - [ ] read → write → read 深度语义等价。
 
 当前只读证据（2026-08-09）：7 个 PMX 2.0 语料均到达 EOF 并通过

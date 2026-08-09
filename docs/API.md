@@ -119,6 +119,31 @@ evidence that editing/saving is supported.
 
 ---
 
+#### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
+
+Validate PMX semantics without relying on `assert`. The centralized validator
+checks PMX 2.0 weight layouts, conditional fields, cross-section references,
+Bone parent/inherit cycles, finite numeric values, resource limits and parse
+report counts/EOF. Failures raise `PmxValidationError` with stable `field`,
+`expected` and `actual` attributes.
+
+```python
+from pypmxvmd.common.pmx import PmxLimits, validate_pmx_model
+
+model.validate()  # default strict EOF when parse_report is present
+validate_pmx_model(
+    model,
+    limits=PmxLimits(max_count=2_000_000),
+    strict_eof=False,  # diagnostic partial model; report/trailing bytes remain visible
+)
+```
+
+`strict_eof=False` does not mark a partial parse complete and does not discard
+trailing bytes. PMX 2.1-only Morph, Joint and Soft Body records remain outside
+the currently supported semantic contract.
+
+---
+
 #### `pypmxvmd.save_pmx(model, file_path)`
 
 Refuses to create output and raises `IncompletePmxWriterError` until the complete,
@@ -303,9 +328,9 @@ VMD (Vocaloid Motion Data) stores motion and camera data.
 
 PMX (Polygon Model eXtended) stores 3D model data.
 
-The priority semantic fields below are available as model contracts, but Bone,
-Rigid Body and Joint are not yet populated by the public reader. Use
-`parse_report`/`is_complete` to distinguish modeled fields from loaded sections.
+The public PMX 2.0 reader populates every section through Spring 6DOF Joint.
+Use `parse_report`/`is_complete` to distinguish a complete PMX 2.0 load from an
+explicitly partial PMX 2.1 diagnostic result.
 
 #### `PmxModel`
 

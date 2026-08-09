@@ -94,8 +94,9 @@ pypmxvmd.save(pose, "output.vpd")
 ```
 
 PMX 2.0 binary loading is complete. PMX binary saving intentionally raises
-`IncompletePmxWriterError` until the validating canonical writer and semantic
-round-trip suite are delivered. PMX 2.1 Flip/Impulse Morphs, additional Joint
+`IncompletePmxWriterError` until the canonical writer and semantic round-trip
+suite are delivered. PMX 2.0 semantic validation is available through
+`PmxModel.validate()`. PMX 2.1 Flip/Impulse Morphs, additional Joint
 types and Soft Body are not yet supported and fail closed instead of being
 silently discarded.
 

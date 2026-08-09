@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0/W1/W3 已完成；W2 的 PMX 2.0 范围已完成，下一步 W4）
+> 文档状态：执行中（W0/W1/W3/W4 已完成；W2 的 PMX 2.0 范围已完成，下一步 W5）
 >
 > 基线日期：2026-07-30
 >
@@ -44,7 +44,7 @@
 | 公共 writer | `write_file()` 已在创建文件前拒绝；legacy partial writer 只生成后续 section 为空的受限 fixture | 完整编辑和保存仍未交付，不得用完整读取混淆完整读写 |
 | 备用 Nuthouse | 覆盖较多 section，但仍有 native `struct`、字段缺失和 PMX 2.1 不完整 | 不能直接作为 correctness 基准 |
 | 数据模型 | PMX 2.0 的 Header、Vertex/SDEF、Material、Bone/IK、Morph、Frame、Rigid Body、Spring 6DOF Joint 均可表达 | PMX 2.1 特有记录和 Soft Body 仍待 W6；高层编辑 API 尚未开始 |
-| 验证 | 已覆盖 Vertex/Bone/Morph/Frame/Rigid Body/Joint 的主要条件字段和跨引用 | W4 仍需补齐所有 count、cycle、enum 与错误路径，作为 writer 前置门槛 |
+| 验证 | W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、全部跨引用、cycle、资源限制、parse report 与 strict EOF | 已满足 canonical writer 的前置门槛；PMX 2.1 专属记录留待 W6 |
 | API 命名 | `frames`/`display_frames`、`rigidbodies`/`rigid_bodies`等并存 | 大面积重构时容易破坏调用方 |
 | 测试 | 7 个本地 PMX 均完整读到 EOF 并通过 `model.validate()`；合成测试覆盖 PMX 2.0 全 section 与 1/2/4 字节索引 | 尚未证明 canonical writer round-trip |
 
@@ -313,6 +313,9 @@ canonical 模型，原生迁移仍归 W8。非 benchmark 全量结果为 `315 pa
 明确报告不支持 feature；旧 fast/Cython 不再掩盖标准 reader 失败。
 
 ### W4：PMX 2.0 Validator（P1）
+
+**状态：** 已完成（2026-08-09）；`PmxModel.validate()` 已统一转发到
+`common/pmx/validator.py`，并通过 `python -O`、malformed bytes、全量测试和 7 个真实 PMX。
 
 **依赖：** W2、W3，可与 W3 的后半段并行编写测试。  
 **主要文件：** `common/pmx/validator.py`、`common/models/pmx.py`。
@@ -613,6 +616,7 @@ PMX 完整支持重构只有在下列项目全部满足时才可标记完成：
 
 - [x] strict reader 对 PMX 2.0 到达 EOF；PMX 2.1 未支持记录明确 fail closed。
 - [x] partial reader 的状态、section 和 writer 拒绝行为可测试。
+- [x] PMX 2.0 Validator 覆盖条件字段、跨引用、cycle、资源上限和 strict EOF。
 - [ ] canonical writer 覆盖所有已支持字段，没有固定 BDEF1/UV=0 等隐式简化。
 - [ ] 7 个本地 PMX 逐文件完成解析证据和临时 round-trip，原件 hash 未变。
 - [ ] 合成 fixture 覆盖所有 index size、weight、Morph、IK、Physics、Soft Body 分支。
