@@ -194,10 +194,12 @@ Header -> Vertex -> Face -> Texture -> Material -> Bone -> Morph
 5. 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
 6. PMX 2.1 / Soft Body：完整字段、Anchor/Pin、PMX 2.1 Morph/Joint。
 7. 顶点、面、Morph、表示枠的高层编辑。
-8. fast Python/Cython parity 与无损 patch 扩展，且只能在标准 Python 正确性证明之后进行。
 
 第 1 步不是用户可见的编辑器页面，但它是其余所有步骤的数据安全前置条件。第 2-5 步
 均只操作临时输出；每一阶段完成前不得覆盖真实模型原件。
+
+fast Python/Cython parity 与原生加速已移出本发布顺序。只有上述格式、编辑和发布能力
+全部稳定后，才由用户重新排期作为计划外性能项目评估；当前保持 canonical Cursor 路径。
 
 ## 5. 每阶段统一验收
 

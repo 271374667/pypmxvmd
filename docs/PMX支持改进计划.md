@@ -344,7 +344,11 @@ Group Morph 36、UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 7
 - [ ] PMX 2.1 真实样本 round-trip。
 - [x] 当前未支持的 PMX 2.1 feature 必须 fail closed。
 
-## P3：性能实现与统一行为
+## P3：性能实现与统一行为（计划外候选）
+
+2026-08-10 决策：本节移出正式 PMX 功能路线。只有格式支持、页面编辑、高层编辑、
+集成发布和长期回归全部稳定后，才由用户重新排期评估 fast/Cython 加速。当前条目只记录
+既有状态，不作为完整支持、发布或任何后续工作包的阻断门槛。
 
 - [x] 标准 Python Cursor parser 作为 PMX 2.0 语义基准。
 - [x] fast Python 公共路径通过 PMX 2.0 字段级 parity test。

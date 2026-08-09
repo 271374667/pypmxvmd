@@ -22,7 +22,7 @@
 2. 完整写入不会丢弃任何已声明字段；不能写入的模型必须 fail closed。
 3. `read -> write -> read` 对所有语义字段保持等价，索引、flags、enum、名称和
    count 精确一致，浮点字段按字段定义容差比较。
-4. 标准 Python、fast Python 和 Cython 只有在逐字段 parity 后才能对外宣称等价。
+4. 当前只以 canonical Python Cursor 作为正确性基准；fast Python/Cython 不在本计划内扩展。
 5. `PmxDocument` 能保存源字节和字段 span，为无损局部修改提供审计证据。
 6. 旧的 `load_pmx()`、`save_pmx()` 调用方有迁移路径；旧名称不会无提示消失。
 
@@ -30,7 +30,7 @@
 
 - 不重构 VMD/VPD 的格式实现。
 - 不把真实商业模型提交到公开测试目录或覆盖原文件。
-- 不在完整 reader/writer 通过前进行性能优化或把 Cython 设为默认实现。
+- 不在本计划内推进 fast/Cython parity、原生 ABI 补全、性能优化或默认实现切换。
 - 不把未知变长 record 当作可忽略尾部。
 - 不把“文件能打开”“section count 非零”作为完整支持证明。
 
@@ -286,7 +286,7 @@ enum、截断和 PMX 2.1 边界。7 个真实 PMX 全部读到 EOF 并通过 `mo
 覆盖 845 个 Vertex Morph、184 个 Material Morph、36 个 Group Morph、8 个 UV Morph、
 16 个 Bone Morph、827 个刚体和 741 个 Spring 6DOF Joint。原生 Cython ABI 仍会丢弃扩展
 顶点与 post-Material section，因此公共 `implementation="cython"` 暂返回安全 Cursor 的
-canonical 模型，原生迁移仍归 W8。非 benchmark 全量结果为 `315 passed`。
+canonical 模型；原生迁移仅保留为计划外 W8 候选。非 benchmark 全量结果为 `315 passed`。
 
 每个 section 的实现必须同时完成：
 
@@ -422,9 +422,16 @@ strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `sav
 模式不会静默降级；W9 API 名称已 fail-closed 预留。API 兼容、模式矩阵和旧字段别名均有
 回归测试，README 及中英文 API 文档已与实际签名同步。
 
-### W8：fast Python 与 Cython parity（P3）
+### W8：fast Python 与 Cython parity（计划外性能候选，不排期）
 
-**依赖：** W5；PMX 2.1 完整后再扩大范围。  
+2026-08-10 决策：W8 移出正式执行计划，不再是完整支持、阶段交付或发布的前置门槛。
+只有 W6、W10、W11、W12 及全部长期 correctness/格式安全/编辑/集成回归稳定后，才由
+用户重新排期决定是否启动。当前保持 canonical Cursor 为唯一正确性基准；既有 fast/Cython
+代码只做必要回归维护，不新增 section、不扩大公开职责、不恢复默认启用。
+
+以下内容仅保留为未来重新立项时的候选草案，不属于当前提交序列。
+
+**未来依赖：** 全部功能和发布路线完成且稳定，并由用户显式重新排期。
 **主要文件：** `common/parsers/*.pyx`、`common/io/*.pyx`、`scripts/build_cython.py`、
 `tests/test_parser_optimization.py`、`tests/test_cython_parsers.py`。
 
@@ -563,7 +570,7 @@ PMX 定向集：
 uv run --python 3.11.12 --no-sync pytest tests/test_pmx_*.py tests/test_corpus_parsers.py -m "not benchmark" -ra
 ```
 
-Cython 构建和 parity：
+Cython 构建和 parity（计划外；仅未来重新立项时运行）：
 
 ```powershell
 uv run --python 3.11.12 --no-sync python scripts/build_cython.py
@@ -621,10 +628,12 @@ git status --short
 9. document/lossless patch（W9）
 10. 页面级编辑：Bone > Rigid Body > Joint > Material（W11）
 11. PMX 2.1/Soft Body（W6，长期）
-12. fast/Cython parity（W8）
-13. Vertex/Face/Morph/Display Frame 高层编辑（W12，长期）
-14. integration/release/docs（W10）
+12. Vertex/Face/Morph/Display Frame 高层编辑（W12，长期）
+13. integration/release/docs（W10）
 ```
+
+W8 fast/Cython parity 不在本序列中；所有功能、格式安全、编辑和发布工作稳定后，只有经
+用户重新排期才可作为新的计划外性能项目启动。
 
 每个提交只解决一个工作包；不要把 model、reader、writer、validator、Cython 和 patch
 一次性混在一个提交中。若某阶段需要调整前一阶段接口，应在提交说明中写出迁移原因和
@@ -654,10 +663,10 @@ PMX 完整支持重构只有在下列项目全部满足时才可标记完成：
 - [x] 7 个本地 PMX 逐文件完成解析证据和临时 round-trip，原件 hash 未变。
 - [ ] 合成 fixture 覆盖所有 index size、weight、Morph、IK、Physics、Soft Body 分支。
 - [ ] malformed/truncated/unknown feature 都 fail closed，异常带 section/offset。
-- [ ] Python/fast/Cython 字段级 parity 全绿，或优化路径明确保持 opt-in。
+- [x] 优化路径保持非默认且不扩大职责；fast/Cython 完整 parity 属计划外候选。
 - [x] no-op lossless patch 字节完全相同，单字段 patch 通过未修改区域审计。
 - [x] W9 公共 API、兼容别名、异常、支持矩阵和迁移文档同步。
-- [ ] `pytest`、Cython parity、`mkdocs build --strict`、`uv build`、wheel 校验、
+- [ ] `pytest`、`mkdocs build --strict`、`uv build`、wheel 校验、
   `git diff --check` 全部通过。
 
 在达到上述定义前，项目文档和发布说明只能写“部分 PMX 支持”或列出已验证 section，
