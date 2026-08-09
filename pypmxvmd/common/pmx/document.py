@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from pypmxvmd.common.pmx.editing import (
         PmxBoneEditor,
         PmxJointEditor,
+        PmxMaterialEditor,
         PmxRigidBodyEditor,
     )
     from pypmxvmd.common.pmx.report import PmxParseReport
@@ -307,6 +308,12 @@ class PmxDocument:
         from pypmxvmd.common.pmx.editing import PmxJointEditor
 
         return PmxJointEditor(self)
+
+    def edit_materials(self) -> "PmxMaterialEditor":
+        """Create an isolated transaction for editing existing Material records."""
+        from pypmxvmd.common.pmx.editing import PmxMaterialEditor
+
+        return PmxMaterialEditor(self)
 
     def span_for(self, field_path: str | FieldPath) -> BinarySpan:
         path = (

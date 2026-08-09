@@ -3,8 +3,8 @@
 > 调研日期：2026-07-30
 >
 > 状态：长期路线已确认；PMX 2.0 canonical 读写、validator、
-> PmxDocument/lossless patch、W11a 骨骼、W11b 刚体和 W11c Joint 安全编辑已完成；
-> 下一步为 W11d 材质编辑
+> PmxDocument/lossless patch 及 W11a-W11d 骨骼、刚体、Joint、材质安全编辑已完成；
+> 下一步为 W6 PMX 2.1
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -23,18 +23,18 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
 - PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
   Spring 6DOF Joint 已完成 canonical 读写与集中验证。
-- W11a/W11b/W11c 已公开现有 Bone/Rigid Body/Joint record 的事务化 S2 编辑；材质和
+- W11a-W11d 已公开现有 Bone/Rigid Body/Joint/Material record 的事务化 S2 编辑；
   Soft Body 页面仍未达到 S2。
 
-因此当前不能承诺全面 PMXEditor 编辑；现有骨骼、刚体和 PMX 2.0 Spring 6DOF Joint
-记录已达到本文定义的 S2。
+因此当前不能承诺全面 PMXEditor 编辑；现有骨骼、刚体、PMX 2.0 Spring 6DOF Joint
+和材质记录已达到本文定义的 S2。
 
 | 页面/范围 | 当前读取 | 当前编辑结论 |
 |---|---|---|
 | 骨骼 | PMX 2.0 S0/S1 字段已 canonical 读写，含“表示先”和 IK | W11a 已达 S2；可重建现有 record，不可增删/重排骨骼 |
 | 刚体 | 三形状、三模式、group/mask 与物理参数已 canonical 读写 | W11b 已达 S2；可重建现有 record，不可增删/重排刚体 |
 | Joint | Spring 6DOF 全向量按原始弧度 canonical 读写 | W11c 已达 S2；可重建现有 record，不可增删/重排 Joint |
-| 材质 | 全序列化字段已读取 | “同步扩散-环境”仍是未来 S3 命令 |
+| 材质 | 全序列化字段已 canonical 读写 | W11d 已达 S2/S3；可重建现有 record，不可增删/重排材质或纹理表 |
 | Soft Body/PMX 2.1 | 未实现，明确 fail closed | 长期计划 |
 
 ## 2. “支持”的四个层级
@@ -135,14 +135,14 @@ Joint 集合增删、对象替换/重排、全局重编号和 PMX 2.1 类型仍 
 
 | PMXEditor 控件 | PMX 语义字段 | 目标 |
 |---|---|---|
-| 名称、英名、面数 | `name_jp`、`name_en`、`face_count` | S2，校验所有材质面数总和 |
-| 漫反射色与非透明率 | `diffuse_color[RGBA]` | S2 |
-| 反射色、反射强度 | `specular_color`、`specular_strength` | S2 |
-| 环境色 | `ambient_color[RGB]` | S2 |
-| 描绘 flags | 双面、地面影、阴影、边缘、顶点色、线绘制等 bit flags | S2 |
-| 轮郭线 | `edge_color`、`edge_size` | S2 |
-| Tex、Sphere、Toon | texture index、sphere index/mode、shared/external Toon mode/index | S2，不重排纹理表 |
-| 备注 | material comment | S2 |
+| 名称、英名、面数 | `name_jp`、`name_en`、`face_count` | W11d S2 已完成；face count 成组验证总和 |
+| 漫反射色与非透明率 | `diffuse_color[RGBA]` | W11d S2 已完成 |
+| 反射色、反射强度 | `specular_color`、`specular_strength` | W11d S2 已完成 |
+| 环境色 | `ambient_color[RGB]` | W11d S2/S3 已完成；同步仅显式调用 |
+| 描绘 flags | 双面、地面影、阴影、边缘、顶点色、线绘制等 bit flags | W11d S2 已完成 |
+| 轮郭线 | `edge_color`、`edge_size` | W11d S2 已完成 |
+| Tex、Sphere、Toon | texture index、sphere index/mode、shared/external Toon mode/index | W11d S2 已完成，不重排纹理表 |
+| 备注 | material comment | W11d S2 已完成，支持变长字符串 |
 
 “同步扩散-环境”不是 PMX 的字段或 flag。它应实现为显式操作：
 
@@ -153,6 +153,12 @@ material.ambient_color = material.diffuse_color[:3]
 该命令只能在用户调用时执行，读取和普通保存时不能自动同步；否则会改变原模型的视觉语义。
 材质高层编辑排在 Joint 之后，但 reader/writer 仍必须更早完整消费 Material section，
 因为它位于 Bone 前面。
+
+W11d 通过 `PmxMaterialEditor` 在隔离副本中修改现有记录，并使用精确 record span
+重建变长名称/备注和 Toon 条件布局。事务同步验证纹理索引与派生显示路径、四种 Sphere
+mode、10 个共享 Toon、八个 flags、float32 数值和所有材质 face count 总和；输出随后
+strict reparse 并比较全模型语义。“同步扩散-环境”只由显式命令触发。Material/纹理表
+集合增删、对象替换/重排和全局 index 重编号仍 fail closed。
 
 ### 3.5 Soft Body 与其他 PMX 2.1：长期计划
 
@@ -199,8 +205,8 @@ Header -> Vertex -> Face -> Texture -> Material -> Bone -> Morph
    PMX 2.0 IK/付与/轴/外部亲字段；集合增删/重排未开放。
 3. `[W11b 已完成]` 刚体 S1/S2：包含完整 collision mask 与骨骼/Joint 引用保护。
 4. `[W11c 已完成]` PMX 2.0 Joint S1/S2：包含 Spring 6DOF 全字段与单位一致性。
-5. `[W11d 下一步]` 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
-6. PMX 2.1 / Soft Body：完整字段、Anchor/Pin、PMX 2.1 Morph/Joint。
+5. `[W11d 已完成]` 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
+6. `[W6 下一步]` PMX 2.1 / Soft Body：完整字段、Anchor/Pin、PMX 2.1 Morph/Joint。
 7. 顶点、面、Morph、表示枠的高层编辑。
 
 第 1 步不是用户可见的编辑器页面，但它是其余所有步骤的数据安全前置条件。第 2-5 步

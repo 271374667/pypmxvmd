@@ -25,7 +25,7 @@
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
 > fail closed。W5 canonical writer、W7 公共 API 迁移、W9 定长 lossless patch 和
-> W11a 骨骼、W11b 刚体与 W11c Joint 安全编辑已完成；下一阶段为 W11d 材质编辑。
+> W11a-W11d 的骨骼、刚体、Joint 与材质安全编辑已完成；下一阶段为 W6 PMX 2.1。
 
 总体结论：
 
@@ -320,6 +320,7 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [x] 现有 Bone record 事务化 S2 编辑：变长名称、两种 tail、全 flags/条件载荷与 IK。
 - [x] 现有 Rigid Body record 事务化 S2 编辑：变长名称、三形状/模式、mask、姿态与物理参数。
 - [x] 现有 Joint record 事务化 S2 编辑：变长名称、A/B 刚体、八个 vec3 与原始弧度。
+- [x] 现有 Material record 事务化 S2 编辑：全字段、纹理/Toon 条件布局与显式环境色同步。
 - [x] 所有 PMX 2.0 Morph reader/model，Bone 旋转保留原始 quaternion。
 - [x] Display frame reader/model。
 - [x] Rigid body reader/model。
@@ -337,8 +338,11 @@ Group Morph 36、UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 7
 覆盖三形状/模式、16 组 mask、五个物理参数、1/2/4 字节 Bone index，并对 7 个真实 PMX
 只写临时输出且原件 SHA-256 不变。W11c 以 25 项测试证明现有 Spring 6DOF Joint
 record 的 S2 事务编辑，覆盖八个 vec3、1/2/4 字节 Rigid Body index、变长名称、非法
-引用/枚举/limit/数值和 7 个真实 PMX；原件 SHA-256 不变。该结果不代表材质或
-PMX 2.1 页面已达 S2。
+引用/枚举/limit/数值和 7 个真实 PMX；原件 SHA-256 不变。W11d 以 43 项测试证明
+现有 Material record 的 S2 事务编辑，
+覆盖全部颜色/flags/edge、四种 Sphere mode、10 个共享 Toon、1/2/4 字节 Texture index、
+变长名称/备注、成组 face count、显式环境色同步和 7 个真实 PMX；原件 SHA-256 不变。
+这些结果不代表 PMX 2.1 页面已达 S2。
 
 ## P2：完整 PMX 2.1
 
@@ -746,8 +750,8 @@ PmxPhysicsRebuilder
 5. `[已完成]` 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
 6. `[已完成]` 完成公共 API 模式与兼容迁移。
 7. `[已完成]` 增加 source span、PmxDocument 和定长 lossless patch 模式。
-8. `[骨骼/刚体/Joint 已完成；下一步材质]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
-9. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
+8. `[已完成]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
+9. `[下一步]` 补全 PMX 2.1/Soft Body，再进入 Vertex/Face/Morph/Display Frame 高层编辑。
 10. `[计划外候选]` 全部功能与发布长期稳定后，由用户重新排期原生 fast/Cython 对齐与加速。
 
 优先级原则是：

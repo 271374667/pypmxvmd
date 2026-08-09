@@ -153,18 +153,17 @@ document = pypmxvmd.load_pmx("character.pmx", mode="document")
 资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
 Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
 传入 `track_spans=True` 时，`field_spans` 保存已登记的定长字段，`record_spans`
-保存现有 Bone、Rigid Body 和 Joint record 的精确字节范围。
+保存现有 Material、Bone、Rigid Body 和 Joint record 的精确字节范围。
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据、字段
-span 和现有 Bone/Rigid Body/Joint record 的精确 span。Material、Bone、Rigid Body、Joint
+span 和现有 Material/Bone/Rigid Body/Joint record 的精确 span。Material、Bone、Rigid Body、Joint
 record 中
-可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；Bone、Rigid Body 与 Joint
-record span 另用于下文 W11a/W11b/W11c 事务。其他变长字符串、材质纹理/Toon 引用、集合增删和会改变
-条件布局的 flags 不登记。
+可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；四类 record span
+另用于下文 W11a-W11d 事务。其他变长 record、集合增删和全局 index 重编号不登记。
 
 ```python
 document = pypmxvmd.load_pmx_document("model.pmx")
@@ -271,6 +270,39 @@ reparse 完整输出并比较全部模型语义。限位 setter 要求逐轴 `mi
 
 ---
 
+#### `PmxDocument.edit_materials() -> PmxMaterialEditor` / `pypmxvmd.edit_pmx_materials(document)`
+
+创建一个隔离的 PMX 2.0 现有 Material record 编辑事务。已支持日/英变长名称与备注、
+diffuse RGBA、specular RGB/strength、ambient RGB、八个描绘 flags、edge RGBA/size、
+Texture 引用、Sphere 引用及四种模式、separate/shared Toon 条件布局和原始面索引数。
+
+```python
+from pypmxvmd.common.pmx import SphMode
+
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_materials()
+editor.set_names(0, name_en="skin")
+editor.set_diffuse_color(0, [0.8, 0.6, 0.5, 1.0])
+editor.sync_ambient_from_diffuse(0)  # 显式 S3 命令
+editor.set_draw_flags(0, double_sided=True, edge_drawing=True)
+editor.set_sphere_texture(0, -1, SphMode.DISABLED)
+editor.set_shared_toon(0, 0)  # 内置 toon01.bmp
+result = editor.write_file("material-edited.pmx")
+print(result.changed_record_count)
+```
+
+`set_texture()`、`set_sphere_texture()`、`set_separate_toon()` 和
+`set_shared_toon()` 会让显示路径与序列化索引同步，并检查 `-1` sentinel 和引用范围。
+`set_face_counts()` 接收完整 Material count 序列，保证每项非负且为 3 的倍数、总和仍
+等于模型面索引数。ambient 绝不隐式同步；只有 `sync_ambient_from_diffuse()` 会改变它。
+
+`encode()` 返回已验证的 `PmxMaterialEditResult`；`write_file()` 验证后原子替换目标。
+事务使用源文件编码和 Texture index 宽度，只重建变更的 Material record，再 strict
+reparse 完整输出并比较全部模型语义。Material/纹理表增删、对象替换/重排和全局重编号
+不在 W11d 范围，会抛出 `PmxMaterialEditError` 或验证异常。
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 集中验证 PMX 语义且不依赖 `assert`。当前覆盖 PMX 2.0 权重布局、条件字段、跨 section
@@ -318,12 +350,13 @@ pypmxvmd.save_pmx(model, "output.pmx")
 |---|---|---|
 | 读取 `strict` | 是 | 完整 PMX 2.0 `PmxModel`，否则 fail closed |
 | 读取 `partial` | 是 | 带完整性报告的 `PmxParseResult` |
-| 读取 `document` / span | 是（PMX 2.0） | `PmxDocument` / `field_spans` / Bone/Rigid Body/Joint `record_spans` |
+| 读取 `document` / span | 是（PMX 2.0） | `PmxDocument` / `field_spans` / Material/Bone/Rigid Body/Joint `record_spans` |
 | 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0 |
 | 写入定长字段 `lossless_patch` | 是 | 经审计的原子源字节 patch |
 | 编辑现有 Bone record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 编辑现有 Rigid Body record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 编辑现有 Joint record | 是（PMX 2.0 Spring 6DOF） | 事务化变长 record 替换 |
+| 编辑现有 Material record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 写入 `preserve_layout` 或其他变长编辑 | 否 | fail closed |
 
 ---

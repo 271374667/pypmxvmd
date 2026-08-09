@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0-W5、W7、W9、W11a/W11b/W11c 已完成；下一步 W11d 材质编辑）
+> 文档状态：执行中（W0-W5、W7、W9、W11a-W11d 已完成；下一步 W6 PMX 2.1）
 >
 > 基线日期：2026-07-30
 >
@@ -370,10 +370,11 @@ strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `sav
 ### W6：PMX 2.1 与 Soft Body（P2，长期）
 
 **依赖：** W5。  
-**主要文件：** `common/pmx/reader.py`、`writer.py`、`types.py`、`validator.py`。
+**主要文件：** `common/models/pmx.py`、`common/parsers/pmx_parser.py`、
+`common/pmx/writer.py`、`types.py`、`validator.py`。
 
-调度约束：不进入当前近期迭代；先完成 W4/W5 以及 W11 的骨骼、刚体、Joint、材质
-优先链，除非用户显式调整优先级。
+2026-08-10 调度更新：W4/W5 与 W11 页面优先链均已完成，W6 现为下一正式阶段。
+仍保持 correctness-first，不在本阶段扩展计划外 fast/Cython。
 
 实施范围：
 
@@ -513,7 +514,7 @@ sdist/wheel 内容校验和用户迁移说明。
 3. **W11c Joint（已完成）**：PMX 2.0 Spring 6DOF 的 A/B 刚体、位置/旋转、移动/旋转
    限制和弹簧；所有旋转内部保持原始弧度。未定义明确跨工具公式的“按骨骼/刚体位置
    初始化”不作为 S2 退出门槛，也未加入隐式行为。
-4. **W11d 材质**：全部颜色、flags、轮郭、纹理/Sphere/Toon、备注与 face count；
+4. **W11d 材质（已完成）**：全部颜色、flags、轮郭、纹理/Sphere/Toon、备注与 face count；
    “同步扩散-环境”只作为显式命令，不在读取或普通保存时自动执行。
 
 每个子阶段单独提交和发布能力矩阵；前一页面未达到 S2 验收时不启动下一页面。
@@ -536,6 +537,13 @@ span；`PmxRigidBodyEditor` 支持现有刚体的变长日/英名、骨骼引用
 非法引用/枚举/float32 数值、集合变更和 7 个真实 PMX 均有回归。限位 setter 要求逐轴
 `minimum <= maximum`，同时只拒绝本次新引入的倒置轴，以保留语料中的历史源值并允许
 无关字段编辑。Joint 增删/替换/重排与 PMX 2.1 Joint 类型仍 fail closed。
+
+2026-08-10 W11d 交付结果：`PmxDocument` 现在也保留 Material record 的精确源 span；
+`PmxMaterialEditor` 支持现有材质的变长日/英名与备注、全部颜色/描绘 flags/edge、
+Texture/Sphere/Toon 引用和条件布局，以及全材质成组 `face_count` 更新。Texture 1/2/4
+字节 index、四种 Sphere mode、10 个共享 Toon、`-1` sentinel、非法引用/枚举/float32
+数值、集合变更和 7 个真实 PMX 均有回归。“同步扩散-环境”仅由显式命令触发；材质与
+纹理表增删/替换/重排、全局重编号仍 fail closed。
 
 ### W12：长期高层编辑（Vertex、Face、Morph、Display Frame）
 

@@ -132,22 +132,21 @@ Cursor. Until the native ABI is completed, explicit `cython` still executes its
 probe but returns the Cursor's canonical semantic model. This legacy-compatible
 helper is equivalent to `load_pmx(..., mode="partial")`. With
 `track_spans=True`, `field_spans` contains the registered fixed-width fields and
-`record_spans` contains exact existing Bone, Rigid Body, and Joint record ranges.
+`record_spans` contains exact existing Material, Bone, Rigid Body, and Joint
+record ranges.
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 Strict-load an immutable source snapshot, canonical model, parse report, section
-evidence, fixed-width field spans, and exact existing Bone/Rigid Body/Joint record
-spans. The first
+evidence, fixed-width field spans, and exact existing Material/Bone/Rigid Body/
+Joint record spans. The first
 lossless stage registers selected directly mapped numeric, enum, index, flags, and
-vector fields in existing Material, Bone, Rigid Body, and Joint records. Bone,
-Rigid Body, and Joint record spans additionally support the W11a/W11b/W11c
-transactions below.
-Other variable-length strings,
-Material texture/Toon references, collection insertion/deletion, and layout-changing
-flags are deliberately not registered.
+vector fields in existing Material, Bone, Rigid Body, and Joint records. Their
+record spans additionally support the W11a-W11d transactions below. Other
+variable-length records, collection insertion/deletion, and global index
+renumbering are deliberately not registered.
 
 ```python
 document = pypmxvmd.load_pmx_document("model.pmx")
@@ -268,6 +267,45 @@ replacement/reordering, and PMX 2.1 Joint types are outside W11c and raise
 
 ---
 
+#### `PmxDocument.edit_materials() -> PmxMaterialEditor` / `pypmxvmd.edit_pmx_materials(document)`
+
+Create an isolated transaction for editing existing PMX 2.0 Material records.
+The editor supports variable-length Japanese/English names and comments,
+diffuse RGBA, specular RGB/strength, ambient RGB, all eight draw flags, edge
+RGBA/size, Texture references, Sphere references and all four modes, separate or
+shared Toon layouts, and raw face-index counts.
+
+```python
+from pypmxvmd.common.pmx import SphMode
+
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_materials()
+editor.set_names(0, name_en="skin")
+editor.set_diffuse_color(0, [0.8, 0.6, 0.5, 1.0])
+editor.sync_ambient_from_diffuse(0)  # explicit S3 command
+editor.set_draw_flags(0, double_sided=True, edge_drawing=True)
+editor.set_sphere_texture(0, -1, SphMode.DISABLED)
+editor.set_shared_toon(0, 0)  # built-in toon01.bmp
+result = editor.write_file("material-edited.pmx")
+print(result.changed_record_count)
+```
+
+`set_texture()`, `set_sphere_texture()`, `set_separate_toon()`, and
+`set_shared_toon()` keep the display paths synchronized with their serialized
+indices and validate `-1` sentinels/ranges. `set_face_counts()` takes the complete
+Material count sequence so every value remains a non-negative multiple of three
+and the total still equals the model's face-index count. Ambient color is never
+implicitly synchronized; only `sync_ambient_from_diffuse()` changes it.
+
+`encode()` returns a verified `PmxMaterialEditResult`; `write_file()` validates
+and atomically replaces the target. Only changed Material records are rebuilt
+using the source encoding and Texture index width, then the complete output is
+strict-reparsed and semantically compared. Material/texture-table insertion,
+deletion, object replacement/reordering, and global renumbering are outside W11d
+and raise `PmxMaterialEditError` or a validation error.
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 Validate PMX semantics without relying on `assert`. The centralized validator
@@ -314,12 +352,13 @@ occur before replacing the target.
 |---|---|---|
 | Read `strict` | Yes | Complete PMX 2.0 `PmxModel` or fail closed |
 | Read `partial` | Yes | `PmxParseResult` with completeness report |
-| Read `document` / spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` / Bone/Rigid Body/Joint `record_spans` |
+| Read `document` / spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` / Material/Bone/Rigid Body/Joint `record_spans` |
 | Write `canonical` | Yes | Atomic semantic PMX 2.0 output |
 | Write fixed-field `lossless_patch` | Yes | Audited atomic source-byte patch |
 | Edit existing Bone records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Edit existing Rigid Body records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Edit existing Joint records | Yes (PMX 2.0 Spring 6DOF) | Transactional variable-record replacement |
+| Edit existing Material records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Write `preserve_layout` or other variable-length edits | No | Fail closed |
 
 ---

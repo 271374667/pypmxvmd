@@ -73,6 +73,10 @@ class PmxJointEditError(PmxPatchError):
     """A transactional Joint edit violated the W11c safety contract."""
 
 
+class PmxMaterialEditError(PmxPatchError):
+    """A transactional Material edit violated the W11d safety contract."""
+
+
 class UnsupportedPmxFeatureError(PmxError):
     """A recognized PMX mode or format feature is not implemented yet."""
 

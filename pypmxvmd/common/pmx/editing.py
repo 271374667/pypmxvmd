@@ -13,6 +13,7 @@ from pypmxvmd.common.models.pmx import (
     PmxBone,
     PmxBoneIkLink,
     PmxJoint,
+    PmxMaterial,
     PmxModel,
     PmxRigidBody,
 )
@@ -24,11 +25,18 @@ from pypmxvmd.common.pmx.document import (
 from pypmxvmd.common.pmx.errors import (
     PmxBoneEditError,
     PmxJointEditError,
+    PmxMaterialEditError,
     PmxPatchError,
     PmxRigidBodyEditError,
     PmxValidationError,
 )
-from pypmxvmd.common.pmx.types import JointType, RigidBodyPhysMode, RigidBodyShape
+from pypmxvmd.common.pmx.types import (
+    JointType,
+    RigidBodyPhysMode,
+    RigidBodyShape,
+    SphMode,
+    ToonSharing,
+)
 from pypmxvmd.common.pmx.validator import validate_pmx_model
 
 if TYPE_CHECKING:
@@ -679,6 +687,298 @@ class PmxJointEditor:
         return index
 
 
+@dataclass(frozen=True, slots=True)
+class PmxMaterialEditResult:
+    """Verified output produced by one existing-record Material transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+
+    @property
+    def changed_record_count(self) -> int:
+        return len(self.patches)
+
+
+class PmxMaterialEditor:
+    """Isolated transaction for modifying existing PMX 2.0 Material records."""
+
+    def __init__(self, document: PmxDocument) -> None:
+        if not isinstance(document, PmxDocument):
+            raise TypeError("PmxMaterialEditor requires a PmxDocument")
+        _require_clean_record_document(
+            document,
+            record_label="Material",
+            record_prefix="materials",
+            record_count=len(document.model.materials),
+            error_type=PmxMaterialEditError,
+        )
+
+        self.document = document
+        self.model = deepcopy(document.model)
+        self._baseline_model = deepcopy(document.model)
+        self._material_identity_order = tuple(
+            id(material) for material in self.model.materials
+        )
+
+    def material(self, material_index: int) -> PmxMaterial:
+        """Return the transaction-local Material object for inspection."""
+        return self.model.materials[self._material_index(material_index)]
+
+    def set_names(
+        self,
+        material_index: int,
+        *,
+        name_jp: Optional[str] = None,
+        name_en: Optional[str] = None,
+    ) -> "PmxMaterialEditor":
+        material = self.material(material_index)
+        if name_jp is None and name_en is None:
+            raise PmxMaterialEditError("set_names requires name_jp and/or name_en")
+        if name_jp is not None:
+            if not isinstance(name_jp, str):
+                raise PmxMaterialEditError("Material Japanese name must be a string")
+            material.name_jp = name_jp
+        if name_en is not None:
+            if not isinstance(name_en, str):
+                raise PmxMaterialEditError("Material English name must be a string")
+            material.name_en = name_en
+        return self
+
+    def set_diffuse_color(
+        self, material_index: int, color: Sequence[float]
+    ) -> "PmxMaterialEditor":
+        self.material(material_index).diffuse_color = _vector4(
+            color, "material.diffuse_color", PmxMaterialEditError
+        )
+        return self
+
+    def set_specular(
+        self,
+        material_index: int,
+        *,
+        color: Optional[Sequence[float]] = None,
+        strength: Optional[float] = None,
+    ) -> "PmxMaterialEditor":
+        if color is None and strength is None:
+            raise PmxMaterialEditError("set_specular requires at least one value")
+        material = self.material(material_index)
+        if color is not None:
+            material.specular_color = _vector3(
+                color, "material.specular_color", PmxMaterialEditError
+            )
+        if strength is not None:
+            material.specular_strength = _number(
+                strength, "material.specular_strength", PmxMaterialEditError
+            )
+        return self
+
+    def set_ambient_color(
+        self, material_index: int, color: Sequence[float]
+    ) -> "PmxMaterialEditor":
+        self.material(material_index).ambient_color = _vector3(
+            color, "material.ambient_color", PmxMaterialEditError
+        )
+        return self
+
+    def sync_ambient_from_diffuse(self, material_index: int) -> "PmxMaterialEditor":
+        material = self.material(material_index)
+        material.ambient_color = list(material.diffuse_color[:3])
+        return self
+
+    def set_draw_flags(
+        self,
+        material_index: int,
+        *,
+        double_sided: Optional[bool] = None,
+        ground_shadow: Optional[bool] = None,
+        self_shadow_map: Optional[bool] = None,
+        self_shadow: Optional[bool] = None,
+        edge_drawing: Optional[bool] = None,
+        vertex_color: Optional[bool] = None,
+        point_drawing: Optional[bool] = None,
+        line_drawing: Optional[bool] = None,
+    ) -> "PmxMaterialEditor":
+        updates = {
+            "double_sided": double_sided,
+            "ground_shadow": ground_shadow,
+            "self_shadow_map": self_shadow_map,
+            "self_shadow": self_shadow,
+            "edge_drawing": edge_drawing,
+            "vertex_color": vertex_color,
+            "point_drawing": point_drawing,
+            "line_drawing": line_drawing,
+        }
+        if all(value is None for value in updates.values()):
+            raise PmxMaterialEditError("set_draw_flags requires at least one flag")
+        flags = self.material(material_index).flags
+        for name, value in updates.items():
+            if value is not None:
+                setattr(
+                    flags,
+                    name,
+                    _boolean(value, f"material.flags.{name}", PmxMaterialEditError),
+                )
+        return self
+
+    def set_edge(
+        self,
+        material_index: int,
+        *,
+        color: Optional[Sequence[float]] = None,
+        size: Optional[float] = None,
+    ) -> "PmxMaterialEditor":
+        if color is None and size is None:
+            raise PmxMaterialEditError("set_edge requires at least one value")
+        material = self.material(material_index)
+        if color is not None:
+            material.edge_color = _vector4(
+                color, "material.edge_color", PmxMaterialEditError
+            )
+        if size is not None:
+            material.edge_size = _number(
+                size, "material.edge_size", PmxMaterialEditError
+            )
+        return self
+
+    def set_texture(
+        self, material_index: int, texture_index: int
+    ) -> "PmxMaterialEditor":
+        material = self.material(material_index)
+        material.texture_index, material.texture_path = self._texture_reference(
+            texture_index, "material.texture_index"
+        )
+        return self
+
+    def set_sphere_texture(
+        self,
+        material_index: int,
+        texture_index: int,
+        sphere_mode: SphMode | int,
+    ) -> "PmxMaterialEditor":
+        mode = _enum_member(
+            sphere_mode, SphMode, "material.sphere_mode", PmxMaterialEditError
+        )
+        index, path = self._texture_reference(
+            texture_index, "material.sphere_texture_index"
+        )
+        material = self.material(material_index)
+        material.sphere_texture_index = index
+        material.sphere_path = path
+        material.sphere_mode = mode
+        return self
+
+    def set_separate_toon(
+        self, material_index: int, texture_index: int
+    ) -> "PmxMaterialEditor":
+        index, path = self._texture_reference(
+            texture_index, "material.toon_texture_index"
+        )
+        material = self.material(material_index)
+        material.toon_sharing = ToonSharing.SEPARATE
+        material.toon_texture_index = index
+        material.toon_path = path
+        return self
+
+    def set_shared_toon(
+        self, material_index: int, toon_index: int
+    ) -> "PmxMaterialEditor":
+        index = _bounded_integer(
+            toon_index,
+            "material.toon_texture_index",
+            0,
+            9,
+            PmxMaterialEditError,
+        )
+        material = self.material(material_index)
+        material.toon_sharing = ToonSharing.SHARED
+        material.toon_texture_index = index
+        material.toon_path = f"toon{index + 1:02d}.bmp"
+        return self
+
+    def set_comment(self, material_index: int, comment: str) -> "PmxMaterialEditor":
+        if not isinstance(comment, str):
+            raise PmxMaterialEditError("Material comment must be a string")
+        self.material(material_index).comment = comment
+        return self
+
+    def set_face_counts(self, face_counts: Sequence[int]) -> "PmxMaterialEditor":
+        if not isinstance(face_counts, Sequence) or isinstance(
+            face_counts, (str, bytes)
+        ):
+            raise PmxMaterialEditError("material face_counts must be a sequence")
+        expected_count = len(self.model.materials)
+        if len(face_counts) != expected_count:
+            raise PmxMaterialEditError(
+                f"material face_counts must contain {expected_count} values"
+            )
+        values = []
+        for index, value in enumerate(face_counts):
+            count = _integer(
+                value, f"materials[{index}].face_count", PmxMaterialEditError
+            )
+            if count < 0 or count % 3 != 0:
+                raise PmxMaterialEditError(
+                    f"materials[{index}].face_count must be a non-negative "
+                    "multiple of 3",
+                    field_path=f"materials[{index}].face_count",
+                )
+            values.append(count)
+        expected_total = len(self.model.faces) * 3
+        if sum(values) != expected_total:
+            raise PmxMaterialEditError(
+                f"material face_counts must sum to {expected_total}",
+                field_path="materials.face_count",
+            )
+        for material, count in zip(self.model.materials, values):
+            material.face_count = count
+        return self
+
+    def encode(self) -> PmxMaterialEditResult:
+        """Validate, replace changed Material records, strict-reparse and compare."""
+        output = _encode_record_transaction(
+            document=self.document,
+            model=self.model,
+            baseline_model=self._baseline_model,
+            records=self.model.materials,
+            baseline_records=self._baseline_model.materials,
+            record_identity_order=self._material_identity_order,
+            record_prefix="materials",
+            record_label="Material",
+            stage="W11d",
+            encoder=_encode_material_record,
+            error_type=PmxMaterialEditError,
+            record_validator=_validate_material_paths,
+        )
+        return PmxMaterialEditResult(output.output_bytes, output.patches, output.model)
+
+    def write_file(self, file_path: str | Path) -> PmxMaterialEditResult:
+        """Verify the complete transaction, then atomically replace the target."""
+        from pypmxvmd.common.pmx.writer import PmxWriter
+
+        result = self.encode()
+        PmxWriter._atomic_write(Path(file_path), result.output_bytes)
+        return result
+
+    def _material_index(self, material_index: int) -> int:
+        index = _integer(material_index, "material_index", PmxMaterialEditError)
+        if not 0 <= index < len(self.model.materials):
+            raise PmxMaterialEditError(
+                f"Material index {index} is outside 0..{len(self.model.materials) - 1}"
+            )
+        return index
+
+    def _texture_reference(self, texture_index: int, field: str) -> tuple[int, str]:
+        index = _integer(texture_index, field, PmxMaterialEditError)
+        if index < -1 or index >= len(self.model.textures):
+            raise PmxMaterialEditError(
+                f"{field} must be -1 or reference textures[0.."
+                f"{len(self.model.textures) - 1}]",
+                field_path=field,
+            )
+        return index, "" if index == -1 else self.model.textures[index]
+
+
 def edit_pmx_bones(document: PmxDocument) -> PmxBoneEditor:
     """Create a W11a Bone transaction from a clean source-backed document."""
     return PmxBoneEditor(document)
@@ -692,6 +992,11 @@ def edit_pmx_rigid_bodies(document: PmxDocument) -> PmxRigidBodyEditor:
 def edit_pmx_joints(document: PmxDocument) -> PmxJointEditor:
     """Create a W11c Joint transaction from a clean document."""
     return PmxJointEditor(document)
+
+
+def edit_pmx_materials(document: PmxDocument) -> PmxMaterialEditor:
+    """Create a W11d Material transaction from a clean document."""
+    return PmxMaterialEditor(document)
 
 
 def ik_link(
@@ -760,7 +1065,7 @@ def _encode_record_transaction(
     encoder: Callable[[RecordT, "PmxHeader"], bytes],
     error_type: type[PmxPatchError],
     record_validator: Optional[
-        Callable[[Sequence[RecordT], Sequence[RecordT]], None]
+        Callable[[PmxModel, Sequence[RecordT], Sequence[RecordT]], None]
     ] = None,
 ) -> _RecordEditOutput:
     if len(records) != len(baseline_records):
@@ -775,7 +1080,7 @@ def _encode_record_transaction(
         )
     validate_pmx_model(model, limits=document.limits, strict_eof=True)
     if record_validator is not None:
-        record_validator(records, baseline_records)
+        record_validator(model, records, baseline_records)
 
     patches = []
     for index, record in enumerate(records):
@@ -920,10 +1225,91 @@ def _encode_joint_record(joint: PmxJoint, header: "PmxHeader") -> bytes:
     return bytes(data)
 
 
+def _encode_material_record(material: PmxMaterial, header: "PmxHeader") -> bytes:
+    data = bytearray()
+    data.extend(_string(material.name_jp, header.text_encoding))
+    data.extend(_string(material.name_en, header.text_encoding))
+    data.extend(_floats(material.diffuse_color))
+    data.extend(_floats(material.specular_color))
+    data.extend(struct.pack("<f", material.specular_strength))
+    data.extend(_floats(material.ambient_color))
+    data.extend(struct.pack("<B", material.flags.value))
+    data.extend(_floats(material.edge_color))
+    data.extend(struct.pack("<f", material.edge_size))
+    data.extend(_index(material.texture_index, header.texture_index_size))
+    data.extend(_index(material.sphere_texture_index, header.texture_index_size))
+    data.extend(struct.pack("<B", int(material.sphere_mode)))
+    data.extend(struct.pack("<B", int(material.toon_sharing)))
+    if material.toon_sharing == ToonSharing.SEPARATE:
+        data.extend(_index(material.toon_texture_index, header.texture_index_size))
+    else:
+        data.extend(struct.pack("<B", material.toon_texture_index))
+    data.extend(_string(material.comment, header.text_encoding))
+    data.extend(struct.pack("<i", material.face_count))
+    return bytes(data)
+
+
+def _validate_material_paths(
+    model: PmxModel,
+    records: Sequence[PmxMaterial],
+    baseline_records: Sequence[PmxMaterial],
+) -> None:
+    """Keep display paths and raw flags consistent with serialized fields."""
+    del baseline_records
+    for material_index, material in enumerate(records):
+        path = f"materials[{material_index}]"
+        expected_texture_path = (
+            ""
+            if material.texture_index == -1
+            else model.textures[material.texture_index]
+        )
+        expected_sphere_path = (
+            ""
+            if material.sphere_texture_index == -1
+            else model.textures[material.sphere_texture_index]
+        )
+        if material.toon_sharing == ToonSharing.SEPARATE:
+            expected_toon_path = (
+                ""
+                if material.toon_texture_index == -1
+                else model.textures[material.toon_texture_index]
+            )
+        else:
+            expected_toon_path = f"toon{material.toon_texture_index + 1:02d}.bmp"
+
+        for field, expected in (
+            ("texture_path", expected_texture_path),
+            ("sphere_path", expected_sphere_path),
+            ("toon_path", expected_toon_path),
+        ):
+            actual = getattr(material, field)
+            if actual != expected:
+                raise PmxValidationError(
+                    f"{path}.{field}",
+                    "path derived from its serialized texture index and mode",
+                    actual,
+                )
+
+        expected_flag_value = sum(
+            (1 << flag_index)
+            for flag_index, enabled in enumerate(material.flags.to_list())
+            if enabled
+        )
+        if material.flags.value != expected_flag_value:
+            raise PmxValidationError(
+                f"{path}.flags.value",
+                "bit value matching the eight Material flags",
+                material.flags.value,
+            )
+
+
 def _validate_changed_joint_limit_axes(
-    records: Sequence[PmxJoint], baseline_records: Sequence[PmxJoint]
+    model: PmxModel,
+    records: Sequence[PmxJoint],
+    baseline_records: Sequence[PmxJoint],
 ) -> None:
     """Reject new inversions while preserving unchanged legacy source values."""
+    del model
     for joint_index, (joint, baseline) in enumerate(zip(records, baseline_records)):
         for limit_name in ("position", "rotation"):
             minimum = getattr(joint, f"{limit_name}_min")
@@ -1023,9 +1409,13 @@ def _number(
     return result
 
 
-def _boolean(value: bool, field: str) -> bool:
+def _boolean(
+    value: bool,
+    field: str,
+    error_type: type[PmxPatchError] = PmxBoneEditError,
+) -> bool:
     if type(value) is not bool:
-        raise PmxBoneEditError(f"{field} must be bool", field_path=field)
+        raise error_type(f"{field} must be bool", field_path=field)
     return value
 
 
@@ -1044,6 +1434,21 @@ def _vector3(
     ]
 
 
+def _vector4(
+    value: Sequence[float],
+    field: str,
+    error_type: type[PmxPatchError] = PmxBoneEditError,
+) -> list[float]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise error_type(f"{field} must be a 4-value sequence", field_path=field)
+    if len(value) != 4:
+        raise error_type(f"{field} must contain 4 values", field_path=field)
+    return [
+        _number(item, f"{field}[{index}]", error_type)
+        for index, item in enumerate(value)
+    ]
+
+
 __all__ = [
     "PmxBoneEditResult",
     "PmxBoneEditor",
@@ -1051,8 +1456,11 @@ __all__ = [
     "PmxRigidBodyEditor",
     "PmxJointEditResult",
     "PmxJointEditor",
+    "PmxMaterialEditResult",
+    "PmxMaterialEditor",
     "edit_pmx_bones",
     "edit_pmx_joints",
+    "edit_pmx_materials",
     "edit_pmx_rigid_bodies",
     "ik_link",
 ]

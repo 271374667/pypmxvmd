@@ -858,6 +858,7 @@ class PmxParser:
 
         for i in range(material_count):
             self._report_progress(i, material_count)
+            record_start = cursor.position
 
             # 材质名称
             name_jp = cursor.read_string(encoding)
@@ -958,6 +959,7 @@ class PmxParser:
             )
 
             materials.append(material)
+            cursor.mark_record(prefix, record_start)
 
         self._report_progress(material_count, material_count)
         return materials

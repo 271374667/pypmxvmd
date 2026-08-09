@@ -141,15 +141,23 @@ editor.set_rigid_body_references(0, -1, 1)
 editor.set_rotation_limits(0, [-0.5, -0.25, -0.1], [0.5, 0.25, 0.1])
 editor.set_rotation_spring(0, [0.2, 0.3, 0.4])
 editor.write_file("joint-edited.pmx")
+
+# Transactional editing of an existing Material record
+editor = document.edit_materials()
+editor.set_diffuse_color(0, [0.8, 0.6, 0.5, 1.0])
+editor.sync_ambient_from_diffuse(0)  # explicit; never happens on ordinary save
+editor.set_shared_toon(0, 0)         # built-in toon01.bmp
+editor.write_file("material-edited.pmx")
 ```
 
 `document`/field-span reads and fixed-width `lossless_patch` writes are available
 for selected directly mapped Material, Bone, Rigid Body, and Joint fields. Every patch is
 range/before-byte checked, strict-reparsed, and compared against the edited model.
-Outside the Bone, Rigid Body, and Joint transactions described below, variable-length
-strings, Material texture/Toon references, record insertion/deletion,
-layout-changing flags, PMX 2.1, and `preserve_layout` remain unsupported and
-fail closed. Lossless mode never silently falls back to canonical output.
+The Bone, Rigid Body, Joint, and Material transactions below can rebuild their
+existing variable-length records. Other variable-length fields, record
+insertion/deletion, global index renumbering, PMX 2.1, and `preserve_layout`
+remain unsupported and fail closed. Lossless mode never silently falls back to
+canonical output.
 
 `PmxBoneEditor` additionally supports all PMX 2.0 fields of existing Bone
 records: variable-length names, position/parent/deform layer, basic flags, both
@@ -171,6 +179,14 @@ position/rotation, translation/rotation min/max limits, and both spring vectors.
 Rotation values remain raw radians. Limit setters require component-wise
 `minimum <= maximum`; unchanged legacy source axes are preserved. Joint insertion,
 deletion, replacement, reordering, and PMX 2.1 Joint types remain unsupported.
+
+`PmxMaterialEditor` supports every serialized field of existing PMX 2.0
+Material records: variable-length names/comments, colors, all eight draw flags,
+edge settings, Texture/Sphere/Toon modes and references, and face-index counts.
+Texture display paths remain derived from the serialized indices. Face counts
+are updated as one validated collection, and ambient/diffuse synchronization is
+an explicit command only. Material or texture-table insertion, deletion,
+replacement, and reordering remain unsupported.
 
 ### Text Format Conversion
 
