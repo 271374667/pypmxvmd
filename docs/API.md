@@ -146,10 +146,14 @@ the currently supported semantic contract.
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
-Refuses to create output and raises `IncompletePmxWriterError` until the complete,
-validating PMX writer is implemented. The explicit legacy fixture writer emits
-empty post-Material counts but is lossy and rejects non-empty Bone, Morph,
-Display Frame, Rigid Body, Joint and Soft Body collections.
+Validate and atomically save a canonical PMX 2.0 file. The writer covers Header
+through Spring 6DOF Joint, selects the smallest valid index widths, and preserves
+the model's texture list and index order. Invalid, incomplete, PMX 2.1, QDEF,
+unsupported Joint, or Soft Body input fails before the target is replaced.
+
+Canonical output guarantees semantic round-trip stability, not source-byte or
+source-layout equality. `PmxParser.write_file_partial()` remains an explicit,
+lossy fixture helper and rejects collections it cannot encode.
 
 ---
 
@@ -797,7 +801,7 @@ PyPMXVMD uses standard Python exceptions:
 | `FileNotFoundError` | File not found |
 | `ValueError` | Invalid format or data |
 | `IncompletePmxError` | A complete PMX read was requested but mandatory sections or EOF were not reached |
-| `IncompletePmxWriterError` | Complete PMX output was requested while only the legacy partial writer exists |
+| `IncompletePmxWriterError` | The explicit legacy partial PMX writer would discard unsupported sections |
 | `PmxValidationError` | A semantic model field failed validation; exposes `field`, `expected` and `actual` |
 | `IOError` | I/O error |
 

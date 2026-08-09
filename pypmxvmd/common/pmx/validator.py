@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import struct
 from typing import TYPE_CHECKING, Any, Iterable, NoReturn, TypeGuard, cast
 
 from pypmxvmd.common.pmx.errors import PmxValidationError
@@ -62,7 +63,18 @@ def _finite(value: object, field: str) -> None:
         or isinstance(value, bool)
         or not math.isfinite(float(value))
     ):
-        _fail(field, "finite number", value)
+        _fail(field, "finite 32-bit float", value)
+    try:
+        struct.pack("<f", float(value))
+    except (OverflowError, struct.error):
+        _fail(field, "finite 32-bit float", value)
+
+
+def _int32(value: object, field: str, *, non_negative: bool = False) -> None:
+    lower = 0 if non_negative else -(2**31)
+    upper = 2**31 - 1
+    if not _is_int(value) or not lower <= value <= upper:
+        _fail(field, f"integer in {lower}..{upper}", value)
 
 
 def _finite_vector(value: Iterable[object], field: str) -> None:
@@ -444,8 +456,7 @@ class PmxValidator:
 
             _validate_record(bone, path, "bone")
             _finite_vector(bone.position, f"{path}.position")
-            if not _is_int(bone.deform_layer) or bone.deform_layer < 0:
-                _fail(f"{path}.deform_layer", "non-negative int", bone.deform_layer)
+            _int32(bone.deform_layer, f"{path}.deform_layer", non_negative=True)
             _reference(
                 bone.parent_index,
                 f"{path}.parent_index",
@@ -517,12 +528,7 @@ class PmxValidator:
                         )
 
             if bone.bone_flags.has_external_parent:
-                if not _is_int(bone.external_parent_index):
-                    _fail(
-                        f"{path}.external_parent_index",
-                        "int",
-                        bone.external_parent_index,
-                    )
+                _int32(bone.external_parent_index, f"{path}.external_parent_index")
             elif bone.external_parent_index is not None:
                 _fail(
                     f"{path}.external_parent_index",
@@ -538,10 +544,11 @@ class PmxValidator:
                     allow_sentinel=True,
                     self_index=index,
                 )
-                if not _is_int(bone.ik_loop_count) or bone.ik_loop_count < 0:
-                    _fail(
-                        f"{path}.ik_loop_count", "non-negative int", bone.ik_loop_count
-                    )
+                _int32(
+                    bone.ik_loop_count,
+                    f"{path}.ik_loop_count",
+                    non_negative=True,
+                )
                 _finite(bone.ik_angle_limit, f"{path}.ik_angle_limit")
                 for link_index, link in enumerate(bone.ik_links):
                     _reference(

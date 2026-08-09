@@ -4,7 +4,6 @@ import pytest
 
 import pypmxvmd
 
-
 PUBLIC_FUNCTIONS = (
     "load_vmd",
     "save_vmd",
@@ -39,15 +38,15 @@ def test_vmd_public_api_roundtrip(tmp_path, sample_vmd_motion):
     assert loaded.morph_frames[0].weight == pytest.approx(0.75)
 
 
-def test_pmx_public_writer_refuses_incomplete_output(
-    tmp_path, sample_pmx_model
-):
+def test_pmx_public_writer_roundtrip(tmp_path, sample_pmx_model):
     path = tmp_path / "model.pmx"
 
-    with pytest.raises(pypmxvmd.IncompletePmxWriterError):
-        pypmxvmd.save_pmx(sample_pmx_model, path)
+    pypmxvmd.save_pmx(sample_pmx_model, path)
+    loaded = pypmxvmd.load_pmx(path)
 
-    assert not path.exists()
+    assert loaded.header.name_jp == sample_pmx_model.header.name_jp
+    assert len(loaded.vertices) == len(sample_pmx_model.vertices)
+    assert len(loaded.faces) == len(sample_pmx_model.faces)
 
 
 def test_vpd_public_api_roundtrip(tmp_path, sample_vpd_pose):
@@ -72,17 +71,9 @@ def test_vpd_public_api_roundtrip(tmp_path, sample_vpd_pose):
         ("sample_vpd_pose", ".vpd", pypmxvmd.VpdPose),
     ],
 )
-def test_auto_save_and_load(
-    request, tmp_path, fixture_name, suffix, expected_type
-):
+def test_auto_save_and_load(request, tmp_path, fixture_name, suffix, expected_type):
     value = request.getfixturevalue(fixture_name)
     path = tmp_path / f"auto{suffix}"
-
-    if suffix == ".pmx":
-        with pytest.raises(pypmxvmd.IncompletePmxWriterError):
-            pypmxvmd.save(value, path)
-        assert not path.exists()
-        return
 
     pypmxvmd.save(value, path)
     loaded = pypmxvmd.load(path)

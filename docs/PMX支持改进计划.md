@@ -24,17 +24,18 @@
 > `auto` 不再默认进入未完成的 Cython reader。活动 Cursor reader 现已完整消费 PMX 2.0
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
-> fail closed；下一阶段为 W5 canonical writer。
+> fail closed。W5 canonical writer 已完成；下一阶段为 W7 公共 API 迁移。
 
 总体结论：
 
 - PMX 2.0 数据模型和 canonical reader 已覆盖 Header 至 Spring 6DOF Joint 的全部 section。
 - 审计时公共 `load_pmx()` 默认走 fast/Cython 路径且只解析到材质段；现已改为 PMX 2.0
   完整到 EOF，PMX 2.1 未支持内容明确失败。
-- 审计时公共 `save_pmx()` 只写到材质段；现已在创建文件前抛出
-  `IncompletePmxWriterError`。
+- 审计时公共 `save_pmx()` 只写到材质段；现已替换为完整 PMX 2.0 canonical writer，
+  写前验证并原子替换目标，未支持内容 fail closed。
 - 备用 Nuthouse parser/writer 覆盖范围较大，但存在二进制对齐、Morph 类型缺失和 PMX 2.1 Soft Body 未实现等问题。
-- 当前 7 个真实 PMX 2.0 已覆盖完整解析与验证；写回、语义 round-trip 和字节无损性仍未覆盖。
+- 当前 7 个真实 PMX 2.0 已覆盖 strict 解析、canonical 写回、严格重读和深度语义
+  round-trip；原件哈希不变。源字节无损性仍未覆盖，留待 lossless patch 阶段。
 
 因此，在以下问题修复前，PyPMXVMD 不应把公共 PMX API 标记为“完整 PMX 读写支持”。
 
@@ -69,7 +70,8 @@
 
 > 当前修复状态（2026-08-09）：公共 `load_pmx()` 已可完整返回到 EOF 的 PMX 2.0；
 > Cursor reader 保存 Additional UV、SDEF、全部 PMX 2.0 Morph、表示枠、刚体和 Spring
-> 6DOF Joint。PMX 2.1 未支持内容仍明确失败。这里完成的是读取，不代表 writer 或页面编辑。
+> 6DOF Joint。PMX 2.1 未支持内容仍明确失败。canonical writer 已在 W5 完成，但页面级
+> 编辑仍未开放。
 
 ### 3.2 公共 writer 会生成截断或破坏性输出
 
@@ -98,7 +100,9 @@
 - 多类索引大小被固定，而不是根据原始布局或完整模型计算。
 - 纹理列表会重新去重和排序，无法保证原始索引布局。
 
-在完整 writer 完成前，公共 `save_pmx()` 应明确拒绝保存完整 PMX，而不是输出看似成功的文件。
+> 当前修复状态（2026-08-09）：上述行为只保留在显式 `write_file_partial()` fixture
+> 工具中。公共 `save_pmx()` 已使用完整 PMX 2.0 canonical writer；写前集中验证、保持
+> 纹理列表/索引顺序、自动选择索引宽度，并在编码成功后原子替换目标。
 
 ### 3.3 二进制格式没有统一强制 little-endian、standard size、no padding
 
@@ -293,8 +297,8 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 
 - [x] 公共 `load_pmx()` 不再返回不完整模型；PMX 2.0 完整到 EOF，PMX 2.1 未支持内容
   抛出明确异常，显式 partial API 返回完整性报告。
-- [x] 公共 `save_pmx()` 在 writer 不完整时抛出 `IncompletePmxWriterError`，且在
-  抛出前不创建目标文件。
+- [x] W0 期间公共 `save_pmx()` 在 writer 不完整时 fail closed；W5 后已切换为完整
+  PMX 2.0 canonical writer，无效或未支持模型仍在替换目标前失败。
 - [x] 所有直接 PMX `struct` 格式强制使用 `<`，裸兼容格式由 `BinaryIOHandler`
   归一化为 little-endian，并有 AST 静态回归。
 - [x] 标准 Python parser 能完整解析 PMX 2.0 到 EOF。
@@ -310,19 +314,19 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [x] BDEF1/BDEF2/BDEF4/SDEF/QDEF reader/model，其中 SDEF 保留 C/R0/R1。
 - [x] Material 全字段 reader/model。
 - [x] Bone 模型及 reader：全 flags、inherit、axes、external parent 和 IK。
-- [ ] Bone writer 与 read → write → read。
+- [x] Bone writer 与 read → write → read。
 - [x] 所有 PMX 2.0 Morph reader/model，Bone 旋转保留原始 quaternion。
 - [x] Display frame reader/model。
 - [x] Rigid body reader/model。
 - [x] Spring 6DOF Joint reader/model。
-- [ ] 完整 writer。
+- [x] 完整 PMX 2.0 canonical writer。
 - [x] 完整 PMX 2.0 cross-reference validator。
-- [ ] read → write → read 深度语义等价。
+- [x] read → write → read 深度语义等价。
 
-当前只读证据（2026-08-09）：7 个 PMX 2.0 语料均到达 EOF 并通过
-`model.validate()`；合计覆盖 Vertex Morph 845、Material Morph 184、Group Morph 36、
-UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 741 条记录。该结果证明 S0/S1
-读取覆盖，不证明 S2 编辑或 writer 正确性。
+当前读写证据（2026-08-09）：7 个 PMX 2.0 语料均完成 strict read-write-read 与深度
+语义比较，原件 SHA-256 前后不变；合计覆盖 Vertex Morph 845、Material Morph 184、
+Group Morph 36、UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 741 条记录。
+该结果证明 canonical S0/S1 读写覆盖，不证明 S2 页面编辑或源字节无损性。
 
 ## P2：完整 PMX 2.1
 
@@ -732,9 +736,9 @@ PmxPhysicsRebuilder
 1. `[已完成]` 冻结 partial PMX writer，避免误用。
 2. `[已完成]` 在 Binary IO 层统一 `<` 并增加格式长度测试。
 3. `[已完成]` 以 Cursor 实现完整、严格的 PMX 2.0 reader。
-4. `[下一步]` 完成 PMX 2.0 validator 的剩余规则和异常矩阵。
-5. 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
-6. 增加 source span 和 lossless patch 模式。
+4. `[已完成]` 完成 PMX 2.0 validator 的规则和异常矩阵。
+5. `[已完成]` 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
+6. `[下一步]` 完成公共 API 模式与兼容迁移，再增加 source span 和 lossless patch 模式。
 7. 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
 8. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
 9. 让原生 fast/Cython 对齐标准 parser。

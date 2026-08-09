@@ -2,7 +2,7 @@
 
 > 调研日期：2026-07-30
 >
-> 状态：长期路线已确认；PMX 2.0 读取与 validator 完成，下一步为 canonical writer
+> 状态：长期路线已确认；PMX 2.0 canonical 读写与 validator 完成，下一步为公共 API
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -15,8 +15,8 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
 
 - 公共 `load_pmx()` 已完整读取 PMX 2.0 至 Spring 6DOF Joint/EOF；PMX 2.1 的
   Flip/Impulse、其他 Joint 与 Soft Body 仍明确失败。
-- 公共 `save_pmx()` 已在创建文件前拒绝；旧 serializer 只保留为生成“后续 section 为空”
-  的受限测试 fixture，不能用于用户模型。
+- 公共 `save_pmx()` 已完整 canonical 写出 PMX 2.0 Header 至 Spring 6DOF Joint；旧
+  serializer 只保留为受限 fixture 工具，不能用于用户模型。
 - 活动 Python reader 已使用 little-endian、bounds-checked Cursor；备用 Nuthouse 的直接
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
 - PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
@@ -27,9 +27,9 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
 
 | 页面/范围 | 当前读取 | 当前编辑结论 |
 |---|---|---|
-| 骨骼 | PMX 2.0 S0/S1 字段已读取，含“表示先”和 IK | 尚无 writer，未达到 S2 |
-| 刚体 | 三形状、三模式、group/mask 与物理参数已读取 | 尚无 writer，未达到 S2 |
-| Joint | Spring 6DOF 全向量按原始弧度读取 | 尚无 writer，未达到 S2 |
+| 骨骼 | PMX 2.0 S0/S1 字段已 canonical 读写，含“表示先”和 IK | 尚无事务化编辑 API，未达到 S2 |
+| 刚体 | 三形状、三模式、group/mask 与物理参数已 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
+| Joint | Spring 6DOF 全向量按原始弧度 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
 | 材质 | 全序列化字段已读取 | “同步扩散-环境”仍是未来 S3 命令 |
 | Soft Body/PMX 2.1 | 未实现，明确 fail closed | 长期计划 |
 
@@ -113,8 +113,8 @@ PMX 2.0 阶段先完整支持 Spring 6DOF Joint：
 | 移动弹簧、旋转弹簧 | spring vectors | S2 |
 | “骨骼位置设定”等按钮 | 根据关联刚体/骨骼计算值的显式编辑命令 | S3，算法和异常条件必须单独定义 |
 
-canonical reader 已把 Joint 旋转、旋转限制和旋转弹簧按 PMX 原始 `float32`/弧度保存，
-不做角度转换。writer 和高层命令必须沿用这一契约，避免二次转换和精度漂移。
+canonical reader/writer 已把 Joint 旋转、旋转限制和旋转弹簧按 PMX 原始
+`float32`/弧度保存，不做角度转换。高层命令必须沿用这一契约，避免二次转换和精度漂移。
 PMX 2.1 的其他 Joint 类型不混入本阶段，随 PMX 2.1 长期路线处理。
 
 ### 3.4 材质：第四优先级

@@ -13,44 +13,40 @@ from pathlib import Path
 import pytest
 
 import pypmxvmd
-from pypmxvmd.common.models.vmd import (
-    VmdMotion,
-    VmdHeader,
-    VmdBoneFrame,
-    VmdMorphFrame,
-    VmdCameraFrame,
-    VmdLightFrame,
-    VmdShadowFrame,
-    VmdIkFrame,
-    VmdIkBone,
-    ShadowMode,
-)
 from pypmxvmd.common.models.pmx import (
-    PmxModel,
-    PmxHeader,
-    PmxVertex,
-    PmxMaterial,
-    MaterialFlags,
     BoneFlags,
-    WeightMode,
-    SphMode,
-    MorphType,
-    MorphPanel,
-    RigidBodyShape,
-    RigidBodyPhysMode,
     JointType,
+    MaterialFlags,
+    MorphPanel,
+    MorphType,
+    PmxHeader,
+    PmxMaterial,
+    PmxModel,
+    PmxVertex,
+    RigidBodyPhysMode,
+    RigidBodyShape,
+    SphMode,
+    WeightMode,
 )
-from pypmxvmd.common.models.vpd import (
-    VpdPose,
-    VpdBonePose,
-    VpdMorphPose,
+from pypmxvmd.common.models.vmd import (
+    ShadowMode,
+    VmdBoneFrame,
+    VmdCameraFrame,
+    VmdHeader,
+    VmdIkBone,
+    VmdIkFrame,
+    VmdLightFrame,
+    VmdMorphFrame,
+    VmdMotion,
+    VmdShadowFrame,
 )
+from pypmxvmd.common.models.vpd import VpdBonePose, VpdMorphPose, VpdPose
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
-
 
 # ============================================================================
 # Test Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def tmp_dir(tmp_path):
@@ -66,12 +62,12 @@ def sample_vmd_binary():
     # VMD header (30 bytes)
     data.extend(b"Vocaloid Motion Data ")  # 21 bytes
     data.extend(b"0002")  # 4 bytes version
-    data.extend(b'\x00' * 5)  # 5 bytes padding
+    data.extend(b"\x00" * 5)  # 5 bytes padding
 
     # Model name (20 bytes, shift_jis)
     model_name = "TestModel"
-    model_bytes = model_name.encode('shift_jis')
-    model_bytes += b'\x00' * (20 - len(model_bytes))
+    model_bytes = model_name.encode("shift_jis")
+    model_bytes += b"\x00" * (20 - len(model_bytes))
     data.extend(model_bytes)
 
     # Bone frame count = 1
@@ -79,15 +75,15 @@ def sample_vmd_binary():
 
     # Bone name (15 bytes)
     bone_name = "Center"
-    bone_bytes = bone_name.encode('shift_jis')
-    bone_bytes += b'\x00' * (15 - len(bone_bytes))
+    bone_bytes = bone_name.encode("shift_jis")
+    bone_bytes += b"\x00" * (15 - len(bone_bytes))
     data.extend(bone_bytes)
 
     # Frame number, position (x,y,z), rotation quaternion (x,y,z,w)
     data.extend(struct.pack("<I7f", 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0))
 
     # Interpolation data (64 bytes)
-    data.extend(b'\x14\x14\x00\x00' + b'\x00' * 60)
+    data.extend(b"\x14\x14\x00\x00" + b"\x00" * 60)
 
     # Other frame counts = 0
     data.extend(struct.pack("<IIII", 0, 0, 0, 0))  # morph, camera, light, shadow
@@ -124,6 +120,7 @@ Morph0{Smile
 # API Load/Save Function Tests
 # ============================================================================
 
+
 class TestApiLoadFunctions:
     """Test all load_* API functions."""
 
@@ -152,7 +149,7 @@ class TestApiLoadFunctions:
     def test_load_vpd_basic(self, tmp_dir, sample_vpd_content):
         """Test basic VPD loading."""
         vpd_file = tmp_dir / "test.vpd"
-        vpd_file.write_text(sample_vpd_content, encoding='shift_jis')
+        vpd_file.write_text(sample_vpd_content, encoding="shift_jis")
 
         pose = pypmxvmd.load_vpd(vpd_file)
 
@@ -164,7 +161,7 @@ class TestApiLoadFunctions:
     def test_load_vpd_with_more_info(self, tmp_dir, sample_vpd_content):
         """Test VPD loading with more_info=True."""
         vpd_file = tmp_dir / "test.vpd"
-        vpd_file.write_text(sample_vpd_content, encoding='shift_jis')
+        vpd_file.write_text(sample_vpd_content, encoding="shift_jis")
 
         pose = pypmxvmd.load_vpd(vpd_file, more_info=True)
 
@@ -186,7 +183,7 @@ class TestApiAutoDetection:
     def test_load_auto_vpd(self, tmp_dir, sample_vpd_content):
         """Test auto-detection for VPD files."""
         vpd_file = tmp_dir / "test.vpd"
-        vpd_file.write_text(sample_vpd_content, encoding='shift_jis')
+        vpd_file.write_text(sample_vpd_content, encoding="shift_jis")
 
         data = pypmxvmd.load(vpd_file)
 
@@ -225,10 +222,11 @@ class TestApiAutoDetection:
         model.header = PmxHeader(version=2.0, name_jp="Test", name_en="Test")
 
         output_file = tmp_dir / "output.pmx"
-        with pytest.raises(pypmxvmd.IncompletePmxWriterError):
-            pypmxvmd.save(model, output_file)
+        pypmxvmd.save(model, output_file)
+        loaded = pypmxvmd.load(output_file)
 
-        assert not output_file.exists()
+        assert output_file.exists()
+        assert loaded.header.name_jp == "Test"
 
     def test_save_unsupported_type_raises_error(self, tmp_dir):
         """Test that unsupported data type raises ValueError."""
@@ -251,7 +249,7 @@ class TestApiTextFunctions:
                 bone_name="Center",
                 frame_number=0,
                 position=[0.0, 10.0, 0.0],
-                rotation=[0.0, 0.0, 0.0]
+                rotation=[0.0, 0.0, 0.0],
             )
         ]
         motion.morph_frames = [
@@ -278,15 +276,13 @@ class TestApiTextFunctions:
             name_jp="TestModel",
             name_en="TestModel",
             comment_jp="Comment JP",
-            comment_en="Comment EN"
+            comment_en="Comment EN",
         )
         model.vertices = [
             PmxVertex(position=[0.0, 0.0, 0.0], normal=[0.0, 1.0, 0.0], uv=[0.0, 0.0])
         ]
         model.faces = [[0, 0, 0]]
-        model.materials = [
-            PmxMaterial(name_jp="Mat", name_en="Mat", face_count=3)
-        ]
+        model.materials = [PmxMaterial(name_jp="Mat", name_en="Mat", face_count=3)]
 
         # Export to text
         text_file = tmp_dir / "model.txt"
@@ -304,7 +300,7 @@ class TestApiTextFunctions:
         pose = VpdPose(
             model_name="TextTest",
             bone_poses=[VpdBonePose(bone_name="Center", position=[0.0, 10.0, 0.0])],
-            morph_poses=[VpdMorphPose(morph_name="Smile", weight=0.5)]
+            morph_poses=[VpdMorphPose(morph_name="Smile", weight=0.5)],
         )
 
         # Export to text
@@ -353,7 +349,7 @@ face_count: 0
 material_count: 0
 """
         text_file = tmp_dir / "auto_pmx.txt"
-        text_file.write_text(content, encoding='utf-8')
+        text_file.write_text(content, encoding="utf-8")
 
         # This should be detected as PMX text format based on the vertex_count line
         # The test verifies the auto-detection branching logic works
@@ -391,6 +387,7 @@ material_count: 0
 # ============================================================================
 # VMD Model Tests
 # ============================================================================
+
 
 class TestVmdHeader:
     """Test VmdHeader class."""
@@ -451,7 +448,7 @@ class TestVmdBoneFrame:
             frame_number=10,
             position=[1.0, 2.0, 3.0],
             rotation=[0.1, 0.2, 0.3],
-            physics_disabled=True
+            physics_disabled=True,
         )
 
         assert frame.bone_name == "Center"
@@ -475,7 +472,7 @@ class TestVmdBoneFrame:
             bone_name="Test",
             frame_number=0,
             position=[0.0, 0.0, 0.0],
-            rotation=[0.0, 0.0, 0.0]
+            rotation=[0.0, 0.0, 0.0],
         )
 
         frame.validate()  # Should not raise
@@ -540,7 +537,7 @@ class TestVmdCameraFrame:
             position=[0.0, 10.0, 0.0],
             rotation=[0.0, 0.0, 0.0],
             fov=45,
-            perspective=True
+            perspective=True,
         )
 
         frame.validate()  # Should not raise
@@ -574,9 +571,7 @@ class TestVmdLightFrame:
     def test_light_frame_validation_valid(self):
         """Test light frame validation with valid data."""
         frame = VmdLightFrame(
-            frame_number=0,
-            color=[0.5, 0.5, 0.5],
-            position=[0.0, -1.0, 0.0]
+            frame_number=0, color=[0.5, 0.5, 0.5], position=[0.0, -1.0, 0.0]
         )
 
         frame.validate()  # Should not raise
@@ -615,7 +610,7 @@ class TestVmdIkFrame:
         """Test IK frame creation with IK bones."""
         ik_bones = [
             VmdIkBone(bone_name="LeftLeg", ik_enabled=True),
-            VmdIkBone(bone_name="RightLeg", ik_enabled=False)
+            VmdIkBone(bone_name="RightLeg", ik_enabled=False),
         ]
         frame = VmdIkFrame(frame_number=0, display=True, ik_bones=ik_bones)
 
@@ -696,6 +691,7 @@ class TestVmdMotion:
 # ============================================================================
 # PMX Model Tests
 # ============================================================================
+
 
 class TestMaterialFlags:
     """Test MaterialFlags class."""
@@ -839,7 +835,7 @@ class TestPmxHeader:
             name_jp="TestModel",
             name_en="TestModel",
             comment_jp="Comment",
-            comment_en="Comment"
+            comment_en="Comment",
         )
 
         assert header.version == 2.0
@@ -866,7 +862,7 @@ class TestPmxVertex:
             normal=[0.0, 1.0, 0.0],
             uv=[0.5, 0.5],
             weight_mode=WeightMode.BDEF2,
-            edge_scale=0.5
+            edge_scale=0.5,
         )
 
         assert vertex.position == [1.0, 2.0, 3.0]
@@ -902,7 +898,7 @@ class TestPmxMaterial:
             sphere_mode=SphMode.MULTIPLY,
             toon_path="toon.bmp",
             comment="Test material",
-            face_count=100
+            face_count=100,
         )
 
         assert material.specular_strength == 10.0
@@ -924,12 +920,7 @@ class TestPmxBone:
 
     def test_bone_flags_custom(self):
         """Test BoneFlags with custom values."""
-        flags = BoneFlags(
-            rotateable=True,
-            translateable=True,
-            visible=False,
-            ik=True
-        )
+        flags = BoneFlags(rotateable=True, translateable=True, visible=False, ik=True)
 
         assert flags.rotateable is True
         assert flags.translateable is True
@@ -975,6 +966,7 @@ class TestPmxModel:
 # VPD Model Tests
 # ============================================================================
 
+
 class TestVpdBonePose:
     """Test VpdBonePose class."""
 
@@ -989,9 +981,7 @@ class TestVpdBonePose:
     def test_bone_pose_creation_custom(self):
         """Test bone pose creation with custom values."""
         pose = VpdBonePose(
-            bone_name="Center",
-            position=[0.0, 10.0, 0.0],
-            rotation=[0.1, 0.2, 0.3, 0.9]
+            bone_name="Center", position=[0.0, 10.0, 0.0], rotation=[0.1, 0.2, 0.3, 0.9]
         )
 
         assert pose.bone_name == "Center"
@@ -1053,6 +1043,7 @@ class TestVpdPose:
 # Shadow Mode Enum Tests
 # ============================================================================
 
+
 class TestShadowModeEnum:
     """Test ShadowMode enum."""
 
@@ -1088,6 +1079,7 @@ class TestShadowModeEnum:
 # Complete VMD with All Frame Types
 # ============================================================================
 
+
 class TestVmdCompleteRoundtrip:
     """Test complete VMD with all frame types."""
 
@@ -1099,22 +1091,20 @@ class TestVmdCompleteRoundtrip:
 
         motion.bone_frames = [
             VmdBoneFrame(bone_name="Center", frame_number=0),
-            VmdBoneFrame(bone_name="Center", frame_number=30)
+            VmdBoneFrame(bone_name="Center", frame_number=30),
         ]
 
         motion.morph_frames = [
             VmdMorphFrame(morph_name="Smile", frame_number=0, weight=0.0),
-            VmdMorphFrame(morph_name="Smile", frame_number=30, weight=1.0)
+            VmdMorphFrame(morph_name="Smile", frame_number=30, weight=1.0),
         ]
 
         motion.camera_frames = [
             VmdCameraFrame(frame_number=0, distance=45.0, fov=30),
-            VmdCameraFrame(frame_number=60, distance=100.0, fov=45)
+            VmdCameraFrame(frame_number=60, distance=100.0, fov=45),
         ]
 
-        motion.light_frames = [
-            VmdLightFrame(frame_number=0, color=[0.6, 0.6, 0.6])
-        ]
+        motion.light_frames = [VmdLightFrame(frame_number=0, color=[0.6, 0.6, 0.6])]
 
         motion.shadow_frames = [
             VmdShadowFrame(frame_number=0, shadow_mode=ShadowMode.MODE1)
@@ -1126,8 +1116,8 @@ class TestVmdCompleteRoundtrip:
                 display=True,
                 ik_bones=[
                     VmdIkBone(bone_name="LeftLegIK", ik_enabled=True),
-                    VmdIkBone(bone_name="RightLegIK", ik_enabled=True)
-                ]
+                    VmdIkBone(bone_name="RightLegIK", ik_enabled=True),
+                ],
             )
         ]
 
@@ -1152,6 +1142,7 @@ class TestVmdCompleteRoundtrip:
 # PMX Complete Model Test
 # ============================================================================
 
+
 class TestPmxCompleteModel:
     """Test complete PMX model with all components."""
 
@@ -1163,14 +1154,14 @@ class TestPmxCompleteModel:
             name_jp="CompleteModel",
             name_en="CompleteModel",
             comment_jp="Test",
-            comment_en="Test"
+            comment_en="Test",
         )
 
         # Add vertices
         model.vertices = [
             PmxVertex(position=[0.0, 0.0, 0.0], weight_mode=WeightMode.BDEF1),
             PmxVertex(position=[1.0, 0.0, 0.0], weight_mode=WeightMode.BDEF1),
-            PmxVertex(position=[0.5, 1.0, 0.0], weight_mode=WeightMode.BDEF1)
+            PmxVertex(position=[0.5, 1.0, 0.0], weight_mode=WeightMode.BDEF1),
         ]
 
         # Add faces
@@ -1182,7 +1173,9 @@ class TestPmxCompleteModel:
                 name_jp="Material",
                 name_en="Material",
                 face_count=3,
-                flags=MaterialFlags([True, True, True, True, True, False, False, False])
+                flags=MaterialFlags(
+                    [True, True, True, True, True, False, False, False]
+                ),
             )
         ]
 
@@ -1190,15 +1183,8 @@ class TestPmxCompleteModel:
 
         # Save and load
         pmx_file = tmp_dir / "complete.pmx"
-        with pytest.raises(pypmxvmd.IncompletePmxWriterError):
-            pypmxvmd.save_pmx(model, pmx_file)
-
-        assert not pmx_file.exists()
-
-        PmxParser().write_file_partial(model, pmx_file)
-        loaded = PmxParser().parse_file_partial(
-            pmx_file, implementation="fast"
-        ).model
+        pypmxvmd.save_pmx(model, pmx_file)
+        loaded = PmxParser().parse_file(pmx_file)
 
         assert loaded.header.name_jp == "CompleteModel"
         assert len(loaded.vertices) == 3
@@ -1208,6 +1194,7 @@ class TestPmxCompleteModel:
 # ============================================================================
 # Edge Cases and Error Handling
 # ============================================================================
+
 
 class TestEdgeCases:
     """Test edge cases and special scenarios."""
@@ -1243,9 +1230,7 @@ class TestEdgeCases:
         """Test handling of Unicode names."""
         motion = VmdMotion()
         motion.header = VmdHeader(version=2, model_name="Test")
-        motion.bone_frames = [
-            VmdBoneFrame(bone_name="Center", frame_number=0)
-        ]
+        motion.bone_frames = [VmdBoneFrame(bone_name="Center", frame_number=0)]
 
         text_file = tmp_dir / "unicode.txt"
         pypmxvmd.save_vmd_text(motion, text_file)
@@ -1260,40 +1245,40 @@ class TestApiExports:
 
     def test_version_info_exported(self):
         """Test version info is exported."""
-        assert hasattr(pypmxvmd, '__version__')
-        assert hasattr(pypmxvmd, '__author__')
-        assert hasattr(pypmxvmd, '__description__')
+        assert hasattr(pypmxvmd, "__version__")
+        assert hasattr(pypmxvmd, "__author__")
+        assert hasattr(pypmxvmd, "__description__")
 
     def test_binary_functions_exported(self):
         """Test binary format functions are exported."""
-        assert hasattr(pypmxvmd, 'load_vmd')
-        assert hasattr(pypmxvmd, 'save_vmd')
-        assert hasattr(pypmxvmd, 'load_pmx')
-        assert hasattr(pypmxvmd, 'save_pmx')
-        assert hasattr(pypmxvmd, 'load_vpd')
-        assert hasattr(pypmxvmd, 'save_vpd')
+        assert hasattr(pypmxvmd, "load_vmd")
+        assert hasattr(pypmxvmd, "save_vmd")
+        assert hasattr(pypmxvmd, "load_pmx")
+        assert hasattr(pypmxvmd, "save_pmx")
+        assert hasattr(pypmxvmd, "load_vpd")
+        assert hasattr(pypmxvmd, "save_vpd")
 
     def test_text_functions_exported(self):
         """Test text format functions are exported."""
-        assert hasattr(pypmxvmd, 'load_vmd_text')
-        assert hasattr(pypmxvmd, 'save_vmd_text')
-        assert hasattr(pypmxvmd, 'load_pmx_text')
-        assert hasattr(pypmxvmd, 'save_pmx_text')
-        assert hasattr(pypmxvmd, 'load_vpd_text')
-        assert hasattr(pypmxvmd, 'save_vpd_text')
+        assert hasattr(pypmxvmd, "load_vmd_text")
+        assert hasattr(pypmxvmd, "save_vmd_text")
+        assert hasattr(pypmxvmd, "load_pmx_text")
+        assert hasattr(pypmxvmd, "save_pmx_text")
+        assert hasattr(pypmxvmd, "load_vpd_text")
+        assert hasattr(pypmxvmd, "save_vpd_text")
 
     def test_auto_detection_functions_exported(self):
         """Test auto-detection functions are exported."""
-        assert hasattr(pypmxvmd, 'load')
-        assert hasattr(pypmxvmd, 'save')
-        assert hasattr(pypmxvmd, 'load_text')
-        assert hasattr(pypmxvmd, 'save_text')
+        assert hasattr(pypmxvmd, "load")
+        assert hasattr(pypmxvmd, "save")
+        assert hasattr(pypmxvmd, "load_text")
+        assert hasattr(pypmxvmd, "save_text")
 
     def test_model_classes_exported(self):
         """Test model classes are exported."""
-        assert hasattr(pypmxvmd, 'VmdMotion')
-        assert hasattr(pypmxvmd, 'PmxModel')
-        assert hasattr(pypmxvmd, 'VpdPose')
+        assert hasattr(pypmxvmd, "VmdMotion")
+        assert hasattr(pypmxvmd, "PmxModel")
+        assert hasattr(pypmxvmd, "VpdPose")
 
 
 if __name__ == "__main__":

@@ -9,18 +9,7 @@ import struct
 from pathlib import Path
 from typing import List, Optional, Union
 
-from pypmxvmd.common.pmx.cursor import PmxCursor
-from pypmxvmd.common.pmx.errors import (
-    IncompletePmxError,
-    IncompletePmxWriterError,
-    PmxFormatError,
-)
-from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
-from pypmxvmd.common.pmx.report import (
-    PmxParseReport,
-    PmxParseResult,
-    PmxSectionReport,
-)
+from pypmxvmd.common.io.binary_io import BinaryIOHandler
 from pypmxvmd.common.models.pmx import (
     BoneFlags,
     JointType,
@@ -49,8 +38,15 @@ from pypmxvmd.common.models.pmx import (
     SphMode,
     WeightMode,
 )
-from pypmxvmd.common.io.binary_io import BinaryIOHandler
 from pypmxvmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
+from pypmxvmd.common.pmx.cursor import PmxCursor
+from pypmxvmd.common.pmx.errors import (
+    IncompletePmxError,
+    IncompletePmxWriterError,
+    PmxFormatError,
+)
+from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
+from pypmxvmd.common.pmx.report import PmxParseReport, PmxParseResult, PmxSectionReport
 
 # 尝试导入Cython优化模块
 try:
@@ -1522,13 +1518,10 @@ class PmxParser:
         return materials
 
     def write_file(self, pmx_model: PmxModel, file_path: Union[str, Path]) -> None:
-        """Refuse complete PMX output until every mandatory section is encoded.
+        """Validate and atomically write a canonical PMX 2.0 file."""
+        from pypmxvmd.common.pmx.writer import PmxWriter
 
-        The arguments remain in the public signature for compatibility.  No
-        target file is opened or created.
-        """
-        del pmx_model, file_path
-        raise IncompletePmxWriterError()
+        PmxWriter(limits=self._limits).write_file(pmx_model, file_path)
 
     def write_file_partial(
         self, pmx_model: PmxModel, file_path: Union[str, Path]

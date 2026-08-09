@@ -56,10 +56,10 @@ class IncompletePmxError(PmxError):
 
 
 class IncompletePmxWriterError(PmxError):
-    """The public writer cannot yet serialize a complete PMX model."""
+    """The explicit legacy partial writer cannot serialize this PMX model."""
 
     def __init__(self) -> None:
         super().__init__(
-            "Complete PMX writing is not implemented; refusing to create a "
-            "file that would omit Bone, Morph, Display Frame and physics sections"
+            "Legacy partial PMX writing would omit unsupported sections; "
+            "refusing to create a lossy file"
         )

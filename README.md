@@ -18,8 +18,8 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 
 ## Features
 
-- Complete PMX 2.0 reading through Spring 6DOF Joint with strict EOF checks
-- VMD/VPD reading and writing; PMX binary writing remains fail-closed until the canonical writer is complete
+- Complete PMX 2.0 reading and canonical writing through Spring 6DOF Joint
+- Validating, atomic PMX 2.0 output with semantic round-trip coverage
 - Conversion between binary and text formats
 - Object-oriented API design, easy to use
 - Complete type annotation support
@@ -72,6 +72,7 @@ pypmxvmd.save_vmd(motion, "modified_motion.vmd")
 model = pypmxvmd.load_pmx("model.pmx")
 print(f"Vertices: {len(model.vertices)}")
 print(f"Materials: {len(model.materials)}")
+pypmxvmd.save_pmx(model, "canonical-model.pmx")
 
 # Load VPD pose file
 pose = pypmxvmd.load_vpd("pose.vpd")
@@ -90,15 +91,17 @@ data = pypmxvmd.load("file.vpd")  # Returns VpdPose
 
 # Automatically detect data type and save
 pypmxvmd.save(motion, "output.vmd")
+pypmxvmd.save(model, "output.pmx")
 pypmxvmd.save(pose, "output.vpd")
 ```
 
-PMX 2.0 binary loading is complete. PMX binary saving intentionally raises
-`IncompletePmxWriterError` until the canonical writer and semantic round-trip
-suite are delivered. PMX 2.0 semantic validation is available through
-`PmxModel.validate()`. PMX 2.1 Flip/Impulse Morphs, additional Joint
-types and Soft Body are not yet supported and fail closed instead of being
-silently discarded.
+PMX 2.0 binary loading and canonical saving are complete through Spring 6DOF
+Joint. Saving validates the full model before atomically replacing the target;
+canonical output chooses deterministic index widths and is semantically stable,
+but is not promised to be byte-identical to the source. PMX 2.0 semantic
+validation is also available through `PmxModel.validate()`. PMX 2.1
+Flip/Impulse Morphs, additional Joint types and Soft Body are not yet supported
+and fail closed instead of being silently discarded.
 
 ### Text Format Conversion
 
@@ -139,8 +142,7 @@ vmd_parser.write_file(motion, "output.vmd")
 # PMX Parser
 pmx_parser = PmxParser()
 model = pmx_parser.parse_file("model.pmx", more_info=True)
-# pmx_parser.write_file(...) is intentionally unavailable until the canonical
-# validating PMX writer is complete.
+pmx_parser.write_file(model, "canonical-model.pmx")
 
 # VPD Parser
 vpd_parser = VpdParser()

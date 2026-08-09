@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0/W1/W3/W4 已完成；W2 的 PMX 2.0 范围已完成，下一步 W5）
+> 文档状态：执行中（W0-W5 已完成；W2 的 PMX 2.0 范围已完成，下一步 W7）
 >
 > 基线日期：2026-07-30
 >
@@ -41,12 +41,12 @@
 | 区域 | 当前状态 | 影响 |
 |---|---|---|
 | 公共 reader | canonical Cursor 已完整读取 PMX 2.0 至 Joint/EOF；`load_pmx()` 可返回完整 PMX 2.0 | PMX 2.1 的 Flip/Impulse、其他 Joint 与 Soft Body 仍 fail closed |
-| 公共 writer | `write_file()` 已在创建文件前拒绝；legacy partial writer 只生成后续 section 为空的受限 fixture | 完整编辑和保存仍未交付，不得用完整读取混淆完整读写 |
+| 公共 writer | canonical PMX 2.0 writer 已覆盖 Header 至 Spring 6DOF Joint，写前验证并原子替换目标 | 不保证源字节/布局不变；PMX 2.1 和高层编辑仍未交付 |
 | 备用 Nuthouse | 覆盖较多 section，但仍有 native `struct`、字段缺失和 PMX 2.1 不完整 | 不能直接作为 correctness 基准 |
 | 数据模型 | PMX 2.0 的 Header、Vertex/SDEF、Material、Bone/IK、Morph、Frame、Rigid Body、Spring 6DOF Joint 均可表达 | PMX 2.1 特有记录和 Soft Body 仍待 W6；高层编辑 API 尚未开始 |
 | 验证 | W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、全部跨引用、cycle、资源限制、parse report 与 strict EOF | 已满足 canonical writer 的前置门槛；PMX 2.1 专属记录留待 W6 |
 | API 命名 | `frames`/`display_frames`、`rigidbodies`/`rigid_bodies`等并存 | 大面积重构时容易破坏调用方 |
-| 测试 | 7 个本地 PMX 均完整读到 EOF 并通过 `model.validate()`；合成测试覆盖 PMX 2.0 全 section 与 1/2/4 字节索引 | 尚未证明 canonical writer round-trip |
+| 测试 | 7 个本地 PMX 已通过 strict read-write-read、深度语义比较和原件 SHA-256 不变检查；独立字节 fixture 覆盖全 section/Bone flags/SDEF | 尚未证明 source-byte equality 或 lossless patch |
 
 ### 2.2 不可改变的工程约束
 
@@ -337,7 +337,7 @@ canonical 模型，原生迁移仍归 W8。非 benchmark 全量结果为 `315 pa
 
 退出门槛：所有错误可定位到字段路径；`python -O` 下验证行为不变；异常输入不写输出文件。
 
-### W5：PMX 2.0 Canonical Writer（P1）
+### W5：PMX 2.0 Canonical Writer（P1，已完成）
 
 **依赖：** W1、W2、W3、W4。  
 **主要文件：** `common/pmx/writer.py`、`common/parsers/pmx_parser.py`。
@@ -360,6 +360,12 @@ canonical 模型，原生迁移仍归 W8。非 benchmark 全量结果为 `315 pa
 
 退出门槛：所有 PMX 2.0 合成 fixture 全字段 round-trip；真实 corpus 输出可再次 strict 解析；
 旧 partial 模型写入明确失败；原件 hash 不变。
+
+2026-08-09 交付结果：新增独立 canonical writer，完整编码 PMX 2.0 全 section，自动选择
+signed/unsigned index width，保持纹理列表顺序，并在完整内存编码后原子替换目标。三类独立
+手工二进制 fixture 与 writer 输出逐字节相等；7 个真实 PMX 仅向 `tmp_path` 写出，全部
+strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `save_pmx()`/`save()` 和
+`PmxParser.write_file()` 已转发到 canonical writer；legacy partial 入口仍显式隔离。
 
 ### W6：PMX 2.1 与 Soft Body（P2，长期）
 

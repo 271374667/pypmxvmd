@@ -169,9 +169,12 @@ validate_pmx_model(
 
 #### `pypmxvmd.save_pmx(model, file_path)`
 
-完整且带验证的 PMX writer 交付前，该函数拒绝创建文件并抛出
-`IncompletePmxWriterError`。显式 legacy fixture writer 会补空的 Material 后各 section
-计数，但仍是有损实现，并拒绝非空 Bone、Morph、表示枠、刚体、Joint 和 Soft Body。
+验证并原子保存 canonical PMX 2.0 文件。writer 覆盖 Header 至 Spring 6DOF Joint，
+自动选择可容纳模型的最小索引宽度，并保持模型中的纹理列表和索引顺序。无效、不完整、
+PMX 2.1、QDEF、未支持 Joint 或 Soft Body 输入会在替换目标文件前明确失败。
+
+canonical 输出保证语义 round-trip 稳定，不承诺与源文件逐字节或原布局相同。
+`PmxParser.write_file_partial()` 仍只是显式、有损的 fixture 工具，并拒绝它无法编码的集合。
 
 **参数**:
 - `model` (PmxModel): PMX模型对象
@@ -1083,7 +1086,7 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `ValueError` | 文件格式无效或数据错误 |
 | `IOError` | 文件读写错误 |
 | `IncompletePmxError` | 完整 PMX 读取尚未到达全部 section/EOF |
-| `IncompletePmxWriterError` | 完整 writer 未交付，拒绝生成截断 PMX |
+| `IncompletePmxWriterError` | 显式 legacy partial writer 会丢弃未支持 section，因而拒绝写入 |
 | `PmxValidationError` | 字段验证失败，包含 `field`、`expected`、`actual` |
 
 ```python

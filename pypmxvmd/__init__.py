@@ -26,6 +26,17 @@ Usage:
 from pathlib import Path
 from typing import Union
 
+from .common.models.pmx import PmxModel
+
+# Import models for type hints
+from .common.models.vmd import VmdMotion
+from .common.models.vpd import VpdPose
+from .common.parsers.pmx_parser import PmxParser
+
+# Import parsers
+from .common.parsers.vmd_parser import VmdParser
+from .common.parsers.vpd_parser import VpdParser
+
 # PMX completeness contracts
 from .common.pmx import (
     IncompletePmxError,
@@ -34,16 +45,6 @@ from .common.pmx import (
     PmxParseResult,
     PmxValidationError,
 )
-
-# Import parsers
-from .common.parsers.vmd_parser import VmdParser
-from .common.parsers.pmx_parser import PmxParser
-from .common.parsers.vpd_parser import VpdParser
-
-# Import models for type hints
-from .common.models.vmd import VmdMotion
-from .common.models.pmx import PmxModel
-from .common.models.vpd import VpdPose
 
 __version__ = "2.7.1"
 __author__ = "PythonImporter"
@@ -116,8 +117,8 @@ def load_pmx_partial(
     The result includes a :class:`PmxParseReport` describing loaded sections,
     byte offsets and missing mandatory sections.  PMX 2.0 results can be
     complete; unsupported PMX 2.1 content remains explicitly incomplete.
-    Models returned by this diagnostic API must not be passed to the legacy
-    writer as proof that safe PMX editing is available.
+    Incomplete models returned by this diagnostic API are rejected by the
+    canonical writer and are not proof that high-level PMX editing is available.
     """
     return _pmx_parser.parse_file_partial(
         file_path,
@@ -128,14 +129,14 @@ def load_pmx_partial(
 
 def save_pmx(model: PmxModel, file_path: Union[str, Path]) -> None:
     """
-    Save PMX model to file.
+    Validate and atomically save a canonical PMX 2.0 model.
 
     Args:
         model: PmxModel object to save
         file_path: Output file path
 
     Raises:
-        ValueError: If model data is invalid
+        PmxValidationError: If the model is invalid, incomplete, or unsupported
         IOError: If file cannot be written
     """
     _pmx_parser.write_file(model, file_path)
