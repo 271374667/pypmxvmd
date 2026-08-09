@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0-W5、W7、W9、W11a/W11b 已完成；下一步 W11c Joint 编辑）
+> 文档状态：执行中（W0-W5、W7、W9、W11a/W11b/W11c 已完成；下一步 W11d 材质编辑）
 >
 > 基线日期：2026-07-30
 >
@@ -510,8 +510,9 @@ sdist/wheel 内容校验和用户迁移说明。
    tail 变长 record 都能 read-modify-write-read，Bone/Rigid Body/Morph/Frame 引用无悬空。
 2. **W11b 刚体（已完成）**：关联骨骼、三种形状/物理模式、group/mask、姿态和五个物理参数；退出
    门槛是无骨骼 sentinel、16 组 collision mask 和所有 Joint 引用均通过验证。
-3. **W11c Joint**：PMX 2.0 Spring 6DOF 的 A/B 刚体、位置/旋转、移动/旋转限制和弹簧；
-   提供“按骨骼/刚体位置初始化”的可选 S3 命令，所有旋转内部保持原始弧度。
+3. **W11c Joint（已完成）**：PMX 2.0 Spring 6DOF 的 A/B 刚体、位置/旋转、移动/旋转
+   限制和弹簧；所有旋转内部保持原始弧度。未定义明确跨工具公式的“按骨骼/刚体位置
+   初始化”不作为 S2 退出门槛，也未加入隐式行为。
 4. **W11d 材质**：全部颜色、flags、轮郭、纹理/Sphere/Toon、备注与 face count；
    “同步扩散-环境”只作为显式命令，不在读取或普通保存时自动执行。
 
@@ -528,6 +529,13 @@ span；`PmxRigidBodyEditor` 支持现有刚体的变长日/英名、骨骼引用
 三模式、原始 group/mask、姿态和五个物理参数。Bone 1/2/4 字节 index、16 组 mask、
 非法引用/枚举/数值、集合重排和 7 个真实 PMX 均有回归；事务复用 W11a 的验证、原子
 写入、strict reparse 与全模型比较边界，刚体增删/替换/重排仍 fail closed。
+
+2026-08-10 W11c 交付结果：`PmxDocument` 现在也保留 Joint record 的精确源 span；
+`PmxJointEditor` 支持现有 Spring 6DOF Joint 的变长日/英名、类型、A/B 刚体引用（含
+`-1`）、position/rotation、两组 min/max 和两组 spring。Rigid Body 1/2/4 字节 index、
+非法引用/枚举/float32 数值、集合变更和 7 个真实 PMX 均有回归。限位 setter 要求逐轴
+`minimum <= maximum`，同时只拒绝本次新引入的倒置轴，以保留语料中的历史源值并允许
+无关字段编辑。Joint 增删/替换/重排与 PMX 2.1 Joint 类型仍 fail closed。
 
 ### W12：长期高层编辑（Vertex、Face、Morph、Display Frame）
 

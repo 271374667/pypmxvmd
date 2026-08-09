@@ -25,7 +25,7 @@
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
 > fail closed。W5 canonical writer、W7 公共 API 迁移、W9 定长 lossless patch 和
-> W11a 骨骼与 W11b 刚体安全编辑已完成；下一阶段为 W11c Joint 编辑。
+> W11a 骨骼、W11b 刚体与 W11c Joint 安全编辑已完成；下一阶段为 W11d 材质编辑。
 
 总体结论：
 
@@ -36,7 +36,8 @@
   写前验证并原子替换目标，未支持内容 fail closed。
 - 备用 Nuthouse parser/writer 覆盖范围较大，但存在二进制对齐、Morph 类型缺失和 PMX 2.1 Soft Body 未实现等问题。
 - 当前 7 个真实 PMX 2.0 已覆盖 strict 解析、canonical 写回、严格重读和深度语义
-  round-trip；也已覆盖 document no-op 逐字节写出，原件哈希不变。变长和集合编辑仍未开放。
+  round-trip；也已覆盖 document no-op 逐字节写出，原件哈希不变。现有 Bone、Rigid Body
+  和 Joint record 已开放事务化变长编辑；集合增删/重排仍未开放。
 
 因此，在以下问题修复前，PyPMXVMD 不应把公共 PMX API 标记为“完整 PMX 读写支持”。
 
@@ -318,6 +319,7 @@ P0 完成前不建议发布新的 PMX 完整读写版本。
 - [x] Bone writer 与 read → write → read。
 - [x] 现有 Bone record 事务化 S2 编辑：变长名称、两种 tail、全 flags/条件载荷与 IK。
 - [x] 现有 Rigid Body record 事务化 S2 编辑：变长名称、三形状/模式、mask、姿态与物理参数。
+- [x] 现有 Joint record 事务化 S2 编辑：变长名称、A/B 刚体、八个 vec3 与原始弧度。
 - [x] 所有 PMX 2.0 Morph reader/model，Bone 旋转保留原始 quaternion。
 - [x] Display frame reader/model。
 - [x] Rigid body reader/model。
@@ -333,7 +335,10 @@ Group Morph 36、UV Morph 8、Bone Morph 16、刚体 827 和 Spring 6DOF Joint 7
 的 S2 事务编辑；其中 7 个 UTF-16 真实 PMX 执行变长名称和层级联合修改，非目标字节及
 原件 SHA-256 均不变。W11b 以 44 项测试证明现有 Rigid Body record 的 S2 事务编辑，
 覆盖三形状/模式、16 组 mask、五个物理参数、1/2/4 字节 Bone index，并对 7 个真实 PMX
-只写临时输出且原件 SHA-256 不变。该结果不代表 Joint、材质或 PMX 2.1 页面已达 S2。
+只写临时输出且原件 SHA-256 不变。W11c 以 25 项测试证明现有 Spring 6DOF Joint
+record 的 S2 事务编辑，覆盖八个 vec3、1/2/4 字节 Rigid Body index、变长名称、非法
+引用/枚举/limit/数值和 7 个真实 PMX；原件 SHA-256 不变。该结果不代表材质或
+PMX 2.1 页面已达 S2。
 
 ## P2：完整 PMX 2.1
 
@@ -741,9 +746,9 @@ PmxPhysicsRebuilder
 5. `[已完成]` 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
 6. `[已完成]` 完成公共 API 模式与兼容迁移。
 7. `[已完成]` 增加 source span、PmxDocument 和定长 lossless patch 模式。
-8. `[骨骼已完成；下一步刚体]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
+8. `[骨骼/刚体/Joint 已完成；下一步材质]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
 9. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
-10. 让原生 fast/Cython 对齐标准 parser。
+10. `[计划外候选]` 全部功能与发布长期稳定后，由用户重新排期原生 fast/Cython 对齐与加速。
 
 优先级原则是：
 

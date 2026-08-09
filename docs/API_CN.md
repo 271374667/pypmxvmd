@@ -153,17 +153,17 @@ document = pypmxvmd.load_pmx("character.pmx", mode="document")
 资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
 Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
 传入 `track_spans=True` 时，`field_spans` 保存已登记的定长字段，`record_spans`
-保存现有 Bone 和 Rigid Body record 的精确字节范围。
+保存现有 Bone、Rigid Body 和 Joint record 的精确字节范围。
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据、字段
-span 和现有 Bone/Rigid Body record 的精确 span。Material、Bone、Rigid Body、Joint
+span 和现有 Bone/Rigid Body/Joint record 的精确 span。Material、Bone、Rigid Body、Joint
 record 中
-可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；Bone 与 Rigid Body
-record span 另用于下文 W11a/W11b 事务。其他变长字符串、材质纹理/Toon 引用、集合增删和会改变
+可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；Bone、Rigid Body 与 Joint
+record span 另用于下文 W11a/W11b/W11c 事务。其他变长字符串、材质纹理/Toon 引用、集合增删和会改变
 条件布局的 flags 不登记。
 
 ```python
@@ -241,6 +241,36 @@ strict reparse 完整输出并比较全部模型语义。刚体增删、对象�
 
 ---
 
+#### `PmxDocument.edit_joints() -> PmxJointEditor` / `pypmxvmd.edit_pmx_joints(document)`
+
+创建一个隔离的 PMX 2.0 Spring 6DOF Joint 现有记录编辑事务。已支持日/英变长名称、
+Joint 类型、A/B 刚体引用（含合法 `-1` sentinel）、position/rotation、移动/旋转 min/max
+和移动/旋转 spring。旋转与旋转弹簧始终保持 PMX 原始弧度表示。
+
+```python
+from pypmxvmd.common.pmx import JointType
+
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_joints()
+editor.set_names(0, name_en="spring joint")
+editor.set_joint_type(0, JointType.SPRING6DOF)
+editor.set_rigid_body_references(0, -1, 1)
+editor.set_position_limits(0, [-1.0, -2.0, -3.0], [1.0, 2.0, 3.0])
+editor.set_rotation_limits(0, [-0.5, -0.25, -0.1], [0.5, 0.25, 0.1])
+editor.set_rotation_spring(0, [0.2, 0.3, 0.4])
+result = editor.write_file("joint-edited.pmx")
+print(result.changed_record_count)
+```
+
+`encode()` 返回已验证的 `PmxJointEditResult`；`write_file()` 验证后原子替换目标。
+事务使用源文件编码和 Rigid Body index 宽度，只重建变更 Joint record，随后 strict
+reparse 完整输出并比较全部模型语义。限位 setter 要求逐轴 `minimum <= maximum`；直接
+修改 transaction model 也会检查新引入的倒置轴，但会保留源文件中未改动的历史倒置轴，
+因此名称等无关编辑不会破坏既有模型。Joint 增删、对象替换/重排及 PMX 2.1 Joint 类型
+不在 W11c 范围，会抛出 `PmxJointEditError` 或既有的未支持特性异常。
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 集中验证 PMX 语义且不依赖 `assert`。当前覆盖 PMX 2.0 权重布局、条件字段、跨 section
@@ -288,10 +318,12 @@ pypmxvmd.save_pmx(model, "output.pmx")
 |---|---|---|
 | 读取 `strict` | 是 | 完整 PMX 2.0 `PmxModel`，否则 fail closed |
 | 读取 `partial` | 是 | 带完整性报告的 `PmxParseResult` |
-| 读取 `document` / span | 是（PMX 2.0） | `PmxDocument` / `field_spans` / Bone `record_spans` |
+| 读取 `document` / span | 是（PMX 2.0） | `PmxDocument` / `field_spans` / Bone/Rigid Body/Joint `record_spans` |
 | 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0 |
 | 写入定长字段 `lossless_patch` | 是 | 经审计的原子源字节 patch |
 | 编辑现有 Bone record | 是（PMX 2.0） | 事务化变长 record 替换 |
+| 编辑现有 Rigid Body record | 是（PMX 2.0） | 事务化变长 record 替换 |
+| 编辑现有 Joint record | 是（PMX 2.0 Spring 6DOF） | 事务化变长 record 替换 |
 | 写入 `preserve_layout` 或其他变长编辑 | 否 | fail closed |
 
 ---

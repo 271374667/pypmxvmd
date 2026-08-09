@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable, Optional, Sequence, TypeVar, cast
 
-from pypmxvmd.common.models.pmx import PmxBone, PmxBoneIkLink, PmxModel, PmxRigidBody
+from pypmxvmd.common.models.pmx import (
+    PmxBone,
+    PmxBoneIkLink,
+    PmxJoint,
+    PmxModel,
+    PmxRigidBody,
+)
 from pypmxvmd.common.pmx.document import (
     BinaryPatch,
     PmxDocument,
@@ -17,10 +23,12 @@ from pypmxvmd.common.pmx.document import (
 )
 from pypmxvmd.common.pmx.errors import (
     PmxBoneEditError,
+    PmxJointEditError,
     PmxPatchError,
     PmxRigidBodyEditError,
+    PmxValidationError,
 )
-from pypmxvmd.common.pmx.types import RigidBodyPhysMode, RigidBodyShape
+from pypmxvmd.common.pmx.types import JointType, RigidBodyPhysMode, RigidBodyShape
 from pypmxvmd.common.pmx.validator import validate_pmx_model
 
 if TYPE_CHECKING:
@@ -501,6 +509,176 @@ class PmxRigidBodyEditor:
         return index
 
 
+@dataclass(frozen=True, slots=True)
+class PmxJointEditResult:
+    """Verified output produced by one existing-record Joint transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+
+    @property
+    def changed_record_count(self) -> int:
+        return len(self.patches)
+
+
+class PmxJointEditor:
+    """Isolated transaction for modifying existing PMX 2.0 Joint records."""
+
+    def __init__(self, document: PmxDocument) -> None:
+        if not isinstance(document, PmxDocument):
+            raise TypeError("PmxJointEditor requires a PmxDocument")
+        _require_clean_record_document(
+            document,
+            record_label="Joint",
+            record_prefix="joints",
+            record_count=len(document.model.joints),
+            error_type=PmxJointEditError,
+        )
+
+        self.document = document
+        self.model = deepcopy(document.model)
+        self._baseline_model = deepcopy(document.model)
+        self._joint_identity_order = tuple(id(joint) for joint in self.model.joints)
+
+    def joint(self, joint_index: int) -> PmxJoint:
+        """Return the transaction-local Joint object for inspection."""
+        return self.model.joints[self._joint_index(joint_index)]
+
+    def set_names(
+        self,
+        joint_index: int,
+        *,
+        name_jp: Optional[str] = None,
+        name_en: Optional[str] = None,
+    ) -> "PmxJointEditor":
+        joint = self.joint(joint_index)
+        if name_jp is None and name_en is None:
+            raise PmxJointEditError("set_names requires name_jp and/or name_en")
+        if name_jp is not None:
+            if not isinstance(name_jp, str):
+                raise PmxJointEditError("Joint Japanese name must be a string")
+            joint.name_jp = name_jp
+        if name_en is not None:
+            if not isinstance(name_en, str):
+                raise PmxJointEditError("Joint English name must be a string")
+            joint.name_en = name_en
+        return self
+
+    def set_joint_type(
+        self, joint_index: int, joint_type: JointType | int
+    ) -> "PmxJointEditor":
+        self.joint(joint_index).joint_type = _enum_member(
+            joint_type, JointType, "joint.joint_type", PmxJointEditError
+        )
+        return self
+
+    def set_rigid_body_references(
+        self,
+        joint_index: int,
+        rigid_body_a_index: int,
+        rigid_body_b_index: int,
+    ) -> "PmxJointEditor":
+        joint = self.joint(joint_index)
+        joint.rigidbody1_index = _integer(
+            rigid_body_a_index, "joint.rigidbody1_index", PmxJointEditError
+        )
+        joint.rigidbody2_index = _integer(
+            rigid_body_b_index, "joint.rigidbody2_index", PmxJointEditError
+        )
+        return self
+
+    def set_position(
+        self, joint_index: int, position: Sequence[float]
+    ) -> "PmxJointEditor":
+        self.joint(joint_index).position = _vector3(
+            position, "joint.position", PmxJointEditError
+        )
+        return self
+
+    def set_rotation(
+        self, joint_index: int, rotation: Sequence[float]
+    ) -> "PmxJointEditor":
+        self.joint(joint_index).rotation = _vector3(
+            rotation, "joint.rotation", PmxJointEditError
+        )
+        return self
+
+    def set_position_limits(
+        self,
+        joint_index: int,
+        minimum: Sequence[float],
+        maximum: Sequence[float],
+    ) -> "PmxJointEditor":
+        joint = self.joint(joint_index)
+        joint.position_min, joint.position_max = _joint_limit_pair(
+            minimum, maximum, "joint.position_limits"
+        )
+        return self
+
+    def set_rotation_limits(
+        self,
+        joint_index: int,
+        minimum: Sequence[float],
+        maximum: Sequence[float],
+    ) -> "PmxJointEditor":
+        joint = self.joint(joint_index)
+        joint.rotation_min, joint.rotation_max = _joint_limit_pair(
+            minimum, maximum, "joint.rotation_limits"
+        )
+        return self
+
+    def set_position_spring(
+        self, joint_index: int, spring: Sequence[float]
+    ) -> "PmxJointEditor":
+        self.joint(joint_index).position_spring = _vector3(
+            spring, "joint.position_spring", PmxJointEditError
+        )
+        return self
+
+    def set_rotation_spring(
+        self, joint_index: int, spring: Sequence[float]
+    ) -> "PmxJointEditor":
+        self.joint(joint_index).rotation_spring = _vector3(
+            spring, "joint.rotation_spring", PmxJointEditError
+        )
+        return self
+
+    def encode(self) -> PmxJointEditResult:
+        """Validate, replace changed Joint records, strict-reparse and compare."""
+        output = _encode_record_transaction(
+            document=self.document,
+            model=self.model,
+            baseline_model=self._baseline_model,
+            records=self.model.joints,
+            baseline_records=self._baseline_model.joints,
+            record_identity_order=self._joint_identity_order,
+            record_prefix="joints",
+            record_label="Joint",
+            stage="W11c",
+            encoder=_encode_joint_record,
+            error_type=PmxJointEditError,
+            record_validator=_validate_changed_joint_limit_axes,
+        )
+        return PmxJointEditResult(output.output_bytes, output.patches, output.model)
+
+    def write_file(self, file_path: str | Path) -> PmxJointEditResult:
+        """Verify the complete transaction, then atomically replace the target."""
+        from pypmxvmd.common.pmx.writer import PmxWriter
+
+        result = self.encode()
+        PmxWriter._atomic_write(Path(file_path), result.output_bytes)
+        return result
+
+    def _joint_index(self, joint_index: int) -> int:
+        index = _integer(joint_index, "joint_index", PmxJointEditError)
+        if not 0 <= index < len(self.model.joints):
+            raise PmxJointEditError(
+                f"Joint index {index} is outside 0..{len(self.model.joints) - 1}"
+            )
+        return index
+
+
 def edit_pmx_bones(document: PmxDocument) -> PmxBoneEditor:
     """Create a W11a Bone transaction from a clean source-backed document."""
     return PmxBoneEditor(document)
@@ -509,6 +687,11 @@ def edit_pmx_bones(document: PmxDocument) -> PmxBoneEditor:
 def edit_pmx_rigid_bodies(document: PmxDocument) -> PmxRigidBodyEditor:
     """Create a W11b Rigid Body transaction from a clean document."""
     return PmxRigidBodyEditor(document)
+
+
+def edit_pmx_joints(document: PmxDocument) -> PmxJointEditor:
+    """Create a W11c Joint transaction from a clean document."""
+    return PmxJointEditor(document)
 
 
 def ik_link(
@@ -576,6 +759,9 @@ def _encode_record_transaction(
     stage: str,
     encoder: Callable[[RecordT, "PmxHeader"], bytes],
     error_type: type[PmxPatchError],
+    record_validator: Optional[
+        Callable[[Sequence[RecordT], Sequence[RecordT]], None]
+    ] = None,
 ) -> _RecordEditOutput:
     if len(records) != len(baseline_records):
         raise error_type(
@@ -588,6 +774,8 @@ def _encode_record_transaction(
             "edit fields in place"
         )
     validate_pmx_model(model, limits=document.limits, strict_eof=True)
+    if record_validator is not None:
+        record_validator(records, baseline_records)
 
     patches = []
     for index, record in enumerate(records):
@@ -714,6 +902,59 @@ def _encode_rigid_body_record(body: PmxRigidBody, header: "PmxHeader") -> bytes:
     return bytes(data)
 
 
+def _encode_joint_record(joint: PmxJoint, header: "PmxHeader") -> bytes:
+    data = bytearray()
+    data.extend(_string(joint.name_jp, header.text_encoding))
+    data.extend(_string(joint.name_en, header.text_encoding))
+    data.extend(struct.pack("<B", int(joint.joint_type)))
+    data.extend(_index(joint.rigidbody1_index, header.rigid_body_index_size))
+    data.extend(_index(joint.rigidbody2_index, header.rigid_body_index_size))
+    data.extend(_floats(joint.position))
+    data.extend(_floats(joint.rotation))
+    data.extend(_floats(joint.position_min))
+    data.extend(_floats(joint.position_max))
+    data.extend(_floats(joint.rotation_min))
+    data.extend(_floats(joint.rotation_max))
+    data.extend(_floats(joint.position_spring))
+    data.extend(_floats(joint.rotation_spring))
+    return bytes(data)
+
+
+def _validate_changed_joint_limit_axes(
+    records: Sequence[PmxJoint], baseline_records: Sequence[PmxJoint]
+) -> None:
+    """Reject new inversions while preserving unchanged legacy source values."""
+    for joint_index, (joint, baseline) in enumerate(zip(records, baseline_records)):
+        for limit_name in ("position", "rotation"):
+            minimum = getattr(joint, f"{limit_name}_min")
+            maximum = getattr(joint, f"{limit_name}_max")
+            baseline_minimum = getattr(baseline, f"{limit_name}_min")
+            baseline_maximum = getattr(baseline, f"{limit_name}_max")
+            for axis, (lower, upper, old_lower, old_upper) in enumerate(
+                zip(minimum, maximum, baseline_minimum, baseline_maximum)
+            ):
+                if (lower != old_lower or upper != old_upper) and lower > upper:
+                    field = f"joints[{joint_index}].{limit_name}_limits[{axis}]"
+                    raise PmxValidationError(
+                        field,
+                        "minimum <= maximum for an edited axis",
+                        (lower, upper),
+                    )
+
+
+def _joint_limit_pair(
+    minimum: Sequence[float], maximum: Sequence[float], field: str
+) -> tuple[list[float], list[float]]:
+    lower = _vector3(minimum, f"{field}.minimum", PmxJointEditError)
+    upper = _vector3(maximum, f"{field}.maximum", PmxJointEditError)
+    if any(left > right for left, right in zip(lower, upper)):
+        raise PmxJointEditError(
+            f"{field} requires minimum <= maximum component-wise",
+            field_path=field,
+        )
+    return lower, upper
+
+
 def _string(value: str, encoding: str) -> bytes:
     encoded = value.encode(encoding)
     return struct.pack("<i", len(encoded)) + encoded
@@ -808,7 +1049,10 @@ __all__ = [
     "PmxBoneEditor",
     "PmxRigidBodyEditResult",
     "PmxRigidBodyEditor",
+    "PmxJointEditResult",
+    "PmxJointEditor",
     "edit_pmx_bones",
+    "edit_pmx_joints",
     "edit_pmx_rigid_bodies",
     "ik_link",
 ]

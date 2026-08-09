@@ -134,12 +134,19 @@ editor.set_bone(0, -1)  # legal no-Bone sentinel
 editor.set_collision(0, collision_group=0, collision_mask=0xFFFE)
 editor.set_physical_parameters(0, mass=1.0, friction=0.5)
 editor.write_file("rigid-body-edited.pmx")
+
+# Transactional editing of an existing PMX 2.0 Spring 6DOF Joint
+editor = document.edit_joints()
+editor.set_rigid_body_references(0, -1, 1)
+editor.set_rotation_limits(0, [-0.5, -0.25, -0.1], [0.5, 0.25, 0.1])
+editor.set_rotation_spring(0, [0.2, 0.3, 0.4])
+editor.write_file("joint-edited.pmx")
 ```
 
 `document`/field-span reads and fixed-width `lossless_patch` writes are available
 for selected directly mapped Material, Bone, Rigid Body, and Joint fields. Every patch is
 range/before-byte checked, strict-reparsed, and compared against the edited model.
-Outside the Bone and Rigid Body transactions described below, variable-length
+Outside the Bone, Rigid Body, and Joint transactions described below, variable-length
 strings, Material texture/Toon references, record insertion/deletion,
 layout-changing flags, PMX 2.1, and `preserve_layout` remain unsupported and
 fail closed. Lossless mode never silently falls back to canonical output.
@@ -157,6 +164,13 @@ physics modes, raw collision group/mask, size/position/rotation in source units,
 and all five physical parameters. It rebuilds only changed records and preserves
 existing Joint index semantics. Rigid Body insertion, deletion, replacement, and
 reordering remain unsupported and fail closed.
+
+`PmxJointEditor` supports every field of existing PMX 2.0 Spring 6DOF Joint
+records: variable-length names, the A/B Rigid Body references including `-1`,
+position/rotation, translation/rotation min/max limits, and both spring vectors.
+Rotation values remain raw radians. Limit setters require component-wise
+`minimum <= maximum`; unchanged legacy source axes are preserved. Joint insertion,
+deletion, replacement, reordering, and PMX 2.1 Joint types remain unsupported.
 
 ### Text Format Conversion
 

@@ -132,18 +132,19 @@ Cursor. Until the native ABI is completed, explicit `cython` still executes its
 probe but returns the Cursor's canonical semantic model. This legacy-compatible
 helper is equivalent to `load_pmx(..., mode="partial")`. With
 `track_spans=True`, `field_spans` contains the registered fixed-width fields and
-`record_spans` contains exact existing Bone and Rigid Body record ranges.
+`record_spans` contains exact existing Bone, Rigid Body, and Joint record ranges.
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 Strict-load an immutable source snapshot, canonical model, parse report, section
-evidence, fixed-width field spans, and exact existing Bone/Rigid Body record
+evidence, fixed-width field spans, and exact existing Bone/Rigid Body/Joint record
 spans. The first
 lossless stage registers selected directly mapped numeric, enum, index, flags, and
-vector fields in existing Material, Bone, Rigid Body, and Joint records. Bone and
-Rigid Body record spans additionally support the W11a/W11b transactions below.
+vector fields in existing Material, Bone, Rigid Body, and Joint records. Bone,
+Rigid Body, and Joint record spans additionally support the W11a/W11b/W11c
+transactions below.
 Other variable-length strings,
 Material texture/Toon references, collection insertion/deletion, and layout-changing
 flags are deliberately not registered.
@@ -232,6 +233,41 @@ Rigid Body indices therefore retain their meaning.
 
 ---
 
+#### `PmxDocument.edit_joints() -> PmxJointEditor` / `pypmxvmd.edit_pmx_joints(document)`
+
+Create an isolated transaction for editing existing PMX 2.0 Spring 6DOF Joint
+records. It supports variable-length Japanese/English names, the Joint type,
+Rigid Body A/B references including the `-1` sentinel, position/rotation,
+translation/rotation min/max limits, and translation/rotation springs. Rotation
+values and rotation springs remain in the raw radians-based PMX representation.
+
+```python
+from pypmxvmd.common.pmx import JointType
+
+document = pypmxvmd.load_pmx_document("model.pmx")
+editor = document.edit_joints()
+editor.set_names(0, name_en="spring joint")
+editor.set_joint_type(0, JointType.SPRING6DOF)
+editor.set_rigid_body_references(0, -1, 1)
+editor.set_position_limits(0, [-1.0, -2.0, -3.0], [1.0, 2.0, 3.0])
+editor.set_rotation_limits(0, [-0.5, -0.25, -0.1], [0.5, 0.25, 0.1])
+editor.set_rotation_spring(0, [0.2, 0.3, 0.4])
+result = editor.write_file("joint-edited.pmx")
+print(result.changed_record_count)
+```
+
+`encode()` returns a verified `PmxJointEditResult`; `write_file()` validates and
+atomically replaces the target. The transaction uses the source encoding and
+Rigid Body index width, rebuilds only changed Joint records, strict-reparses the
+complete output, and compares all model semantics. Limit setters require
+component-wise `minimum <= maximum`. Direct model edits are also checked, but
+unchanged inverted axes already present in legacy source files are preserved so
+that unrelated Joint edits remain possible. Joint insertion, deletion, object
+replacement/reordering, and PMX 2.1 Joint types are outside W11c and raise
+`PmxJointEditError` or the existing unsupported-feature error.
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 Validate PMX semantics without relying on `assert`. The centralized validator
@@ -278,10 +314,12 @@ occur before replacing the target.
 |---|---|---|
 | Read `strict` | Yes | Complete PMX 2.0 `PmxModel` or fail closed |
 | Read `partial` | Yes | `PmxParseResult` with completeness report |
-| Read `document` / spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` / Bone `record_spans` |
+| Read `document` / spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` / Bone/Rigid Body/Joint `record_spans` |
 | Write `canonical` | Yes | Atomic semantic PMX 2.0 output |
 | Write fixed-field `lossless_patch` | Yes | Audited atomic source-byte patch |
 | Edit existing Bone records | Yes (PMX 2.0) | Transactional variable-record replacement |
+| Edit existing Rigid Body records | Yes (PMX 2.0) | Transactional variable-record replacement |
+| Edit existing Joint records | Yes (PMX 2.0 Spring 6DOF) | Transactional variable-record replacement |
 | Write `preserve_layout` or other variable-length edits | No | Fail closed |
 
 ---

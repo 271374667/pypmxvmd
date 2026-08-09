@@ -17,7 +17,11 @@ from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 if TYPE_CHECKING:
     from pypmxvmd.common.models.pmx import PmxModel
     from pypmxvmd.common.pmx.cursor import PmxByteSpan
-    from pypmxvmd.common.pmx.editing import PmxBoneEditor
+    from pypmxvmd.common.pmx.editing import (
+        PmxBoneEditor,
+        PmxJointEditor,
+        PmxRigidBodyEditor,
+    )
     from pypmxvmd.common.pmx.report import PmxParseReport
 
 
@@ -297,6 +301,12 @@ class PmxDocument:
         from pypmxvmd.common.pmx.editing import PmxRigidBodyEditor
 
         return PmxRigidBodyEditor(self)
+
+    def edit_joints(self) -> "PmxJointEditor":
+        """Create an isolated transaction for editing existing Joint records."""
+        from pypmxvmd.common.pmx.editing import PmxJointEditor
+
+        return PmxJointEditor(self)
 
     def span_for(self, field_path: str | FieldPath) -> BinarySpan:
         path = (

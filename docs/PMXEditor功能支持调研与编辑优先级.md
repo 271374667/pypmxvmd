@@ -3,7 +3,8 @@
 > 调研日期：2026-07-30
 >
 > 状态：长期路线已确认；PMX 2.0 canonical 读写、validator、
-> PmxDocument/lossless patch、W11a 骨骼和 W11b 刚体安全编辑已完成；下一步为 W11c Joint 编辑
+> PmxDocument/lossless patch、W11a 骨骼、W11b 刚体和 W11c Joint 安全编辑已完成；
+> 下一步为 W11d 材质编辑
 
 本文以 PMXEditor 的材质、骨骼、刚体、Joint 和 SoftBody 页面为参照，定义
 PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性与二进制架构见
@@ -22,16 +23,17 @@ PyPMXVMD 未来“可编辑支持”的边界和交付顺序。格式完整性�
   `struct` 格式也已消除 native alignment，但其 Morph/Soft Body/writer 仍不完整。
 - PMX 2.0 的 Vertex/SDEF、Material、Bone/IK、全部 Morph、Display Frame、Rigid Body 和
   Spring 6DOF Joint 已完成 canonical 读写与集中验证。
-- W11a/W11b 已公开现有 Bone/Rigid Body record 的事务化 S2 编辑；Joint、材质和
+- W11a/W11b/W11c 已公开现有 Bone/Rigid Body/Joint record 的事务化 S2 编辑；材质和
   Soft Body 页面仍未达到 S2。
 
-因此当前不能承诺全面 PMXEditor 编辑；只有现有骨骼和刚体记录已达到本文定义的 S2。
+因此当前不能承诺全面 PMXEditor 编辑；现有骨骼、刚体和 PMX 2.0 Spring 6DOF Joint
+记录已达到本文定义的 S2。
 
 | 页面/范围 | 当前读取 | 当前编辑结论 |
 |---|---|---|
 | 骨骼 | PMX 2.0 S0/S1 字段已 canonical 读写，含“表示先”和 IK | W11a 已达 S2；可重建现有 record，不可增删/重排骨骼 |
 | 刚体 | 三形状、三模式、group/mask 与物理参数已 canonical 读写 | W11b 已达 S2；可重建现有 record，不可增删/重排刚体 |
-| Joint | Spring 6DOF 全向量按原始弧度 canonical 读写 | 尚无事务化编辑 API，未达到 S2 |
+| Joint | Spring 6DOF 全向量按原始弧度 canonical 读写 | W11c 已达 S2；可重建现有 record，不可增删/重排 Joint |
 | 材质 | 全序列化字段已读取 | “同步扩散-环境”仍是未来 S3 命令 |
 | Soft Body/PMX 2.1 | 未实现，明确 fail closed | 长期计划 |
 
@@ -109,17 +111,23 @@ PMX 2.0 阶段先完整支持 Spring 6DOF Joint：
 
 | PMXEditor 控件 | PMX 语义字段 | 目标 |
 |---|---|---|
-| Joint 名、英名 | `name_jp`、`name_en` | S2 |
-| Joint 类型 | PMX 2.0 的 `SPRING6DOF` | S2 |
-| 连接刚体 A/B | 两个 rigidbody index | S2 |
-| 位置/旋转 | `position`、`rotation` | S2 |
-| 移动限制与旋转限制 | min/max vectors | S2 |
-| 移动弹簧、旋转弹簧 | spring vectors | S2 |
-| “骨骼位置设定”等按钮 | 根据关联刚体/骨骼计算值的显式编辑命令 | S3，算法和异常条件必须单独定义 |
+| Joint 名、英名 | `name_jp`、`name_en` | W11c S2 已完成，支持变长字符串 |
+| Joint 类型 | PMX 2.0 的 `SPRING6DOF` | W11c S2 已完成；其他类型 fail closed |
+| 连接刚体 A/B | 两个 rigidbody index | W11c S2 已完成，支持 `-1` sentinel |
+| 位置/旋转 | `position`、`rotation` | W11c S2 已完成，旋转保持原始弧度 |
+| 移动限制与旋转限制 | min/max vectors | W11c S2 已完成；setter 逐轴检查顺序 |
+| 移动弹簧、旋转弹簧 | spring vectors | W11c S2 已完成 |
+| “骨骼位置设定”等按钮 | 根据关联刚体/骨骼计算值的显式编辑命令 | 未定义跨工具一致公式，未进入 W11c API |
 
 canonical reader/writer 已把 Joint 旋转、旋转限制和旋转弹簧按 PMX 原始
 `float32`/弧度保存，不做角度转换。高层命令必须沿用这一契约，避免二次转换和精度漂移。
 PMX 2.1 的其他 Joint 类型不混入本阶段，随 PMX 2.1 长期路线处理。
+
+W11c 通过 `PmxJointEditor` 在隔离副本中修改现有记录，并使用精确 record span 重建
+变长名称和全部 Spring 6DOF 字段。事务在落盘前集中验证刚体引用、枚举和 float32
+数值，strict reparse 并比较全模型语义。限位 setter 要求逐轴 `minimum <= maximum`；
+对 transaction model 的直接修改只拒绝新引入的倒置轴，从而保留真实语料中的历史源值。
+Joint 集合增删、对象替换/重排、全局重编号和 PMX 2.1 类型仍 fail closed。
 
 ### 3.4 材质：第四优先级
 
@@ -190,8 +198,8 @@ Header -> Vertex -> Face -> Texture -> Material -> Bone -> Morph
 2. `[W11a 已完成]` 现有骨骼 record 的 S2/S3：包含“表示先”两种形式和全部
    PMX 2.0 IK/付与/轴/外部亲字段；集合增删/重排未开放。
 3. `[W11b 已完成]` 刚体 S1/S2：包含完整 collision mask 与骨骼/Joint 引用保护。
-4. `[W11c 下一步]` PMX 2.0 Joint S1/S2/S3：包含 Spring 6DOF 全字段与单位一致性。
-5. 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
+4. `[W11c 已完成]` PMX 2.0 Joint S1/S2：包含 Spring 6DOF 全字段与单位一致性。
+5. `[W11d 下一步]` 材质 S1/S2/S3：包含全部纹理/Toon 布局及“同步扩散-环境”显式命令。
 6. PMX 2.1 / Soft Body：完整字段、Anchor/Pin、PMX 2.1 Morph/Joint。
 7. 顶点、面、Morph、表示枠的高层编辑。
 

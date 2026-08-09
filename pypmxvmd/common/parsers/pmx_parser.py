@@ -1412,6 +1412,7 @@ class PmxParser:
         for index in range(joint_count):
             self._report_progress(index, joint_count)
             prefix = f"joints[{index}]"
+            record_start = cursor.position
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
             type_offset = cursor.position
@@ -1479,6 +1480,7 @@ class PmxParser:
                     ),
                 )
             )
+            cursor.mark_record(prefix, record_start)
 
         self._report_progress(joint_count, joint_count)
         return joints

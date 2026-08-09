@@ -69,6 +69,10 @@ class PmxRigidBodyEditError(PmxPatchError):
     """A transactional Rigid Body edit violated the W11b safety contract."""
 
 
+class PmxJointEditError(PmxPatchError):
+    """A transactional Joint edit violated the W11c safety contract."""
+
+
 class UnsupportedPmxFeatureError(PmxError):
     """A recognized PMX mode or format feature is not implemented yet."""
 
