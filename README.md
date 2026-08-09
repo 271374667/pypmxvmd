@@ -115,11 +115,19 @@ result = pypmxvmd.load_pmx("model.pmx", mode="partial")
 
 # Canonical PMX 2.0 output
 pypmxvmd.write_pmx(model, "output.pmx", mode="canonical")
+
+# Source-backed fixed-width editing
+document = pypmxvmd.load_pmx_document("model.pmx")
+document.model.bones[0].deform_layer = 1
+pypmxvmd.write_pmx(document, "patched.pmx", mode="lossless_patch")
 ```
 
-`document`/field-span reads and `preserve_layout`/`lossless_patch` writes are
-reserved for the future lossless stage and currently raise
-`UnsupportedPmxFeatureError`. They never silently fall back to canonical output.
+`document`/field-span reads and fixed-width `lossless_patch` writes are available
+for selected directly mapped Material, Bone, Rigid Body, and Joint fields. Every patch is
+range/before-byte checked, strict-reparsed, and compared against the edited model.
+Variable-length strings, Material texture/Toon references, record insertion/deletion,
+layout-changing flags, PMX 2.1, and `preserve_layout` remain unsupported and fail
+closed. Lossless mode never silently falls back to canonical output.
 
 ### Text Format Conversion
 
@@ -218,9 +226,10 @@ class VpdPose:
 | `save_vmd(motion, path)` | Save VMD file |
 | `load_pmx(path)` | Load PMX file |
 | `load_pmx(path, mode="partial")` | Load PMX with completeness evidence |
-| `load_pmx_document(path)` | Reserved W9 API; currently fails closed |
+| `load_pmx_document(path)` | Load exact source bytes and fixed-field spans |
 | `save_pmx(model, path)` | Save PMX file |
-| `write_pmx(model, path, mode="canonical")` | Explicit PMX writer mode |
+| `write_pmx(model, path, mode="canonical")` | Canonical PMX writer |
+| `write_pmx(document, path, mode="lossless_patch")` | Audited fixed-field patch |
 | `load_vpd(path)` | Load VPD file |
 | `save_vpd(pose, path)` | Save VPD file |
 | `load(path)` | Auto-detect and load |

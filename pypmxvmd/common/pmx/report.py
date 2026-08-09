@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from pypmxvmd.common.models.pmx import PmxModel
+    from pypmxvmd.common.pmx.document import BinarySpan
 
 
 PMX_20_REQUIRED_SECTIONS = (
@@ -108,3 +109,4 @@ class PmxParseResult:
 
     model: "PmxModel"
     report: PmxParseReport
+    field_spans: tuple["BinarySpan", ...] = ()

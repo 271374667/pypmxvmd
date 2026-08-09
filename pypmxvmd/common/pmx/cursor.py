@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Iterator, NoReturn, Union, cast
 
+from pypmxvmd.common.pmx.document import BinarySpan, FieldPath, FieldValueType
 from pypmxvmd.common.pmx.errors import PmxFormatError
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 
@@ -55,6 +56,8 @@ class PmxCursor:
         data: BytesLike,
         section: str = "header",
         limits: PmxLimits = DEFAULT_PMX_LIMITS,
+        *,
+        track_fields: bool = False,
     ) -> None:
         if not section:
             raise ValueError("PMX cursor section cannot be empty")
@@ -71,6 +74,8 @@ class PmxCursor:
         self._section = section
         self._limits = limits
         self._spans: list[PmxByteSpan] = []
+        self._track_fields = track_fields
+        self._field_spans: list[BinarySpan] = []
 
         if len(view) > limits.max_source_bytes:
             self._fail(
@@ -107,6 +112,11 @@ class PmxCursor:
     def spans(self) -> tuple[PmxByteSpan, ...]:
         """Completed section spans in encounter order."""
         return tuple(self._spans)
+
+    @property
+    def field_spans(self) -> tuple[BinarySpan, ...]:
+        """Completed fixed-width field spans in encounter order."""
+        return tuple(self._field_spans)
 
     def set_section(self, section: str) -> None:
         """Attach a non-empty PMX section name to subsequent reads."""
@@ -153,6 +163,27 @@ class PmxCursor:
         except struct.error as exc:  # pragma: no cover - read_exact guarantees size
             self._fail(f"Could not unpack PMX record {format_string!r}: {exc}")
 
+    def unpack_field(
+        self,
+        field_path: str,
+        format_string: str,
+        value_type: FieldValueType,
+    ) -> tuple[Any, ...]:
+        """Unpack one fixed-width field and optionally register its source span."""
+        start = self._position
+        values = self.unpack(format_string)
+        if self._track_fields:
+            self._field_spans.append(
+                BinarySpan(
+                    FieldPath(field_path),
+                    start,
+                    self._position,
+                    format_string,
+                    value_type,
+                )
+            )
+        return values
+
     def read_index(self, size: int, *, signed: bool = True) -> int:
         """Read a 1/2/4-byte PMX index with explicit signedness.
 
@@ -171,6 +202,36 @@ class PmxCursor:
         if format_string is None:
             self._fail(f"Invalid PMX index size {size}; expected 1, 2, or 4")
         return cast(int, self.unpack(format_string)[0])
+
+    def read_index_field(
+        self, field_path: str, size: int, *, signed: bool = True
+    ) -> int:
+        """Read and optionally register a fixed-width PMX index field."""
+        formats = {
+            (1, True): "<b",
+            (2, True): "<h",
+            (4, True): "<i",
+            (1, False): "<B",
+            (2, False): "<H",
+            (4, False): "<I",
+        }
+        format_string = formats.get((size, signed))
+        if format_string is None:
+            self._fail(f"Invalid PMX index size {size}; expected 1, 2, or 4")
+        return cast(int, self.unpack_field(field_path, format_string, "index")[0])
+
+    def read_count_field(self, field_path: str, label: str) -> int:
+        """Read a non-structural non-negative int32 parameter as a field."""
+        offset = self._position
+        count = cast(int, self.unpack_field(field_path, "<i", "int")[0])
+        if count < 0:
+            self._fail(f"Negative PMX {label}: {count}", offset=offset)
+        if count > self._limits.max_count:
+            self._fail(
+                f"PMX {label} {count} exceeds limit {self._limits.max_count}",
+                offset=offset,
+            )
+        return count
 
     def read_count(self, label: str = "record", *, limit: int | None = None) -> int:
         """Read and validate a signed PMX collection count."""

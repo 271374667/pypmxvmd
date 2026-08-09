@@ -40,6 +40,27 @@ class PmxValidationError(PmxError):
         )
 
 
+class PmxPatchError(PmxError):
+    """A source-backed PMX patch failed a lossless-write safety check."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        field_path: Optional[str] = None,
+        offset: Optional[int] = None,
+    ) -> None:
+        self.field_path = field_path
+        self.offset = offset
+        context = []
+        if field_path is not None:
+            context.append(f"field={field_path}")
+        if offset is not None:
+            context.append(f"offset={offset}")
+        suffix = f" [{', '.join(context)}]" if context else ""
+        super().__init__(f"{message}{suffix}")
+
+
 class UnsupportedPmxFeatureError(PmxError):
     """A recognized PMX mode or format feature is not implemented yet."""
 

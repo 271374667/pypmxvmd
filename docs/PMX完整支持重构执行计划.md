@@ -1,6 +1,6 @@
 # PyPMXVMD PMX 完整支持重构执行计划
 
-> 文档状态：执行中（W0-W5、W7 已完成；W2 的 PMX 2.0 范围已完成，下一步 W9）
+> 文档状态：执行中（W0-W5、W7、W9 已完成；下一步 W11a 骨骼编辑）
 >
 > 基线日期：2026-07-30
 >
@@ -41,12 +41,12 @@
 | 区域 | 当前状态 | 影响 |
 |---|---|---|
 | 公共 reader | canonical Cursor 已完整读取 PMX 2.0 至 Joint/EOF；`load_pmx()` 可返回完整 PMX 2.0 | PMX 2.1 的 Flip/Impulse、其他 Joint 与 Soft Body 仍 fail closed |
-| 公共 writer | canonical PMX 2.0 writer 已覆盖 Header 至 Spring 6DOF Joint，写前验证并原子替换目标 | 不保证源字节/布局不变；PMX 2.1 和高层编辑仍未交付 |
+| 公共 writer | canonical PMX 2.0 writer 已覆盖全 section；W9 可对登记的定长字段执行 lossless patch | canonical 不保证源布局；变长编辑、PMX 2.1 和高层编辑仍未交付 |
 | 备用 Nuthouse | 覆盖较多 section，但仍有 native `struct`、字段缺失和 PMX 2.1 不完整 | 不能直接作为 correctness 基准 |
 | 数据模型 | PMX 2.0 的 Header、Vertex/SDEF、Material、Bone/IK、Morph、Frame、Rigid Body、Spring 6DOF Joint 均可表达 | PMX 2.1 特有记录和 Soft Body 仍待 W6；高层编辑 API 尚未开始 |
 | 验证 | W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、全部跨引用、cycle、资源限制、parse report 与 strict EOF | 已满足 canonical writer 的前置门槛；PMX 2.1 专属记录留待 W6 |
 | API 命名 | `frames`/`display_frames`、`rigidbodies`/`rigid_bodies`等并存 | 大面积重构时容易破坏调用方 |
-| 测试 | 7 个本地 PMX 已通过 strict read-write-read、深度语义比较和原件 SHA-256 不变检查；独立字节 fixture 覆盖全 section/Bone flags/SDEF | 尚未证明 source-byte equality 或 lossless patch |
+| 测试 | 7 个本地 PMX 已通过 canonical round-trip 和 no-op lossless byte equality；单字段 patch 与异常矩阵由合成 fixture 覆盖 | 变长/集合编辑和 PMX 2.1 尚无此保证 |
 
 ### 2.2 不可改变的工程约束
 
@@ -439,7 +439,7 @@ strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `sav
 退出门槛：`parse_python == parse_fast == parse_cython`覆盖全部支持字段；优化路径同样严格 EOF；
 纯 Python 构建和 Cython 构建都通过同一测试矩阵。
 
-### W9：PmxDocument 与 lossless patch（P4）
+### W9：PmxDocument 与 lossless patch（P4，已完成）
 
 **依赖：** W3、W5、W7；不得提前替代现有 Rebuilder offset patch。  
 **主要文件：** `common/pmx/document.py`、`common/pmx/reader.py`、`common/pmx/writer.py`、
@@ -460,6 +460,14 @@ strict reparse 且深度语义等价，原件 SHA-256 前后不变。公开 `sav
 no-op byte equality 通过；单字段修改只改变允许范围；before 不匹配、重叠 patch、越界
 和重新解析失败均拒绝写出；真实文件只对临时副本操作。
 ```
+
+2026-08-09 交付结果：新增 source-backed `PmxDocument`、稳定 `FieldPath`、`BinarySpan`
+与 `BinaryPatch`。Cursor 可选登记现有 Material、Bone、Rigid Body、Joint record 中可
+直接映射的部分定长数值/枚举/flags/索引/向量字段；`load_pmx_document()`、`mode="document"` 和
+`track_spans=True` 已公开。lossless 写入在原子替换前验证模型、before、边界、等长、重叠、
+登记范围和字段类型，并 strict reparse 后做全模型语义比较。no-op 逐字节复用源快照；7 个
+真实 PMX 仅向 `tmp_path` 写出且源文件 SHA-256 不变。字符串、集合增删、条件布局 flags、
+`preserve_layout` 和 PMX 2.1 继续 fail closed。
 
 ### W10：PmxPhysicsRebuilder 集成与发布门槛（P4）
 
@@ -630,13 +638,13 @@ PMX 完整支持重构只有在下列项目全部满足时才可标记完成：
 - [x] strict reader 对 PMX 2.0 到达 EOF；PMX 2.1 未支持记录明确 fail closed。
 - [x] partial reader 的状态、section 和 writer 拒绝行为可测试。
 - [x] PMX 2.0 Validator 覆盖条件字段、跨引用、cycle、资源上限和 strict EOF。
-- [ ] canonical writer 覆盖所有已支持字段，没有固定 BDEF1/UV=0 等隐式简化。
-- [ ] 7 个本地 PMX 逐文件完成解析证据和临时 round-trip，原件 hash 未变。
+- [x] canonical writer 覆盖所有已支持字段，没有固定 BDEF1/UV=0 等隐式简化。
+- [x] 7 个本地 PMX 逐文件完成解析证据和临时 round-trip，原件 hash 未变。
 - [ ] 合成 fixture 覆盖所有 index size、weight、Morph、IK、Physics、Soft Body 分支。
 - [ ] malformed/truncated/unknown feature 都 fail closed，异常带 section/offset。
 - [ ] Python/fast/Cython 字段级 parity 全绿，或优化路径明确保持 opt-in。
-- [ ] no-op lossless patch 字节完全相同，单字段 patch 通过未修改区域审计。
-- [ ] 公共 API、兼容别名、异常、支持矩阵和迁移文档同步。
+- [x] no-op lossless patch 字节完全相同，单字段 patch 通过未修改区域审计。
+- [x] W9 公共 API、兼容别名、异常、支持矩阵和迁移文档同步。
 - [ ] `pytest`、Cython parity、`mkdocs build --strict`、`uv build`、wheel 校验、
   `git diff --check` 全部通过。
 

@@ -24,8 +24,8 @@
 > `auto` 不再默认进入未完成的 Cython reader。活动 Cursor reader 现已完整消费 PMX 2.0
 > 至 Spring 6DOF Joint/EOF；W4 集中式 Validator 已覆盖 PMX 2.0 条件字段、跨引用、
 > cycle、资源限制和 strict EOF。PMX 2.1 的 Flip/Impulse、其他 Joint 和 Soft Body 仍
-> fail closed。W5 canonical writer 与 W7 公共 API 迁移已完成；下一阶段为 W9
-> PmxDocument 与 lossless patch。
+> fail closed。W5 canonical writer、W7 公共 API 迁移和 W9 定长 lossless patch 已完成；
+> 下一阶段为 W11a 骨骼编辑。
 
 总体结论：
 
@@ -36,7 +36,7 @@
   写前验证并原子替换目标，未支持内容 fail closed。
 - 备用 Nuthouse parser/writer 覆盖范围较大，但存在二进制对齐、Morph 类型缺失和 PMX 2.1 Soft Body 未实现等问题。
 - 当前 7 个真实 PMX 2.0 已覆盖 strict 解析、canonical 写回、严格重读和深度语义
-  round-trip；原件哈希不变。源字节无损性仍未覆盖，留待 lossless patch 阶段。
+  round-trip；也已覆盖 document no-op 逐字节写出，原件哈希不变。变长和集合编辑仍未开放。
 
 因此，在以下问题修复前，PyPMXVMD 不应把公共 PMX API 标记为“完整 PMX 读写支持”。
 
@@ -426,30 +426,20 @@ class BinaryPatch:
     offset: int
     before: bytes
     after: bytes
-    field_path: FieldPath
     description: str
 ```
 
-建议 API：
+W9 已交付的第一阶段 API：
 
 ```python
-document.replace(
-    ("bones", bone_index, "ik_loop_count"),
-    5,
-)
-
-document.remove(
-    ("bones", bone_index, "ik_links", link_index, "limits"),
-)
-
-result = document.write(
-    output_path,
-    mode="lossless_patch",
-    validate=True,
-)
+document.model.bones[bone_index].ik_loop_count = 5
+patches = document.build_patches()
+write_pmx(document, output_path, mode="lossless_patch")
 ```
 
-输出结果应包含：
+`span_for()`/`make_patch()`/`apply_patches()` 可用于审计底层范围。所有 patch 必须精确对应
+已登记 span；`encode_lossless()` 会 strict reparse 并将完整结果与当前 model 比较。W11
+再在其上增加 `set_tail_bone()` 等高层 transaction 命令。以下报告型结果仍是后续增强：
 
 ```python
 result.patches
@@ -740,8 +730,8 @@ PmxPhysicsRebuilder
 4. `[已完成]` 完成 PMX 2.0 validator 的规则和异常矩阵。
 5. `[已完成]` 实现 canonical PMX 2.0 writer，并通过语义 round-trip。
 6. `[已完成]` 完成公共 API 模式与兼容迁移。
-7. `[下一步]` 增加 source span、PmxDocument 和 lossless patch 模式。
-8. 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
+7. `[已完成]` 增加 source span、PmxDocument 和定长 lossless patch 模式。
+8. `[下一步]` 依次交付骨骼、刚体、Joint、材质的 S2/S3 编辑能力。
 9. 长期补全 PMX 2.1/Soft Body 与 Vertex/Face/Morph/Display Frame 高层编辑。
 10. 让原生 fast/Cython 对齐标准 parser。
 

@@ -1,11 +1,13 @@
 """PMX-specific parsing contracts and diagnostics."""
 
 from pypmxvmd.common.pmx.cursor import PmxByteSpan, PmxCursor
+from pypmxvmd.common.pmx.document import BinaryPatch, BinarySpan, FieldPath, PmxDocument
 from pypmxvmd.common.pmx.errors import (
     IncompletePmxError,
     IncompletePmxWriterError,
     PmxError,
     PmxFormatError,
+    PmxPatchError,
     PmxValidationError,
     UnsupportedPmxFeatureError,
 )
@@ -32,10 +34,15 @@ __all__ = [
     "IncompletePmxWriterError",
     "PmxError",
     "PmxFormatError",
+    "PmxPatchError",
     "PmxValidationError",
     "UnsupportedPmxFeatureError",
     "PmxByteSpan",
     "PmxCursor",
+    "BinaryPatch",
+    "BinarySpan",
+    "FieldPath",
+    "PmxDocument",
     "PmxLimits",
     "DEFAULT_PMX_LIMITS",
     "JointType",

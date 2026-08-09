@@ -119,8 +119,9 @@ pypmxvmd.save_vmd(motion, "output.vmd")
 
 `mode="strict"` 返回完整 `PmxModel` 并固定要求精确 EOF；`mode="partial"` 返回
 `PmxParseResult`，调用方可再设置 `strict_eof=True` 要求结果必须完整。`implementation`
-可选 `auto`、`python`、`fast`、`cython`。`mode="document"` 和 `track_spans=True`
-预留给 W9，当前明确抛出 `UnsupportedPmxFeatureError`。
+可选 `auto`、`python`、`fast`、`cython`。`mode="document"` 或 `track_spans=True`
+返回带源字节和字段 span 的 `PmxDocument`；partial 模式会填充
+`PmxParseResult.field_spans`。
 
 PMX 2.0 会完整解析到 Spring 6DOF Joint。遇到尚未支持的 PMX 2.1 Flip/Impulse Morph、
 其他 Joint 类型或 Soft Body 时会抛出格式/完整性异常，不会静默丢弃。
@@ -138,6 +139,7 @@ except pypmxvmd.IncompletePmxError as error:
     print(error.report.missing_sections)
 
 result = pypmxvmd.load_pmx("character.pmx", mode="partial")
+document = pypmxvmd.load_pmx("character.pmx", mode="document")
 ```
 
 ---
@@ -150,14 +152,27 @@ result = pypmxvmd.load_pmx("character.pmx", mode="partial")
 `soft_bodies` 缺失，或在更早的未支持 PMX 2.1 record 处明确失败。`auto` 使用带边界与
 资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
 Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
-完整 canonical 读写不等于已经支持源字节无损编辑。
+传入 `track_spans=True` 时，`field_spans` 保存首批已登记的定长字段。
 
 ---
 
-#### `pypmxvmd.load_pmx_document(...)`
+#### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
-W9 的预留 API 名称。当前抛出 `UnsupportedPmxFeatureError`，不会返回缺少源字节和字段
-span 的伪 document。
+严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据和字段
+span。第一阶段只登记现有 Material、Bone、Rigid Body、Joint record 中可直接映射的部分
+定长数值、枚举、flags、索引和向量字段；变长字符串、材质纹理/Toon 引用、集合增删和会
+改变条件布局的 flags 不登记。
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+span = document.span_for("bones[0].deform_layer")
+document.model.bones[0].deform_layer = 2
+pypmxvmd.save_pmx(document, "patched.pmx", mode="lossless_patch")
+```
+
+lossless 写入会在落盘前验证模型、`before` 字节、边界、等长、不重叠和字段类型；随后严格
+重读 patch 结果并比较整个语义模型。no-op 原样返回源字节。任何未登记修改均抛出
+`PmxPatchError`，不会创建或替换目标文件。
 
 ---
 
@@ -183,7 +198,7 @@ validate_pmx_model(
 
 ---
 
-#### `pypmxvmd.save_pmx(model, file_path, *, mode="canonical")`
+#### `pypmxvmd.save_pmx(model_or_document, file_path, *, mode="canonical")`
 
 验证并原子保存 canonical PMX 2.0 文件。writer 覆盖 Header 至 Spring 6DOF Joint，
 自动选择可容纳模型的最小索引宽度，并保持模型中的纹理列表和索引顺序。无效、不完整、
@@ -191,9 +206,10 @@ PMX 2.1、QDEF、未支持 Joint 或 Soft Body 输入会在替换目标文件前
 
 canonical 输出保证语义 round-trip 稳定，不承诺与源文件逐字节或原布局相同。
 `PmxParser.write_file_partial()` 仍只是显式、有损的 fixture 工具，并拒绝它无法编码的集合。
-`write_pmx()` 是等价的显式 writer 名称。未来的 `preserve_layout` 和 `lossless_patch`
-模式在 W9 前抛出 `UnsupportedPmxFeatureError`；未知模式名抛出 `ValueError`。所有失败均
-发生在替换目标文件之前。
+`write_pmx()` 是等价的显式 writer 名称。传入 `PmxDocument` 并指定
+`mode="lossless_patch"` 可执行经过审计的定长字段更新。`preserve_layout` 仍未支持；没有
+document 却请求 lossless mode 时抛出 `UnsupportedPmxFeatureError`。未知模式名抛出
+`ValueError`。所有失败均发生在替换目标文件之前。
 
 **参数**:
 - `model` (PmxModel): PMX模型对象
@@ -207,9 +223,10 @@ pypmxvmd.save_pmx(model, "output.pmx")
 |---|---|---|
 | 读取 `strict` | 是 | 完整 PMX 2.0 `PmxModel`，否则 fail closed |
 | 读取 `partial` | 是 | 带完整性报告的 `PmxParseResult` |
-| 读取 `document` / 字段 span | 否（W9） | `UnsupportedPmxFeatureError` |
+| 读取 `document` / 字段 span | 是（PMX 2.0） | `PmxDocument` / `field_spans` |
 | 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0 |
-| 写入 `preserve_layout` / `lossless_patch` | 否（W9） | `UnsupportedPmxFeatureError` |
+| 写入定长字段 `lossless_patch` | 是 | 经审计的原子源字节 patch |
+| 写入 `preserve_layout` 或变长编辑 | 否 | fail closed |
 
 ---
 
@@ -1115,6 +1132,7 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `IncompletePmxError` | 完整 PMX 读取尚未到达全部 section/EOF |
 | `IncompletePmxWriterError` | 显式 legacy partial writer 会丢弃未支持 section，因而拒绝写入 |
 | `PmxValidationError` | 字段验证失败，包含 `field`、`expected`、`actual` |
+| `PmxPatchError` | lossless patch 的路径/类型/范围/before/重读/语义检查失败 |
 | `UnsupportedPmxFeatureError` | 已识别的 PMX 版本/模式尚未实现，包含 `feature`、`available` |
 
 ```python

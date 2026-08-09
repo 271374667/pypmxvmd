@@ -40,6 +40,7 @@ from pypmxvmd.common.models.pmx import (
 )
 from pypmxvmd.common.parsers.pmx_parser_nuthouse import PmxParserNuthouse
 from pypmxvmd.common.pmx.cursor import PmxCursor
+from pypmxvmd.common.pmx.document import BinarySpan, PmxDocument
 from pypmxvmd.common.pmx.errors import (
     IncompletePmxError,
     IncompletePmxWriterError,
@@ -62,7 +63,7 @@ class PmxParser:
     """PMX文件解析器
 
     当前提供 strict/partial 读取、完整性报告和 canonical PMX 2.0 写入。
-    PMX 2.1 Soft Body、source span document 和 lossless 写入仍 fail closed。
+    PMX 2.1 Soft Body 仍 fail closed；PMX 2.0 可选字段级 source span。
     """
 
     def __init__(self, limits: PmxLimits = DEFAULT_PMX_LIMITS):
@@ -73,6 +74,7 @@ class PmxParser:
         self._use_utf8 = False  # 编码标志
         self._progress_callback = None
         self._last_parse_report: Optional[PmxParseReport] = None
+        self._last_field_spans: tuple[BinarySpan, ...] = ()
 
         # 索引类型格式字符串
         self._vertex_index_format = "B"  # 顶点索引格式
@@ -100,6 +102,11 @@ class PmxParser:
         """Return the most recent parse report produced by this parser."""
         return self._last_parse_report
 
+    @property
+    def last_field_spans(self) -> tuple[BinarySpan, ...]:
+        """Return fixed-width field spans from the most recent tracked parse."""
+        return self._last_field_spans
+
     def parse_file(
         self,
         file_path: Union[str, Path],
@@ -120,7 +127,7 @@ class PmxParser:
             more_info: 是否显示更多解析信息
             implementation: auto、python、fast 或 cython
             strict_eof: 完整读取固定为 True；诊断读取使用 parse_file_partial
-            track_spans: W9 字段级 source span 的预留参数
+            track_spans: 返回模型并在 parser.last_field_spans 保存字段级 span
 
         Returns:
             解析后的PMX模型对象
@@ -139,15 +146,11 @@ class PmxParser:
             )
         if type(track_spans) is not bool:
             raise ValueError("track_spans must be a bool")
-        if track_spans:
-            raise UnsupportedPmxFeatureError(
-                "track_spans=True",
-                available="section-level PmxParseReport; field spans are planned for W9",
-            )
         result = self.parse_file_partial(
             file_path,
             more_info=more_info,
             implementation=implementation,
+            track_spans=track_spans,
         )
         if not result.report.is_complete:
             raise IncompletePmxError(result.report)
@@ -169,13 +172,9 @@ class PmxParser:
         """
         if type(track_spans) is not bool:
             raise ValueError("track_spans must be a bool")
-        if track_spans:
-            raise UnsupportedPmxFeatureError(
-                "track_spans=True",
-                available="section-level PmxParseReport; field spans are planned for W9",
-            )
         if not isinstance(implementation, str):
             raise ValueError("PMX implementation must be a string")
+        self._last_field_spans = ()
         file_path = Path(file_path)
         selected = implementation.lower()
         if selected == "auto":
@@ -185,9 +184,11 @@ class PmxParser:
             selected = "fast"
 
         if selected == "python":
-            model = self._parse_file_python(file_path, more_info)
+            model = self._parse_file_python(
+                file_path, more_info, track_spans=track_spans
+            )
         elif selected == "fast":
-            model = self.parse_file_fast(file_path, more_info)
+            model = self.parse_file_fast(file_path, more_info, track_spans=track_spans)
         elif selected == "cython":
             if not _CYTHON_AVAILABLE:
                 raise RuntimeError(
@@ -196,7 +197,9 @@ class PmxParser:
             # Validate every byte range understood by the current Cython ABI
             # before entering code compiled with disabled bounds checks.
             probe = PmxParser(limits=self._limits)
-            probe_model = probe.parse_file_fast(file_path, more_info=False)
+            probe_model = probe.parse_file_fast(
+                file_path, more_info=False, track_spans=track_spans
+            )
             probe_report = probe.last_parse_report
             if probe_report is None:
                 raise RuntimeError("Fast PMX parser did not produce a parse report")
@@ -216,6 +219,7 @@ class PmxParser:
                 final_offset=probe_report.final_offset,
                 sections=probe_report.sections,
             )
+            self._last_field_spans = probe.last_field_spans
             model.parse_report = self._last_parse_report
         else:
             raise ValueError(
@@ -226,19 +230,39 @@ class PmxParser:
         report = self._last_parse_report
         if report is None:
             raise RuntimeError("PMX parser did not produce a parse report")
-        return PmxParseResult(model=model, report=report)
+        return PmxParseResult(
+            model=model, report=report, field_spans=self._last_field_spans
+        )
 
     def _parse_file_python(
-        self, file_path: Union[str, Path], more_info: bool = False
+        self,
+        file_path: Union[str, Path],
+        more_info: bool = False,
+        *,
+        track_spans: bool = False,
     ) -> PmxModel:
         """Parse supported PMX sections through the safe Python Cursor."""
-        return self._parse_file_cursor(file_path, more_info, implementation="python")
+        return self._parse_file_cursor(
+            file_path,
+            more_info,
+            implementation="python",
+            track_spans=track_spans,
+        )
 
     def parse_file_fast(
-        self, file_path: Union[str, Path], more_info: bool = False
+        self,
+        file_path: Union[str, Path],
+        more_info: bool = False,
+        *,
+        track_spans: bool = False,
     ) -> PmxModel:
         """Parse supported PMX sections through the bounds-checked Cursor."""
-        return self._parse_file_cursor(file_path, more_info, implementation="fast")
+        return self._parse_file_cursor(
+            file_path,
+            more_info,
+            implementation="fast",
+            track_spans=track_spans,
+        )
 
     def _parse_file_cursor(
         self,
@@ -246,13 +270,18 @@ class PmxParser:
         more_info: bool,
         *,
         implementation: str,
+        track_spans: bool = False,
     ) -> PmxModel:
         """Shared Cursor-backed reader for the current Python implementations."""
         file_path = Path(file_path)
         if more_info:
             print(f"开始解析PMX文件: {file_path}")
 
-        cursor = PmxCursor(file_path.read_bytes(), limits=self._limits)
+        cursor = PmxCursor(
+            file_path.read_bytes(),
+            limits=self._limits,
+            track_fields=track_spans,
+        )
         self._cursor = cursor
         pmx_model = PmxModel()
         sections: List[PmxSectionReport] = []
@@ -366,6 +395,7 @@ class PmxParser:
                 final_offset=cursor.position,
                 sections=tuple(sections),
             )
+            self._last_field_spans = cursor.field_spans
             pmx_model.parse_report = self._last_parse_report
 
             if more_info:
@@ -391,6 +421,7 @@ class PmxParser:
                 failed_section=current_section,
                 failed_offset=offset,
             )
+            self._last_field_spans = cursor.field_spans
             if isinstance(exc, PmxFormatError):
                 exc.report = self._last_parse_report
                 raise
@@ -820,19 +851,32 @@ class PmxParser:
             name_en = cursor.read_string(encoding)
 
             # 颜色数据
-            diffuse_color = list(cursor.unpack("<4f"))
-            specular_color = list(cursor.unpack("<3f"))
-            specular_strength = float(cursor.unpack("<f")[0])
-            ambient_color = list(cursor.unpack("<3f"))
+            prefix = f"materials[{i}]"
+            diffuse_color = list(
+                cursor.unpack_field(f"{prefix}.diffuse_color", "<4f", "float_vector")
+            )
+            specular_color = list(
+                cursor.unpack_field(f"{prefix}.specular_color", "<3f", "float_vector")
+            )
+            specular_strength = float(
+                cursor.unpack_field(f"{prefix}.specular_strength", "<f", "float")[0]
+            )
+            ambient_color = list(
+                cursor.unpack_field(f"{prefix}.ambient_color", "<3f", "float_vector")
+            )
 
             # 标志位
-            flag_byte = int(cursor.unpack("<B")[0])
+            flag_byte = int(cursor.unpack_field(f"{prefix}.flags", "<B", "flags")[0])
             flags_list = [(flag_byte >> j) & 1 == 1 for j in range(8)]
             flags = MaterialFlags(flags_list)
 
             # 边缘数据
-            edge_color = list(cursor.unpack("<4f"))
-            edge_size = float(cursor.unpack("<f")[0])
+            edge_color = list(
+                cursor.unpack_field(f"{prefix}.edge_color", "<4f", "float_vector")
+            )
+            edge_size = float(
+                cursor.unpack_field(f"{prefix}.edge_size", "<f", "float")[0]
+            )
 
             # 纹理索引
             tex_index = cursor.read_index(self._texture_index_size)
@@ -843,7 +887,9 @@ class PmxParser:
             sphere_path = (
                 textures[sphere_index] if 0 <= sphere_index < len(textures) else ""
             )
-            sphere_mode = SphMode(int(cursor.unpack("<B")[0]))
+            sphere_mode = SphMode(
+                int(cursor.unpack_field(f"{prefix}.sphere_mode", "<B", "enum")[0])
+            )
 
             # 卡通渲染
             toon_flag_offset = cursor.position
@@ -918,48 +964,82 @@ class PmxParser:
 
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
-            position = list(cursor.unpack("<3f"))
-            parent_index = cursor.read_index(self._bone_index_size)
-            deform_layer = int(cursor.unpack("<i")[0])
+            prefix = f"bones[{index}]"
+            position = list(
+                cursor.unpack_field(f"{prefix}.position", "<3f", "float_vector")
+            )
+            parent_index = cursor.read_index_field(
+                f"{prefix}.parent_index", self._bone_index_size
+            )
+            deform_layer = int(
+                cursor.unpack_field(f"{prefix}.deform_layer", "<i", "int")[0]
+            )
             bone_flags = BoneFlags(value=int(cursor.unpack("<H")[0]))
 
             if bone_flags.tail_usebonelink:
-                tail: Union[int, List[float]] = cursor.read_index(self._bone_index_size)
+                tail: Union[int, List[float]] = cursor.read_index_field(
+                    f"{prefix}.tail", self._bone_index_size
+                )
             else:
-                tail = list(cursor.unpack("<3f"))
+                tail = list(
+                    cursor.unpack_field(f"{prefix}.tail", "<3f", "float_vector")
+                )
 
             inherit_parent_index = None
             inherit_ratio = None
             if bone_flags.inherit_rot or bone_flags.inherit_trans:
-                inherit_parent_index = cursor.read_index(self._bone_index_size)
-                inherit_ratio = float(cursor.unpack("<f")[0])
+                inherit_parent_index = cursor.read_index_field(
+                    f"{prefix}.inherit_parent_index", self._bone_index_size
+                )
+                inherit_ratio = float(
+                    cursor.unpack_field(f"{prefix}.inherit_ratio", "<f", "float")[0]
+                )
 
             fixed_axis = None
             if bone_flags.has_fixedaxis:
-                fixed_axis = list(cursor.unpack("<3f"))
+                fixed_axis = list(
+                    cursor.unpack_field(f"{prefix}.fixed_axis", "<3f", "float_vector")
+                )
 
             local_axis_x = None
             local_axis_z = None
             if bone_flags.has_localaxis:
-                local_axis_x = list(cursor.unpack("<3f"))
-                local_axis_z = list(cursor.unpack("<3f"))
+                local_axis_x = list(
+                    cursor.unpack_field(f"{prefix}.local_axis_x", "<3f", "float_vector")
+                )
+                local_axis_z = list(
+                    cursor.unpack_field(f"{prefix}.local_axis_z", "<3f", "float_vector")
+                )
 
             external_parent_index = None
             if bone_flags.has_external_parent:
-                external_parent_index = int(cursor.unpack("<i")[0])
+                external_parent_index = int(
+                    cursor.unpack_field(f"{prefix}.external_parent_index", "<i", "int")[
+                        0
+                    ]
+                )
 
             ik_target_index = None
             ik_loop_count = None
             ik_angle_limit = None
             ik_links: List[PmxBoneIkLink] = []
             if bone_flags.ik:
-                ik_target_index = cursor.read_index(self._bone_index_size)
-                ik_loop_count = cursor.read_count("IK loop count")
-                ik_angle_limit = float(cursor.unpack("<f")[0])
+                ik_target_index = cursor.read_index_field(
+                    f"{prefix}.ik_target_index", self._bone_index_size
+                )
+                ik_loop_count = cursor.read_count_field(
+                    f"{prefix}.ik_loop_count", "IK loop count"
+                )
+                ik_angle_limit = float(
+                    cursor.unpack_field(f"{prefix}.ik_angle_limit", "<f", "float")[0]
+                )
                 ik_link_count = cursor.read_count("IK link count")
 
-                for _ in range(ik_link_count):
-                    link_bone_index = cursor.read_index(self._bone_index_size)
+                for link_index in range(ik_link_count):
+                    link_prefix = f"{prefix}.ik_links[{link_index}]"
+                    link_bone_index = cursor.read_index_field(
+                        f"{link_prefix}.bone_index", self._bone_index_size
+                    )
                     limit_flag_offset = cursor.position
                     limit_flag = int(cursor.unpack("<B")[0])
                     if limit_flag not in (0, 1):
@@ -973,8 +1053,20 @@ class PmxParser:
                     limit_min = None
                     limit_max = None
                     if limit_flag == 1:
-                        limit_min = list(cursor.unpack("<3f"))
-                        limit_max = list(cursor.unpack("<3f"))
+                        limit_min = list(
+                            cursor.unpack_field(
+                                f"{link_prefix}.limit_min",
+                                "<3f",
+                                "float_vector",
+                            )
+                        )
+                        limit_max = list(
+                            cursor.unpack_field(
+                                f"{link_prefix}.limit_max",
+                                "<3f",
+                                "float_vector",
+                            )
+                        )
 
                     ik_links.append(
                         PmxBoneIkLink(
@@ -1135,6 +1227,7 @@ class PmxParser:
                     items=items,
                 )
             )
+            self._last_field_spans = cursor.field_spans
 
         self._report_progress(morph_count, morph_count)
         return morphs
@@ -1205,22 +1298,29 @@ class PmxParser:
 
         for index in range(rigid_body_count):
             self._report_progress(index, rigid_body_count)
+            prefix = f"rigidbodies[{index}]"
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
-            bone_index = cursor.read_index(self._bone_index_size)
+            bone_index = cursor.read_index_field(
+                f"{prefix}.bone_index", self._bone_index_size
+            )
 
             group_offset = cursor.position
-            collision_group = int(cursor.unpack("<B")[0])
+            collision_group = int(
+                cursor.unpack_field(f"{prefix}.collision_group", "<B", "int")[0]
+            )
             if collision_group > 15:
                 raise PmxFormatError(
                     f"Invalid PMX rigid-body collision group {collision_group}",
                     section=cursor.section,
                     offset=group_offset,
                 )
-            collision_mask = int(cursor.unpack("<H")[0])
+            collision_mask = int(
+                cursor.unpack_field(f"{prefix}.collision_mask", "<H", "int")[0]
+            )
 
             shape_offset = cursor.position
-            shape_value = int(cursor.unpack("<B")[0])
+            shape_value = int(cursor.unpack_field(f"{prefix}.shape", "<B", "enum")[0])
             try:
                 shape = RigidBodyShape(shape_value)
             except ValueError as exc:
@@ -1230,15 +1330,27 @@ class PmxParser:
                     offset=shape_offset,
                 ) from exc
 
-            size = list(cursor.unpack("<3f"))
-            position = list(cursor.unpack("<3f"))
-            rotation = list(cursor.unpack("<3f"))
-            mass, move_damping, rotation_damping, repulsion, friction = cursor.unpack(
-                "<5f"
+            size = list(cursor.unpack_field(f"{prefix}.size", "<3f", "float_vector"))
+            position = list(
+                cursor.unpack_field(f"{prefix}.position", "<3f", "float_vector")
             )
+            rotation = list(
+                cursor.unpack_field(f"{prefix}.rotation", "<3f", "float_vector")
+            )
+            mass = cursor.unpack_field(f"{prefix}.mass", "<f", "float")[0]
+            move_damping = cursor.unpack_field(f"{prefix}.move_damping", "<f", "float")[
+                0
+            ]
+            rotation_damping = cursor.unpack_field(
+                f"{prefix}.rotation_damping", "<f", "float"
+            )[0]
+            repulsion = cursor.unpack_field(f"{prefix}.repulsion", "<f", "float")[0]
+            friction = cursor.unpack_field(f"{prefix}.friction", "<f", "float")[0]
 
             mode_offset = cursor.position
-            mode_value = int(cursor.unpack("<B")[0])
+            mode_value = int(
+                cursor.unpack_field(f"{prefix}.physics_mode", "<B", "enum")[0]
+            )
             try:
                 physics_mode = RigidBodyPhysMode(mode_value)
             except ValueError as exc:
@@ -1283,10 +1395,13 @@ class PmxParser:
 
         for index in range(joint_count):
             self._report_progress(index, joint_count)
+            prefix = f"joints[{index}]"
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
             type_offset = cursor.position
-            joint_type_value = int(cursor.unpack("<B")[0])
+            joint_type_value = int(
+                cursor.unpack_field(f"{prefix}.joint_type", "<B", "enum")[0]
+            )
             try:
                 joint_type = JointType(joint_type_value)
             except ValueError as exc:
@@ -1297,8 +1412,12 @@ class PmxParser:
                     offset=type_offset,
                 ) from exc
 
-            rigid_body_a_index = cursor.read_index(self._rigidbody_index_size)
-            rigid_body_b_index = cursor.read_index(self._rigidbody_index_size)
+            rigid_body_a_index = cursor.read_index_field(
+                f"{prefix}.rigidbody1_index", self._rigidbody_index_size
+            )
+            rigid_body_b_index = cursor.read_index_field(
+                f"{prefix}.rigidbody2_index", self._rigidbody_index_size
+            )
             joints.append(
                 PmxJoint(
                     name_jp=name_jp,
@@ -1306,14 +1425,42 @@ class PmxParser:
                     joint_type=joint_type,
                     rigidbody1_index=rigid_body_a_index,
                     rigidbody2_index=rigid_body_b_index,
-                    position=list(cursor.unpack("<3f")),
-                    rotation=list(cursor.unpack("<3f")),
-                    position_min=list(cursor.unpack("<3f")),
-                    position_max=list(cursor.unpack("<3f")),
-                    rotation_min=list(cursor.unpack("<3f")),
-                    rotation_max=list(cursor.unpack("<3f")),
-                    position_spring=list(cursor.unpack("<3f")),
-                    rotation_spring=list(cursor.unpack("<3f")),
+                    position=list(
+                        cursor.unpack_field(f"{prefix}.position", "<3f", "float_vector")
+                    ),
+                    rotation=list(
+                        cursor.unpack_field(f"{prefix}.rotation", "<3f", "float_vector")
+                    ),
+                    position_min=list(
+                        cursor.unpack_field(
+                            f"{prefix}.position_min", "<3f", "float_vector"
+                        )
+                    ),
+                    position_max=list(
+                        cursor.unpack_field(
+                            f"{prefix}.position_max", "<3f", "float_vector"
+                        )
+                    ),
+                    rotation_min=list(
+                        cursor.unpack_field(
+                            f"{prefix}.rotation_min", "<3f", "float_vector"
+                        )
+                    ),
+                    rotation_max=list(
+                        cursor.unpack_field(
+                            f"{prefix}.rotation_max", "<3f", "float_vector"
+                        )
+                    ),
+                    position_spring=list(
+                        cursor.unpack_field(
+                            f"{prefix}.position_spring", "<3f", "float_vector"
+                        )
+                    ),
+                    rotation_spring=list(
+                        cursor.unpack_field(
+                            f"{prefix}.rotation_spring", "<3f", "float_vector"
+                        )
+                    ),
                 )
             )
 
@@ -1557,7 +1704,7 @@ class PmxParser:
 
     def write_file(
         self,
-        pmx_model: PmxModel,
+        pmx_model: Union[PmxModel, PmxDocument],
         file_path: Union[str, Path],
         *,
         mode: str = "canonical",
@@ -1569,14 +1716,25 @@ class PmxParser:
             raise ValueError("PMX write mode must be a string")
         selected = mode.lower()
         if selected == "canonical":
+            if not isinstance(pmx_model, PmxModel):
+                raise UnsupportedPmxFeatureError(
+                    "canonical write of PmxDocument",
+                    available="pass document.model, or use mode='lossless_patch'",
+                )
             PmxWriter(limits=self._limits).write_file(pmx_model, file_path)
             return
-        if selected in {"preserve_layout", "lossless_patch"}:
+        if selected == "lossless_patch":
+            if not isinstance(pmx_model, PmxDocument):
+                raise UnsupportedPmxFeatureError(
+                    "lossless_patch without PmxDocument",
+                    available="load_pmx_document() followed by lossless_patch",
+                )
+            pmx_model.write_file(file_path)
+            return
+        if selected == "preserve_layout":
             raise UnsupportedPmxFeatureError(
                 f"write mode {selected}",
-                available=(
-                    "canonical PMX 2.0; preserve/lossless modes are planned for W9"
-                ),
+                available="canonical PMX 2.0 or fixed-field lossless_patch",
             )
         raise ValueError(
             f"Unknown PMX write mode: {mode!r}; expected canonical, "

@@ -7,7 +7,7 @@ import pytest
 import pypmxvmd
 from pypmxvmd.common.models.pmx import PmxFrame, PmxRigidBody, PmxSoftBody
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
-from pypmxvmd.common.pmx import PmxParseResult, UnsupportedPmxFeatureError
+from pypmxvmd.common.pmx import PmxDocument, PmxParseResult, UnsupportedPmxFeatureError
 from tests.test_pmx_integrity import _minimal_complete_pmx21_bytes
 
 
@@ -103,17 +103,15 @@ def test_unimplemented_write_modes_preserve_existing_target(
     assert path.read_bytes() == b"original"
 
 
-def test_reserved_document_and_span_modes_fail_closed(tmp_path, sample_pmx_model):
+def test_document_and_span_modes_have_explicit_return_contracts(
+    tmp_path, sample_pmx_model
+):
     path = _saved_pmx20(tmp_path, sample_pmx_model)
 
-    with pytest.raises(UnsupportedPmxFeatureError):
-        pypmxvmd.load_pmx(path, mode="document")
-    with pytest.raises(UnsupportedPmxFeatureError):
-        pypmxvmd.load_pmx(path, track_spans=True)
-    with pytest.raises(UnsupportedPmxFeatureError):
-        pypmxvmd.load_pmx_partial(path, track_spans=True)
-    with pytest.raises(UnsupportedPmxFeatureError):
-        pypmxvmd.load_pmx_document(path)
+    assert isinstance(pypmxvmd.load_pmx(path, mode="document"), PmxDocument)
+    assert isinstance(pypmxvmd.load_pmx(path, track_spans=True), PmxDocument)
+    assert pypmxvmd.load_pmx_partial(path, track_spans=True).field_spans
+    assert isinstance(pypmxvmd.load_pmx_document(path), PmxDocument)
 
 
 @pytest.mark.parametrize("mode", ["unknown", "", 3])
