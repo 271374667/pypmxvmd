@@ -15,6 +15,7 @@ from pypmxvmd.common.pmx.errors import (
     PmxMorphEditError,
     PmxPatchError,
     PmxRigidBodyEditError,
+    PmxTransactionError,
     PmxValidationError,
     PmxVertexEditError,
     UnsupportedPmxFeatureError,
@@ -59,6 +60,7 @@ __all__ = [
     "PmxMorphEditError",
     "PmxPatchError",
     "PmxRigidBodyEditError",
+    "PmxTransactionError",
     "PmxVertexEditError",
     "PmxValidationError",
     "UnsupportedPmxFeatureError",
@@ -93,4 +95,24 @@ __all__ = [
     "validate_pmx_model",
     "PmxIndexLayout",
     "PmxWriter",
+    "PmxEditTransaction",
+    "PmxTransactionResult",
+    "edit_pmx",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Lazily expose model-level transactions without an import cycle."""
+    if name in {"PmxEditTransaction", "PmxTransactionResult", "edit_pmx"}:
+        from pypmxvmd.common.pmx.transaction import (
+            PmxEditTransaction,
+            PmxTransactionResult,
+            edit_pmx,
+        )
+
+        return {
+            "PmxEditTransaction": PmxEditTransaction,
+            "PmxTransactionResult": PmxTransactionResult,
+            "edit_pmx": edit_pmx,
+        }[name]
+    raise AttributeError(name)

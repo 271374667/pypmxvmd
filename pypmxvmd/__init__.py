@@ -52,6 +52,7 @@ from .common.pmx import (
     PmxParseResult,
     PmxPatchError,
     PmxRigidBodyEditError,
+    PmxTransactionError,
     PmxValidationError,
     PmxVertexEditError,
     UnsupportedPmxFeatureError,
@@ -83,6 +84,7 @@ from .common.pmx.editing import (
     edit_pmx_vertices,
     ik_link,
 )
+from .common.pmx.transaction import PmxEditTransaction, PmxTransactionResult, edit_pmx
 
 __version__ = "2.7.1"
 __author__ = "PythonImporter"
@@ -687,6 +689,8 @@ __all__ = [
     "PmxRigidBodyEditor",
     "PmxVertexEditResult",
     "PmxVertexEditor",
+    "PmxEditTransaction",
+    "PmxTransactionResult",
     "edit_pmx_bones",
     "edit_pmx_faces",
     "edit_pmx_frames",
@@ -695,6 +699,7 @@ __all__ = [
     "edit_pmx_morphs",
     "edit_pmx_rigid_bodies",
     "edit_pmx_vertices",
+    "edit_pmx",
     "ik_link",
     "PmxParseReport",
     "PmxParseResult",
@@ -709,6 +714,7 @@ __all__ = [
     "PmxMorphEditError",
     "PmxRigidBodyEditError",
     "PmxVertexEditError",
+    "PmxTransactionError",
     "PmxPatchError",
     "UnsupportedPmxFeatureError",
     "VpdPose",

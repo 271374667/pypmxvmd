@@ -5,6 +5,7 @@ PyPMXVMD PMX数据模型
 包含模型头信息、顶点、面、材质、骨骼、变形、刚体、关节等。
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from pypmxvmd.common.models.base import BaseModel, is_valid_vector
@@ -28,6 +29,7 @@ from pypmxvmd.common.pmx.types import (
 
 if TYPE_CHECKING:
     from pypmxvmd.common.pmx.report import PmxParseReport
+    from pypmxvmd.common.pmx.transaction import PmxEditTransaction
 
 
 class PmxRecord(BaseModel):
@@ -2008,3 +2010,11 @@ class PmxModel(PmxRecord):
     def get_material_count(self) -> int:
         """获取材质数量"""
         return len(self.materials)
+
+    def transaction(
+        self, *, output_path: Optional[Union[str, Path]] = None
+    ) -> "PmxEditTransaction":
+        """Create a composable PMX edit transaction for this model."""
+        from pypmxvmd.common.pmx.transaction import PmxEditTransaction
+
+        return PmxEditTransaction(self, output_path=output_path)

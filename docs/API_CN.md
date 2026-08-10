@@ -350,6 +350,43 @@ faces.write_file("face-edited.pmx")
 `PmxFaceEditError`、`PmxMorphEditError` 或 `PmxFrameEditError`。Soft Body record
 高层编辑仍未支持。
 
+#### `pypmxvmd.edit_pmx(source, *, output_path=None) -> PmxEditTransaction`
+
+创建一个可组合的模型级 PMX 事务。`source` 可以是 `PmxModel`、`PmxDocument` 或
+PMX 路径。事务进入时深拷贝模型；`with` 正常退出会集中验证、canonical 编码、strict
+重解析并原子写入 `output_path`，块内异常会回滚且不创建或替换目标。路径输入禁止写回
+同一个源文件。
+
+```python
+from pypmxvmd.common.pmx import MorphPanel
+
+with pypmxvmd.edit_pmx("body.pmx", output_path="skirt.pmx") as tx:
+    skirt_bone = tx.add_bone(name_jp="裙骨", parent_index=0)
+    tx.paint_weights([120, 121, 122], skirt_bone, 0.8)
+    tx.add_vertex_morph(
+        name_jp="裙摆",
+        offsets={120: [0.0, 0.15, 0.0]},
+        panel=MorphPanel.OTHER,
+        display_frame_index=1,
+    )
+    tx.merge_part("clothes.pmx")
+```
+
+`add_bone()`/`append_bone()` 追加骨骼并返回新索引；`bone(index)` 返回事务副本中的
+既有骨骼，可在同一个 `with` 块内修改其字段，最终提交会统一验证条件字段与引用。
+`set_weight()` 支持显式的
+BDEF1/BDEF2/BDEF4/SDEF/QDEF 布局，QDEF 仅可用于 PMX 2.1；`paint_weights()` 和
+`set_vertex_weights()` 面向顶点集合刷写骨骼权重，默认把原最强影响保留为 BDEF2 的
+互补权重。`add_morph()` 接受类型化 `PmxMorph`，`add_vertex_morph()` 用顶点偏移便捷
+创建表情，并可将 Morph item 加入 Display Frame，使其在 PMXEditor T 面板可见。
+
+`merge_part()` 在打开的事务内也是原子的；即使调用方捕获异常，被拒绝的部件也不会
+污染事务副本。它会维护 Vertex、Texture、Material、Bone、Morph、Rigid Body、Joint、
+Soft Body、Morph item 和 Display Frame 的索引映射；骨骼按日文/英文名匹配，其余记录追加，
+并返回核心索引映射。Display Frame 默认合并；只有确认部件没有 frame 时才应传
+`include_frames=False`。版本不兼容、非法引用或无法安全合并的结构会抛出
+`PmxTransactionError`，不会静默丢弃数据。
+
 ---
 
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
@@ -407,6 +444,7 @@ pypmxvmd.save_pmx(model, "output.pmx")
 | 编辑现有 Joint record | 是（PMX 2.0 Spring 6DOF） | 事务化变长 record 替换 |
 | 编辑现有 Material record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 编辑 Vertex/Face/Morph/Display Frame 集合 | 是 | canonical W12 事务与引用重编号 |
+| 组合部件/骨骼/权重/Morph 编辑 | 是 | 模型级 `with` 事务与原子 canonical 提交 |
 | 写入 `preserve_layout` | 否 | fail closed |
 
 ---
@@ -1343,6 +1381,7 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `PmxFaceEditError` | Face 事务违反拓扑或 Material 连续范围约束 |
 | `PmxMorphEditError` | Morph 事务违反 item、类型、引用或编辑范围约束 |
 | `PmxFrameEditError` | Display Frame 事务违反 item 引用或 special frame 约束 |
+| `PmxTransactionError` | 组合模型事务在验证、重映射、strict 重解析或原子提交时失败 |
 | `UnsupportedPmxFeatureError` | 已识别的 PMX 版本/模式尚未实现，包含 `feature`、`available` |
 
 ```python

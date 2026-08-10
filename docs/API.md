@@ -355,6 +355,53 @@ equality. Invalid scope, reference, ordering, or field changes raise the matchin
 `PmxVertexEditError`, `PmxFaceEditError`, `PmxMorphEditError`, or
 `PmxFrameEditError`. Soft Body record editing remains unsupported.
 
+#### `pypmxvmd.edit_pmx(source, *, output_path=None) -> PmxEditTransaction`
+
+Create one model-level transaction for composing operations that change several
+PMX collections. `source` accepts a `PmxModel`, `PmxDocument`, or a PMX path.
+All edits are made on a deep copy. Normal `with` exit validates the whole model,
+canonical-encodes it, strict-reparses it, and atomically writes `output_path`;
+an exception rolls back and leaves the target untouched. A path source cannot be
+written back to itself.
+
+```python
+from pypmxvmd.common.pmx import MorphPanel
+
+with pypmxvmd.edit_pmx("body.pmx", output_path="skirt.pmx") as tx:
+    skirt_bone = tx.add_bone(name_jp="裙骨", parent_index=0)
+    tx.paint_weights([120, 121, 122], skirt_bone, 0.8)
+    tx.add_vertex_morph(
+        name_jp="裙摆",
+        offsets={120: [0.0, 0.15, 0.0]},
+        panel=MorphPanel.OTHER,
+        display_frame_index=1,
+    )
+    tx.merge_part("clothes.pmx")
+
+result = tx.result
+assert result is not None
+```
+
+`add_bone()`/`append_bone()` append a validated Bone and return its index.
+`bone(index)` returns the transaction-local Bone so existing fields can be
+modified inside the same `with` block; the final commit validates all conditional
+fields and references together.
+`set_weight()` accepts explicit BDEF1/BDEF2/BDEF4/SDEF/QDEF layouts; QDEF is
+restricted to PMX 2.1. `paint_weights()`/`set_vertex_weights()` paint a target
+bone over a vertex collection, preserving the strongest previous influence as
+the complementary BDEF2 weight by default. `add_morph()` accepts a typed
+`PmxMorph`; `add_vertex_morph()` is a vertex-offset convenience API and can add
+the new morph to a Display Frame so PMXEditor can show it in the T panel.
+
+`merge_part()` is atomic within the open transaction: a rejected part restores the
+transaction-local model, even when the caller catches the exception. It remaps
+Vertex, Texture, Material, Bone, Morph, Rigid Body, Joint,
+Soft Body, Morph item, and Display Frame references. Bones are matched by
+Japanese/English name; other records are appended. It returns the core applied
+index mappings. Display Frames are included by default; pass `include_frames=False`
+only when the part has no frames. Version upgrades, invalid references, or any
+unsafe structure fail with `PmxTransactionError` instead of dropping data.
+
 ---
 
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
@@ -412,6 +459,7 @@ occur before replacing the target.
 | Edit existing Joint records | Yes (PMX 2.0 Spring 6DOF) | Transactional variable-record replacement |
 | Edit existing Material records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Edit Vertex/Face/Morph/Display Frame collections | Yes | Canonical W12 transaction with reference remapping |
+| Compose part/Bone/weight/Morph edits | Yes | Model-level `with` transaction and atomic canonical commit |
 | Write `preserve_layout` | No | Fail closed |
 
 ---
@@ -1094,6 +1142,7 @@ PyPMXVMD uses standard Python exceptions:
 | `PmxFaceEditError` | A Face transaction violated topology or Material-range constraints |
 | `PmxMorphEditError` | A Morph transaction violated item, type, reference, or scope constraints |
 | `PmxFrameEditError` | A Display Frame transaction violated item references or special-frame constraints |
+| `PmxTransactionError` | A composed model transaction failed validation, remapping, strict reparse, or atomic commit |
 | `UnsupportedPmxFeatureError` | A recognized PMX version/mode is not implemented; exposes `feature` and `available` |
 | `IOError` | I/O error |
 

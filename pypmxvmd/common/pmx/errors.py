@@ -93,6 +93,10 @@ class PmxFrameEditError(PmxPatchError):
     """A transactional Display Frame edit violated the W12 safety contract."""
 
 
+class PmxTransactionError(PmxPatchError):
+    """A model-level PMX transaction could not be safely committed."""
+
+
 class UnsupportedPmxFeatureError(PmxError):
     """A recognized PMX mode or format feature is not implemented yet."""
 

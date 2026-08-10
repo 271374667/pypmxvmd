@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         PmxVertexEditor,
     )
     from pypmxvmd.common.pmx.report import PmxParseReport
+    from pypmxvmd.common.pmx.transaction import PmxEditTransaction
 
 
 FieldValueType = Literal["float", "float_vector", "int", "index", "enum", "flags"]
@@ -186,6 +187,7 @@ class PmxDocument:
         "_record_span_by_name",
         "_limits",
         "_baseline_model",
+        "_source_path",
     )
 
     def __init__(
@@ -197,6 +199,7 @@ class PmxDocument:
         field_spans: Sequence[BinarySpan],
         record_spans: Sequence["PmxByteSpan"] = (),
         limits: PmxLimits = DEFAULT_PMX_LIMITS,
+        source_path: str | Path | None = None,
     ) -> None:
         if type(source_bytes) is not bytes:
             raise TypeError("PmxDocument source_bytes must be immutable bytes")
@@ -237,6 +240,9 @@ class PmxDocument:
         self._record_span_by_name = self._index_record_spans(record_spans)
         self._limits = limits
         self._baseline_model = deepcopy(model)
+        self._source_path = (
+            Path(source_path).resolve() if source_path is not None else None
+        )
 
     @classmethod
     def from_file(
@@ -275,6 +281,7 @@ class PmxDocument:
             field_spans=result.field_spans,
             record_spans=result.record_spans,
             limits=limits,
+            source_path=file_path,
         )
 
     @property
@@ -294,6 +301,11 @@ class PmxDocument:
     def limits(self) -> PmxLimits:
         """Resource limits inherited by verified document operations."""
         return self._limits
+
+    @property
+    def source_path(self) -> Path | None:
+        """Resolved source path when this document came from a file."""
+        return self._source_path
 
     def edit_bones(self) -> "PmxBoneEditor":
         """Create an isolated transaction for editing existing Bone records."""
@@ -342,6 +354,14 @@ class PmxDocument:
         from pypmxvmd.common.pmx.editing import PmxFrameEditor
 
         return PmxFrameEditor(self)
+
+    def transaction(
+        self, *, output_path: str | Path | None = None
+    ) -> "PmxEditTransaction":
+        """Create one composable model-level ``with`` transaction."""
+        from pypmxvmd.common.pmx.transaction import PmxEditTransaction
+
+        return PmxEditTransaction(self, output_path=output_path)
 
     def span_for(self, field_path: str | FieldPath) -> BinarySpan:
         path = (
