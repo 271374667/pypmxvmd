@@ -406,6 +406,37 @@ PMX 没有显式的 Part 记录，因此边界采用每个 Material 连续的 fa
 
 ---
 
+#### 换装观察、提取与批量变体 API
+
+`analyze_part(model, selection=..., dependency_policy="closed")` 只读生成跨
+Material/Face/Vertex/Bone/Morph/Display Frame/Rigid Body/Joint/Soft Body 的依赖闭包。
+`PmxDependencyGraph.report` 可直接 JSON 序列化；非法引用、循环、歧义和深度截断会进入
+`unresolved`，不会被静默裁剪。`project` 会把被裁剪引用记录为 warning，`explicit` 要求
+调用方显式提供每一条依赖。
+
+`extract_part()` 会按 Material 连续范围重排 face，返回所有 section 的 source-to-part
+索引映射，并在返回前执行 canonical writer 与 strict reparse。`bind_part_to_target()`
+支持显式/日文名/英文名/alias 绑定和 `PmxCoordinateTransform`；未匹配源骨骼默认追加，
+缺失的显式目标按 `missing` 策略 fail-closed。
+
+批量输出使用 `PmxVariantBuilder`：
+
+```python
+builder = pypmxvmd.PmxVariantBuilder(
+    target="body_target.pmx",
+    source="clothing_source.pmx",
+    selection=pypmxvmd.PmxPartSelection(material_names=("上衣",)),
+)
+builder.add_variant("p1", morph_state={"上着P2": 0.0}, output_path="p1.pmx")
+result = builder.build()
+```
+
+每个变体从同一个 target 快照开始，所有输出先预检、编码后再原子替换；输出路径不能覆盖
+输入文件，默认也不能覆盖已有输出。PMX 2.1 的 Flip/Impulse Morph 和 Soft Body 高层
+提取/烘焙语义尚未实现，相关请求会明确失败。
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 集中验证 PMX 语义且不依赖 `assert`。当前覆盖 PMX 2.0 权重布局、条件字段、跨 section

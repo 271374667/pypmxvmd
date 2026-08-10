@@ -37,6 +37,7 @@ from pypmxvmd.common.models.pmx import (
 )
 from pypmxvmd.common.pmx.document import PmxDocument
 from pypmxvmd.common.pmx.errors import (
+    PmxAssemblyError,
     PmxCapabilityError,
     PmxComparisonError,
     PmxError,
@@ -56,7 +57,7 @@ def _json(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.name.lower()
     if hasattr(value, "to_dict"):
-        return value.to_dict()
+        return _json(value.to_dict())
     if hasattr(value, "__dataclass_fields__"):
         return {k: _json(v) for k, v in asdict(value).items()}
     if isinstance(value, Mapping):
@@ -263,6 +264,31 @@ class PmxDependencyGraph:
     def to_dict(self) -> dict[str, Any]:
         return _json(asdict(self))
 
+    @property
+    def report(self) -> Mapping[str, Any]:
+        """Return a stable machine-readable dependency report."""
+        selected = {kind: tuple(indexes) for kind, indexes in self.selected.items()}
+        referenced = {
+            kind: {
+                index: tuple(ref.stable_key for ref in refs)
+                for index, refs in values.items()
+            }
+            for kind, values in self.dependencies.items()
+        }
+        return _json(
+            {
+                "schema_version": self.schema_version,
+                "source": self.source,
+                "policy": self.policy,
+                "selected": selected,
+                "references": referenced,
+                "chains": self.chains,
+                "unresolved": self.unresolved,
+                "warnings": self.warnings,
+                "ready": self.ready,
+            }
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class PmxMorphState:
@@ -413,6 +439,8 @@ class PmxPartSelection:
     rigid_body_indices: tuple[int, ...] = ()
     joint_indices: tuple[int, ...] = ()
     soft_body_indices: tuple[int, ...] = ()
+    texture_indices: tuple[int, ...] = ()
+    frame_indices: tuple[int, ...] = ()
     include_display_frames: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -459,9 +487,27 @@ class PmxCoordinateTransform:
     def apply(self, position: Sequence[float]) -> list[float]:
         if len(position) != 3:
             raise ValueError("position must be a vec3")
+        scaled = [float(value) * self.scale for value in position]
+        if self.rotation is not None:
+            x, y, z, w = (float(value) for value in self.rotation)
+            norm = math.sqrt(x * x + y * y + z * z + w * w)
+            if norm == 0.0:
+                raise ValueError("rotation quaternion cannot be zero")
+            x, y, z, w = (value / norm for value in (x, y, z, w))
+            px, py, pz = scaled
+            scaled = [
+                (1 - 2 * (y * y + z * z)) * px
+                + 2 * (x * y - z * w) * py
+                + 2 * (x * z + y * w) * pz,
+                2 * (x * y + z * w) * px
+                + (1 - 2 * (x * x + z * z)) * py
+                + 2 * (y * z - x * w) * pz,
+                2 * (x * z - y * w) * px
+                + 2 * (y * z + x * w) * py
+                + (1 - 2 * (x * x + y * y)) * pz,
+            ]
         return [
-            float(value) * self.scale + self.translation[index]
-            for index, value in enumerate(position)
+            value + float(self.translation[index]) for index, value in enumerate(scaled)
         ]
 
     def to_dict(self) -> dict[str, Any]:
@@ -474,6 +520,16 @@ class PmxResourcePolicy:
     texture_path_conflict: str = "rename_and_report"
     materials: str = "append"
     display_frames: str = "merge_named"
+
+    def __post_init__(self) -> None:
+        if self.textures not in {"deduplicate_exact", "append", "error"}:
+            raise ValueError("textures must be deduplicate_exact, append, or error")
+        if self.texture_path_conflict not in {"rename_and_report", "error", "keep"}:
+            raise ValueError("invalid texture_path_conflict")
+        if self.materials not in {"append", "error"}:
+            raise ValueError("materials must be append or error")
+        if self.display_frames not in {"merge_named", "append", "drop"}:
+            raise ValueError("invalid display_frames policy")
 
     def to_dict(self) -> dict[str, Any]:
         return _json(asdict(self))
@@ -488,6 +544,16 @@ class PmxRemovalPolicy:
     orphan_vertices: str = "keep"
     morph_references: str = "error"
 
+    def __post_init__(self) -> None:
+        for field_name in ("bones", "rigid_bodies", "joints"):
+            value = getattr(self, field_name)
+            if value not in {"keep", "dependency_only", "drop_explicit", "error"}:
+                raise ValueError(f"invalid {field_name} removal policy")
+        if self.orphan_vertices not in {"keep", "compact_if_safe", "error"}:
+            raise ValueError("invalid orphan_vertices removal policy")
+        if self.morph_references not in {"keep", "error", "drop"}:
+            raise ValueError("invalid morph_references removal policy")
+
     def to_dict(self) -> dict[str, Any]:
         return _json(asdict(self))
 
@@ -498,9 +564,237 @@ class PmxVariantSpec:
     morph_state: Mapping[str | int, float] = field(default_factory=dict)
     mode: str = "static"
     output_path: str | Path | None = None
+    display_frames: str = "merge_named"
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("variant name is required")
+        if self.mode not in {"static", "preserve_controls", "hybrid"}:
+            raise ValueError("invalid variant mode")
+        if self.display_frames not in {"merge_named", "append", "drop"}:
+            raise ValueError("invalid display_frames policy")
 
     def to_dict(self) -> dict[str, Any]:
         return _json(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class PmxVariantResult:
+    name: str
+    model: PmxModel
+    mode: str
+    output_path: Path | None = None
+    report: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json(
+            {
+                "name": self.name,
+                "mode": self.mode,
+                "output_path": self.output_path,
+                "counts": _counts(self.model),
+                "report": self.report,
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PmxVariantBuildResult:
+    variants: tuple[PmxVariantResult, ...]
+    analysis: PmxDependencyGraph
+    mapping: Mapping[str, Mapping[int, int]]
+    diagnostics: tuple[PmxDiagnostic, ...] = ()
+
+    @property
+    def models(self) -> tuple[PmxModel, ...]:
+        return tuple(item.model for item in self.variants)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json(
+            {
+                "variants": tuple(item.to_dict() for item in self.variants),
+                "analysis": self.analysis.to_dict(),
+                "mapping": self.mapping,
+                "diagnostics": self.diagnostics,
+            }
+        )
+
+
+class PmxVariantBuilder:
+    """Build isolated PMX variants from one target/source snapshot.
+
+    Every variant starts from the same target model.  Analysis, extraction,
+    binding, Morph evaluation and assembly happen before any output path is
+    replaced, so one failed variant cannot contaminate the others or leave a
+    partial batch behind.
+    """
+
+    def __init__(
+        self,
+        *,
+        target: PmxModel | PmxDocument | str | Path,
+        source: PmxModel | PmxDocument | str | Path,
+        selection: PmxPartSelection,
+        dependency_policy: str = "closed",
+        bone_binding: PmxBoneBinding | None = None,
+        transform: PmxCoordinateTransform | None = None,
+        removal_policy: PmxRemovalPolicy | None = None,
+        resource_policy: PmxResourcePolicy | None = None,
+        output_policy: str = "error_if_exists",
+        max_variants: int = 10,
+    ) -> None:
+        if output_policy not in {"error_if_exists", "overwrite"}:
+            raise ValueError("output_policy must be error_if_exists or overwrite")
+        if isinstance(max_variants, bool) or not 1 <= max_variants <= 10:
+            raise ValueError("max_variants must be between 1 and 10")
+        self.target = target
+        self.source = source
+        self.selection = selection
+        self.dependency_policy = dependency_policy
+        self.bone_binding = bone_binding or PmxBoneBinding()
+        self.transform = transform
+        self.removal_policy = removal_policy or PmxRemovalPolicy()
+        self.resource_policy = resource_policy or PmxResourcePolicy()
+        self.output_policy = output_policy
+        self.max_variants = max_variants
+        self._variants: list[PmxVariantSpec] = []
+
+    @property
+    def variants(self) -> tuple[PmxVariantSpec, ...]:
+        return tuple(self._variants)
+
+    def add_variant(
+        self,
+        name: str | PmxVariantSpec,
+        *,
+        morph_state: Mapping[str | int, float] | None = None,
+        mode: str = "static",
+        output_path: str | Path | None = None,
+        display_frames: str | None = None,
+    ) -> "PmxVariantBuilder":
+        if len(self._variants) >= self.max_variants:
+            raise PmxCapabilityError(
+                f"a batch may contain at most {self.max_variants} variants"
+            )
+        spec = (
+            name
+            if isinstance(name, PmxVariantSpec)
+            else PmxVariantSpec(
+                str(name),
+                morph_state or {},
+                mode,
+                output_path,
+                display_frames or self.resource_policy.display_frames,
+            )
+        )
+        if any(item.name == spec.name for item in self._variants):
+            raise PmxQueryError(f"duplicate variant name {spec.name!r}")
+        self._variants.append(spec)
+        return self
+
+    def build(self) -> PmxVariantBuildResult:
+        if not self._variants:
+            raise PmxQueryError("at least one variant is required")
+        target_model, target_snapshot = _input_model(self.target)
+        source_model, source_snapshot = _input_model(self.source)
+        analysis = analyze_part(
+            source_model,
+            selection=self.selection,
+            dependency_policy=self.dependency_policy,
+        )
+        analysis.require_ready()
+        extracted = extract_part(source_model, analysis=analysis)
+        bound = bind_part_to_target(
+            extracted,
+            target_model,
+            bone_binding=self.bone_binding,
+            transform=self.transform,
+        )
+        variants: list[PmxVariantResult] = []
+        encoded: list[tuple[Path, bytes]] = []
+        planned_outputs: set[Path] = set()
+        input_paths = {
+            Path(path).resolve()
+            for path in (target_snapshot.path, source_snapshot.path)
+            if path
+        }
+        for spec in self._variants:
+            state = PmxMorphState.from_names(
+                bound.model,
+                spec.morph_state,
+                unknown="error",
+            )
+            baked = bake_morph_state(
+                bound.model,
+                state,
+                mode=spec.mode,
+                unsupported="error",
+            )
+            assembled = assemble_part(
+                target_model,
+                baked.model,
+                removal_policy=self.removal_policy,
+                resource_policy=self.resource_policy,
+                display_frame_policy=spec.display_frames,
+            )
+            reparsed = _strict_model_roundtrip(assembled.model)
+            output = (
+                Path(spec.output_path).expanduser().resolve()
+                if spec.output_path
+                else None
+            )
+            if output is not None:
+                if output in input_paths:
+                    raise PmxPlanError(
+                        f"variant output cannot overwrite an input: {output}"
+                    )
+                if output.exists() and self.output_policy == "error_if_exists":
+                    raise PmxPlanError(f"variant output already exists: {output}")
+                if output in planned_outputs:
+                    raise PmxPlanError(f"duplicate variant output path: {output}")
+                planned_outputs.add(output)
+                from pypmxvmd.common.pmx.writer import PmxWriter
+
+                encoded.append((output, PmxWriter().encode(reparsed)))
+            variants.append(
+                PmxVariantResult(
+                    spec.name,
+                    reparsed,
+                    spec.mode,
+                    output,
+                    _json(
+                        {
+                            "target": target_snapshot.to_dict(),
+                            "source": source_snapshot.to_dict(),
+                            "state": state.to_dict(),
+                            "bake": baked.to_dict(),
+                            "assembly": assembled.to_dict(),
+                            "strict_roundtrip": True,
+                        }
+                    ),
+                )
+            )
+        temporary_paths: list[Path] = []
+        try:
+            for output, payload in encoded:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                fd, name = tempfile.mkstemp(
+                    prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+                )
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(payload)
+                temporary_paths.append(Path(name))
+            for temporary, (output, _) in zip(temporary_paths, encoded):
+                os.replace(temporary, output)
+        finally:
+            for temporary in temporary_paths:
+                temporary.unlink(missing_ok=True)
+        return PmxVariantBuildResult(
+            tuple(variants),
+            analysis,
+            {**extracted.mapping, "bone_binding": dict(bound.mapping.get("bone", {}))},
+            tuple(analysis.unresolved) + tuple(analysis.warnings),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1218,229 +1512,578 @@ def analyze_part(
     model, snapshot = _input_model(model_or_path)
     if dependency_policy not in {"closed", "project", "explicit", "keep_orphans"}:
         raise ValueError("unknown dependency policy")
-    selected: dict[str, set[int]] = {
-        key: set()
-        for key in (
-            "vertex",
-            "face",
-            "material",
-            "texture",
-            "bone",
-            "morph",
-            "frame",
-            "rigid_body",
-            "joint",
-            "soft_body",
-        )
-    }
-    selected["material"].update(
-        i for i in selection.material_indices if 0 <= i < len(model.materials)
+    if isinstance(max_depth, bool) or max_depth <= 0:
+        raise ValueError("max_depth must be a positive integer")
+
+    kinds = (
+        "vertex",
+        "face",
+        "material",
+        "texture",
+        "bone",
+        "morph",
+        "frame",
+        "rigid_body",
+        "joint",
+        "soft_body",
     )
+    selected: dict[str, set[int]] = {kind: set() for kind in kinds}
+    unresolved: list[PmxDiagnostic] = []
+    warnings: list[PmxDiagnostic] = []
+    diagnostic_keys: set[tuple[str, str | None]] = set()
+    counts = _counts(model)
+
+    def diagnostic(
+        severity: str,
+        code: str,
+        message: str,
+        field_path: str | None = None,
+        *,
+        action_required: bool = False,
+    ) -> None:
+        key = (code, field_path or message)
+        if key in diagnostic_keys:
+            return
+        diagnostic_keys.add(key)
+        item = PmxDiagnostic(
+            severity, code, message, field_path, action_required=action_required
+        )
+        (unresolved if severity == "error" else warnings).append(item)
+
+    def add_root(kind: str, values: Iterable[int]) -> None:
+        for value in values:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value < counts[kind]
+            ):
+                diagnostic(
+                    "error",
+                    "invalid_selection",
+                    f"{kind} index {value!r} is out of range",
+                    f"{kind}s",
+                )
+            else:
+                selected[kind].add(value)
+
+    add_root("material", selection.material_indices)
+    add_root("face", selection.face_indices)
+    add_root("vertex", selection.vertex_indices)
+    add_root("bone", selection.bone_indices)
+    add_root("morph", selection.morph_indices)
+    add_root("rigid_body", selection.rigid_body_indices)
+    add_root("joint", selection.joint_indices)
+    add_root("soft_body", selection.soft_body_indices)
+    add_root("texture", selection.texture_indices)
+    add_root("frame", selection.frame_indices)
     for name in selection.material_names:
         matches = [i for i, item in enumerate(model.materials) if name in _name(item)]
         if len(matches) == 1:
             selected["material"].add(matches[0])
-        elif not matches:
-            selected["material"].add(-1)
-    selected["face"].update(
-        i for i in selection.face_indices if 0 <= i < len(model.faces)
-    )
-    selected["vertex"].update(
-        i for i in selection.vertex_indices if 0 <= i < len(model.vertices)
-    )
-    selected["bone"].update(
-        i for i in selection.bone_indices if 0 <= i < len(model.bones)
-    )
-    selected["morph"].update(
-        i for i in selection.morph_indices if 0 <= i < len(model.morphs)
-    )
-    for name in selection.include_morph_names:
-        selected["morph"].update(
-            i for i, item in enumerate(model.morphs) if name in _name(item)
-        )
-    selected["rigid_body"].update(
-        i for i in selection.rigid_body_indices if 0 <= i < len(model.rigidbodies)
-    )
-    selected["joint"].update(
-        i for i in selection.joint_indices if 0 <= i < len(model.joints)
-    )
-    selected["soft_body"].update(
-        i for i in selection.soft_body_indices if 0 <= i < len(model.softbodies)
-    )
-    cursor = 0
-    material_ranges: dict[int, range] = {}
-    for i, material in enumerate(model.materials):
-        start = cursor // 3
-        material_ranges[i] = range(
-            start, min(start + material.face_count // 3, len(model.faces))
-        )
-        cursor += material.face_count
-    for material in selected["material"]:
-        if material in material_ranges:
-            selected["face"].update(material_ranges[material])
-    for face in tuple(selected["face"]):
-        selected["vertex"].update(
-            v for v in model.faces[face] if 0 <= v < len(model.vertices)
-        )
-    for vertex in tuple(selected["vertex"]):
-        for item in model.vertices[vertex].weight:
-            if item and isinstance(item[0], int) and 0 <= item[0] < len(model.bones):
-                selected["bone"].add(item[0])
-    changed = False
-    depth = 0
-    if dependency_policy == "closed":
-        changed = True
-        while changed and depth < max_depth:
-            changed = False
-            depth += 1
-            for bone in tuple(selected["bone"]):
-                parent = (
-                    model.bones[bone].parent_index
-                    if 0 <= bone < len(model.bones)
-                    else -1
-                )
-                if 0 <= parent < len(model.bones) and parent not in selected["bone"]:
-                    selected["bone"].add(parent)
-                    changed = True
-                for rigid, body in enumerate(model.rigidbodies):
-                    if body.bone_index == bone:
-                        selected["rigid_body"].add(rigid)
-            for rigid, body in enumerate(model.rigidbodies):
-                if rigid in selected["rigid_body"]:
-                    for joint, item in enumerate(model.joints):
-                        if (
-                            item.rigidbody1_index == rigid
-                            or item.rigidbody2_index == rigid
-                        ):
-                            selected["joint"].add(joint)
-            for morph in tuple(selected["morph"]):
-                if 0 <= morph < len(model.morphs) and model.morphs[
-                    morph
-                ].morph_type in (MorphType.GROUP, MorphType.FLIP):
-                    for item in model.morphs[morph].items:
-                        if 0 <= item.morph_index < len(model.morphs):
-                            selected["morph"].add(item.morph_index)
-    for material in selected["material"]:
-        if 0 <= material < len(model.materials):
-            item = model.materials[material]
-            for path in (item.texture_path, item.sphere_path, item.toon_path):
-                if path in model.textures:
-                    selected["texture"].add(model.textures.index(path))
-    # Morph targets are part of a closed selection.  Pull their direct target
-    # resources into the graph before building the dependency report.
-    for morph_index in tuple(selected["morph"]):
-        if not 0 <= morph_index < len(model.morphs):
-            continue
-        morph = model.morphs[morph_index]
-        for item in morph.items:
-            if isinstance(item, PmxMorphItemVertex | PmxMorphItemUv):
-                if 0 <= item.vertex_index < len(model.vertices):
-                    selected["vertex"].add(item.vertex_index)
-            elif isinstance(item, PmxMorphItemBone) and 0 <= item.bone_index < len(
-                model.bones
-            ):
-                selected["bone"].add(item.bone_index)
-            elif isinstance(
-                item, PmxMorphItemMaterial
-            ) and 0 <= item.material_index < len(model.materials):
-                selected["material"].add(item.material_index)
-            elif isinstance(
-                item, PmxMorphItemImpulse
-            ) and 0 <= item.rigidbody_index < len(model.rigidbodies):
-                selected["rigid_body"].add(item.rigidbody_index)
-    if selection.include_display_frames:
-        for frame, item in enumerate(model.frames):
-            if any(
-                (not ref.is_morph and ref.index in selected["bone"])
-                or (ref.is_morph and ref.index in selected["morph"])
-                for ref in item.items
-            ):
-                selected["frame"].add(frame)
-    unresolved: list[PmxDiagnostic] = []
-    if -1 in selected["material"]:
-        unresolved.append(
-            PmxDiagnostic(
+        elif len(matches) > 1:
+            diagnostic(
+                "error",
+                "ambiguous_material",
+                f"material name {name!r} matched {matches}",
+                "materials",
+            )
+        else:
+            diagnostic(
                 "error",
                 "unknown_material",
-                "selected material name was not found",
+                f"material name {name!r} was not found",
                 "materials",
-                action_required=True,
             )
-        )
-        selected["material"].discard(-1)
-    if depth >= max_depth and changed:
-        unresolved.append(
-            PmxDiagnostic(
+    for name in selection.include_morph_names:
+        matches = [i for i, item in enumerate(model.morphs) if name in _name(item)]
+        if len(matches) == 1:
+            selected["morph"].add(matches[0])
+        elif len(matches) > 1:
+            diagnostic(
                 "error",
-                "dependency_depth",
-                f"dependency closure exceeded max depth {max_depth}",
+                "ambiguous_morph",
+                f"morph name {name!r} matched {matches}",
+                "morphs",
+            )
+        else:
+            diagnostic(
+                "error", "unknown_morph", f"morph name {name!r} was not found", "morphs"
+            )
+
+    # PMX stores material ownership as contiguous face ranges.  Keep the
+    # ownership table explicit so arbitrary face selections cannot silently
+    # produce a mismatched Material.face_count.
+    face_material: dict[int, int] = {}
+    cursor = 0
+    for material_index, material in enumerate(model.materials):
+        for face_index in range(
+            cursor // 3, min((cursor + material.face_count) // 3, len(model.faces))
+        ):
+            face_material[face_index] = material_index
+        cursor += material.face_count
+    for material_index in tuple(selected["material"]):
+        selected["face"].update(
+            face for face, owner in face_material.items() if owner == material_index
+        )
+    for face_index in tuple(selected["face"]):
+        owner = face_material.get(face_index)
+        if owner is None:
+            diagnostic(
+                "error",
+                "unowned_face",
+                f"face {face_index} is outside Material ranges",
+                f"faces[{face_index}]",
+            )
+        elif owner not in selected["material"]:
+            if dependency_policy == "closed":
+                selected["material"].add(owner)
+            elif dependency_policy in {"project", "keep_orphans"}:
+                selected["material"].add(owner)
+                warnings.append(
+                    PmxDiagnostic(
+                        "warning",
+                        "material_added_for_face",
+                        f"Material {owner} was added to represent selected face {face_index}",
+                        f"faces[{face_index}]",
+                    )
+                )
+            else:
+                diagnostic(
+                    "error",
+                    "face_material_omitted",
+                    f"selected face {face_index} requires Material {owner}",
+                    f"faces[{face_index}]",
+                    action_required=True,
+                )
+        selected["vertex"].update(
+            v
+            for v in model.faces[face_index]
+            if isinstance(v, int) and 0 <= v < len(model.vertices)
+        )
+
+    def follow(kind: str, index: int, owner: str, *, optional: bool = False) -> None:
+        if index < 0:
+            if not optional:
+                diagnostic(
+                    "error",
+                    "invalid_reference",
+                    f"{owner} references invalid {kind} {index}",
+                    owner,
+                    action_required=True,
+                )
+            return
+        if index >= counts[kind]:
+            diagnostic(
+                "error",
+                "invalid_reference",
+                f"{owner} references missing {kind} {index}",
+                owner,
                 action_required=True,
             )
+            return
+        if index in selected[kind]:
+            return
+        if dependency_policy in {"closed", "keep_orphans"}:
+            selected[kind].add(index)
+        elif dependency_policy == "explicit":
+            diagnostic(
+                "error",
+                "omitted_dependency",
+                f"{owner} requires {kind} {index} under explicit policy",
+                owner,
+                action_required=True,
+            )
+        elif dependency_policy == "project":
+            warnings.append(
+                PmxDiagnostic(
+                    "warning",
+                    "projected_dependency",
+                    f"{owner} dependency {kind} {index} was projected out",
+                    owner,
+                )
+            )
+
+    def scan() -> bool:
+        before = sum(len(values) for values in selected.values())
+        for index in tuple(selected["face"]):
+            if 0 <= index < len(model.faces):
+                for vertex in model.faces[index]:
+                    follow("vertex", int(vertex), f"faces[{index}]")
+                if index in face_material:
+                    follow("material", face_material[index], f"faces[{index}]")
+        for index in tuple(selected["vertex"]):
+            if not 0 <= index < len(model.vertices):
+                continue
+            for weight in model.vertices[index].weight:
+                if weight and int(weight[0]) >= 0:
+                    follow("bone", int(weight[0]), f"vertices[{index}].weight")
+            for soft_index, soft in enumerate(model.softbodies):
+                if (
+                    any(a.vertex_index == index for a in soft.anchors)
+                    or index in soft.pin_vertex_indices
+                ):
+                    follow("soft_body", soft_index, f"soft_bodies[{soft_index}]")
+        for index in tuple(selected["material"]):
+            if not 0 <= index < len(model.materials):
+                continue
+            material = model.materials[index]
+            for field_name, texture_index in (
+                ("texture_index", material.texture_index),
+                ("sphere_texture_index", material.sphere_texture_index),
+            ):
+                if texture_index >= 0:
+                    follow("texture", texture_index, f"materials[{index}].{field_name}")
+            if (
+                material.toon_sharing.name.lower() != "shared"
+                and material.toon_texture_index >= 0
+            ):
+                follow(
+                    "texture",
+                    material.toon_texture_index,
+                    f"materials[{index}].toon_texture_index",
+                )
+            for morph_index, morph in enumerate(model.morphs):
+                if any(
+                    isinstance(item, PmxMorphItemMaterial)
+                    and item.material_index == index
+                    for item in morph.items
+                ):
+                    follow("morph", morph_index, f"morphs[{morph_index}].items")
+        for index in tuple(selected["bone"]):
+            if not 0 <= index < len(model.bones):
+                continue
+            bone = model.bones[index]
+            for field_name, value in (
+                ("parent_index", bone.parent_index),
+                ("tail_bone_index", getattr(bone, "tail_bone_index", None)),
+                ("inherit_parent_index", bone.inherit_parent_index),
+                ("external_parent_index", bone.external_parent_index),
+                ("ik_target_index", bone.ik_target_index),
+            ):
+                if value is not None and int(value) >= 0:
+                    follow("bone", int(value), f"bones[{index}].{field_name}")
+            for link_index, link in enumerate(bone.ik_links):
+                if link.bone_index >= 0:
+                    follow(
+                        "bone",
+                        link.bone_index,
+                        f"bones[{index}].ik_links[{link_index}]",
+                    )
+            for rigid_index, rigid in enumerate(model.rigidbodies):
+                if rigid.bone_index == index:
+                    follow(
+                        "rigid_body",
+                        rigid_index,
+                        f"rigid_bodies[{rigid_index}].bone_index",
+                    )
+            for morph_index, morph in enumerate(model.morphs):
+                if any(
+                    isinstance(item, PmxMorphItemBone) and item.bone_index == index
+                    for item in morph.items
+                ):
+                    follow("morph", morph_index, f"morphs[{morph_index}].items")
+        for index in tuple(selected["morph"]):
+            if not 0 <= index < len(model.morphs):
+                continue
+            morph = model.morphs[index]
+            for item_index, item in enumerate(morph.items):
+                owner = f"morphs[{index}].items[{item_index}]"
+                if isinstance(item, (PmxMorphItemGroup, PmxMorphItemFlip)):
+                    follow("morph", item.morph_index, owner)
+                elif isinstance(item, (PmxMorphItemVertex, PmxMorphItemUv)):
+                    follow("vertex", item.vertex_index, owner)
+                elif isinstance(item, PmxMorphItemBone):
+                    follow("bone", item.bone_index, owner)
+                elif (
+                    isinstance(item, PmxMorphItemMaterial) and item.material_index >= 0
+                ):
+                    follow("material", item.material_index, owner)
+                elif isinstance(item, PmxMorphItemImpulse):
+                    follow("rigid_body", item.rigidbody_index, owner)
+            if selection.include_display_frames:
+                for frame_index, frame in enumerate(model.frames):
+                    if any(ref.is_morph and ref.index == index for ref in frame.items):
+                        follow("frame", frame_index, f"frames[{frame_index}].items")
+        for index in tuple(selected["rigid_body"]):
+            if not 0 <= index < len(model.rigidbodies):
+                continue
+            rigid = model.rigidbodies[index]
+            follow(
+                "bone",
+                rigid.bone_index,
+                f"rigid_bodies[{index}].bone_index",
+                optional=True,
+            )
+            for joint_index, joint in enumerate(model.joints):
+                if index in (joint.rigidbody1_index, joint.rigidbody2_index):
+                    follow("joint", joint_index, f"joints[{joint_index}]")
+            for soft_index, soft in enumerate(model.softbodies):
+                if any(anchor.rigidbody_index == index for anchor in soft.anchors):
+                    follow(
+                        "soft_body", soft_index, f"soft_bodies[{soft_index}].anchors"
+                    )
+        for index in tuple(selected["joint"]):
+            if not 0 <= index < len(model.joints):
+                continue
+            joint = model.joints[index]
+            follow(
+                "rigid_body",
+                joint.rigidbody1_index,
+                f"joints[{index}].rigidbody1_index",
+                optional=True,
+            )
+            follow(
+                "rigid_body",
+                joint.rigidbody2_index,
+                f"joints[{index}].rigidbody2_index",
+                optional=True,
+            )
+        for index in tuple(selected["soft_body"]):
+            if not 0 <= index < len(model.softbodies):
+                continue
+            soft = model.softbodies[index]
+            follow(
+                "material", soft.material_index, f"soft_bodies[{index}].material_index"
+            )
+            for anchor_index, anchor in enumerate(soft.anchors):
+                follow(
+                    "rigid_body",
+                    anchor.rigidbody_index,
+                    f"soft_bodies[{index}].anchors[{anchor_index}]",
+                )
+                follow(
+                    "vertex",
+                    anchor.vertex_index,
+                    f"soft_bodies[{index}].anchors[{anchor_index}]",
+                )
+            for pin_index, vertex_index in enumerate(soft.pin_vertex_indices):
+                follow(
+                    "vertex",
+                    vertex_index,
+                    f"soft_bodies[{index}].pin_vertex_indices[{pin_index}]",
+                )
+        for index in tuple(selected["frame"]):
+            if not 0 <= index < len(model.frames):
+                continue
+            for item_index, item in enumerate(model.frames[index].items):
+                follow(
+                    "morph" if item.is_morph else "bone",
+                    item.index,
+                    f"frames[{index}].items[{item_index}]",
+                )
+        return sum(len(values) for values in selected.values()) != before
+
+    depth = 0
+    changed = True
+    while (
+        changed
+        and depth < max_depth
+        and dependency_policy in {"closed", "keep_orphans"}
+    ):
+        changed = scan()
+        depth += 1
+    if changed and dependency_policy in {"closed", "keep_orphans"}:
+        diagnostic(
+            "error",
+            "dependency_depth",
+            f"dependency closure exceeded max depth {max_depth}",
+            action_required=True,
         )
+    if dependency_policy in {"project", "explicit"}:
+        scan()
+    if selection.include_display_frames and dependency_policy != "explicit":
+        for frame_index, frame in enumerate(model.frames):
+            if any(
+                (not item.is_morph and item.index in selected["bone"])
+                or (item.is_morph and item.index in selected["morph"])
+                for item in frame.items
+            ):
+                selected["frame"].add(frame_index)
+
+    # PMX 2.1 high-level Flip/Impulse and Soft Body semantics are deliberately
+    # reported as unsupported for extraction, even though canonical I/O exists.
+    if model.header.version >= 2.1:
+        for index in selected["morph"]:
+            if model.morphs[index].morph_type in (MorphType.FLIP, MorphType.IMPULSE):
+                diagnostic(
+                    "error",
+                    "unsupported_high_level_pmx21",
+                    f"PMX 2.1 Morph type {model.morphs[index].morph_type.name} is not supported by outfit extraction",
+                    f"morphs[{index}]",
+                    action_required=True,
+                )
+        if selected["soft_body"]:
+            diagnostic(
+                "error",
+                "unsupported_soft_body_extraction",
+                "Soft Body extraction/rewriting is not supported by the high-level outfit API",
+                "soft_bodies",
+                action_required=True,
+            )
+
+    # Detect Morph reference cycles deterministically.
+    visiting: list[int] = []
+    visited: set[int] = set()
+
+    def visit_morph(index: int) -> None:
+        if index in visiting:
+            cycle = " -> ".join(str(item) for item in visiting + [index])
+            diagnostic(
+                "error",
+                "morph_cycle",
+                f"Morph dependency cycle: {cycle}",
+                f"morphs[{index}]",
+                action_required=True,
+            )
+            return
+        if index in visited or not 0 <= index < len(model.morphs):
+            return
+        visiting.append(index)
+        morph = model.morphs[index]
+        if morph.morph_type in (MorphType.GROUP, MorphType.FLIP):
+            for item in morph.items:
+                visit_morph(item.morph_index)
+        visiting.pop()
+        visited.add(index)
+
+    for index in sorted(selected["morph"]):
+        visit_morph(index)
+
     dependencies: dict[str, dict[int, tuple[PmxResourceRef, ...]]] = {
-        kind: {} for kind in selected
+        kind: {} for kind in kinds
     }
     for kind, indexes in selected.items():
         for index in sorted(indexes):
             refs: list[PmxResourceRef] = []
             if kind == "face" and 0 <= index < len(model.faces):
                 refs.extend(
-                    _ref(model, "vertex", v, snapshot.source_id)
-                    for v in model.faces[index]
+                    _ref(model, "vertex", value, snapshot.source_id)
+                    for value in model.faces[index]
                 )
+                if index in face_material:
+                    refs.append(
+                        _ref(
+                            model, "material", face_material[index], snapshot.source_id
+                        )
+                    )
             elif kind == "vertex" and 0 <= index < len(model.vertices):
                 refs.extend(
-                    _ref(model, "bone", int(w[0]), snapshot.source_id)
-                    for w in model.vertices[index].weight
-                    if w and int(w[0]) >= 0
+                    _ref(model, "bone", int(weight[0]), snapshot.source_id)
+                    for weight in model.vertices[index].weight
+                    if weight and int(weight[0]) >= 0
                 )
             elif kind == "material" and 0 <= index < len(model.materials):
+                material = model.materials[index]
                 refs.extend(
-                    _ref(model, "texture", t, snapshot.source_id)
-                    for t in sorted(selected["texture"])
-                    if model.textures[t]
-                    in (
-                        model.materials[index].texture_path,
-                        model.materials[index].sphere_path,
-                        model.materials[index].toon_path,
+                    _ref(model, "texture", texture_index, snapshot.source_id)
+                    for texture_index in (
+                        material.texture_index,
+                        material.sphere_texture_index,
+                        material.toon_texture_index,
                     )
+                    if texture_index >= 0 and texture_index < len(model.textures)
                 )
             elif kind == "bone" and 0 <= index < len(model.bones):
-                parent = model.bones[index].parent_index
-                if parent >= 0:
-                    refs.append(_ref(model, "bone", parent, snapshot.source_id))
-            elif kind == "rigid_body" and 0 <= index < len(model.rigidbodies):
-                refs.append(
+                bone = model.bones[index]
+                values = [
+                    bone.parent_index,
+                    getattr(bone, "tail_bone_index", None),
+                    bone.inherit_parent_index,
+                    bone.external_parent_index,
+                    bone.ik_target_index,
+                ]
+                refs.extend(
+                    _ref(model, "bone", value, snapshot.source_id)
+                    for value in values
+                    if value is not None and value >= 0
+                )
+                refs.extend(
+                    _ref(model, "bone", link.bone_index, snapshot.source_id)
+                    for link in bone.ik_links
+                    if link.bone_index >= 0
+                )
+            elif kind == "morph" and 0 <= index < len(model.morphs):
+                for item in model.morphs[index].items:
+                    target_kind = None
+                    target_index = None
+                    if isinstance(item, (PmxMorphItemGroup, PmxMorphItemFlip)):
+                        target_kind, target_index = "morph", item.morph_index
+                    elif isinstance(item, (PmxMorphItemVertex, PmxMorphItemUv)):
+                        target_kind, target_index = "vertex", item.vertex_index
+                    elif isinstance(item, PmxMorphItemBone):
+                        target_kind, target_index = "bone", item.bone_index
+                    elif isinstance(item, PmxMorphItemMaterial):
+                        target_kind, target_index = "material", item.material_index
+                    elif isinstance(item, PmxMorphItemImpulse):
+                        target_kind, target_index = "rigid_body", item.rigidbody_index
+                    if (
+                        target_kind is not None
+                        and target_index is not None
+                        and target_index >= 0
+                    ):
+                        refs.append(
+                            _ref(model, target_kind, target_index, snapshot.source_id)
+                        )
+            elif kind == "frame" and 0 <= index < len(model.frames):
+                refs.extend(
                     _ref(
                         model,
-                        "bone",
-                        model.rigidbodies[index].bone_index,
+                        "morph" if item.is_morph else "bone",
+                        item.index,
                         snapshot.source_id,
                     )
+                    for item in model.frames[index].items
+                    if item.index >= 0
                 )
+            elif kind == "rigid_body" and 0 <= index < len(model.rigidbodies):
+                if model.rigidbodies[index].bone_index >= 0:
+                    refs.append(
+                        _ref(
+                            model,
+                            "bone",
+                            model.rigidbodies[index].bone_index,
+                            snapshot.source_id,
+                        )
+                    )
             elif kind == "joint" and 0 <= index < len(model.joints):
                 refs.extend(
-                    (
-                        _ref(
-                            model,
-                            "rigid_body",
-                            model.joints[index].rigidbody1_index,
-                            snapshot.source_id,
-                        ),
-                        _ref(
-                            model,
-                            "rigid_body",
-                            model.joints[index].rigidbody2_index,
-                            snapshot.source_id,
-                        ),
+                    _ref(model, "rigid_body", value, snapshot.source_id)
+                    for value in (
+                        model.joints[index].rigidbody1_index,
+                        model.joints[index].rigidbody2_index,
                     )
+                    if value >= 0
+                )
+            elif kind == "soft_body" and 0 <= index < len(model.softbodies):
+                soft = model.softbodies[index]
+                if soft.material_index >= 0:
+                    refs.append(
+                        _ref(model, "material", soft.material_index, snapshot.source_id)
+                    )
+                refs.extend(
+                    _ref(
+                        model, "rigid_body", anchor.rigidbody_index, snapshot.source_id
+                    )
+                    for anchor in soft.anchors
+                    if anchor.rigidbody_index >= 0
+                )
+                refs.extend(
+                    _ref(model, "vertex", anchor.vertex_index, snapshot.source_id)
+                    for anchor in soft.anchors
+                    if anchor.vertex_index >= 0
+                )
+                refs.extend(
+                    _ref(model, "vertex", value, snapshot.source_id)
+                    for value in soft.pin_vertex_indices
+                    if value >= 0
                 )
             dependencies[kind][index] = tuple(refs)
     return PmxDependencyGraph(
         snapshot.source_id,
-        {k: tuple(sorted(v)) for k, v in selected.items()},
+        {kind: tuple(sorted(indexes)) for kind, indexes in selected.items()},
         dependencies,
         tuple(unresolved),
+        tuple(warnings),
         policy=dependency_policy,
     )
 
@@ -1468,47 +2111,54 @@ def extract_part(
             "cannot extract unresolved part: "
             + "; ".join(item.message for item in graph.unresolved)
         )
-    selected = {kind: tuple(indexes) for kind, indexes in graph.selected.items()}
+    selected = {
+        kind: tuple(sorted(indexes)) for kind, indexes in graph.selected.items()
+    }
     if selected["face"] and not selected["material"]:
         raise PmxQueryError(
             "an extracted face selection must include its Material records"
         )
-    maps: dict[str, dict[int, int]] = {}
-    for kind in (
-        "vertex",
-        "material",
-        "bone",
-        "morph",
-        "frame",
-        "rigid_body",
-        "joint",
-        "soft_body",
-    ):
-        maps[kind] = {
-            old: new for new, old in enumerate(selected.get(kind, ())) if old >= 0
-        }
-    maps["texture"] = {
-        old: new for new, old in enumerate(selected.get("texture", ())) if old >= 0
+
+    # Reorder faces by their owning Material.  This is required by the PMX
+    # format, where Material.face_count describes one contiguous face range.
+    face_material: dict[int, int] = {}
+    for material_index in range(len(source.materials)):
+        for face_index in _material_face_indices(source, material_index):
+            face_material[face_index] = material_index
+    ordered_faces = tuple(
+        sorted(
+            selected["face"],
+            key=lambda index: (face_material.get(index, len(source.materials)), index),
+        )
+    )
+    selected["face"] = ordered_faces
+    maps: dict[str, dict[int, int]] = {
+        kind: {old: new for new, old in enumerate(selected.get(kind, ())) if old >= 0}
+        for kind in (
+            "vertex",
+            "face",
+            "material",
+            "bone",
+            "morph",
+            "frame",
+            "rigid_body",
+            "joint",
+            "soft_body",
+            "texture",
+        )
     }
     result = PmxModel()
     result.header = deepcopy(source.header)
     result.textures = [source.textures[i] for i in selected["texture"]]
     result.vertices = [deepcopy(source.vertices[i]) for i in selected["vertex"]]
     result.materials = [deepcopy(source.materials[i]) for i in selected["material"]]
-    # Face order is kept stable.  Since PMX materials are contiguous ranges,
-    # selecting whole material ranges preserves the canonical face layout.
     result.faces = [
         [maps["vertex"][vertex] for vertex in source.faces[index]]
-        for index in selected["face"]
+        for index in ordered_faces
     ]
     for old, material in zip(selected["material"], result.materials):
         material.face_count = (
-            sum(
-                1
-                for face_index in selected["face"]
-                if face_index in _material_face_indices(source, old)
-            )
-            * 3
+            sum(face_material.get(face) == old for face in ordered_faces) * 3
         )
         material.texture_index = maps["texture"].get(
             getattr(source.materials[old], "texture_index", -1), -1
@@ -1516,6 +2166,13 @@ def extract_part(
         material.sphere_texture_index = maps["texture"].get(
             getattr(source.materials[old], "sphere_texture_index", -1), -1
         )
+        # Shared Toon references are the PMX 0..9 shared slots, not texture indices.
+        if getattr(material.toon_sharing, "name", "").lower() == "shared":
+            material.toon_texture_index = source.materials[old].toon_texture_index
+        else:
+            material.toon_texture_index = maps["texture"].get(
+                getattr(source.materials[old], "toon_texture_index", -1), -1
+            )
     result.bones = [deepcopy(source.bones[i]) for i in selected["bone"]]
     result.morphs = [deepcopy(source.morphs[i]) for i in selected["morph"]]
     result.frames = [deepcopy(source.frames[i]) for i in selected["frame"]]
@@ -1524,73 +2181,158 @@ def extract_part(
     ]
     result.joints = [deepcopy(source.joints[i]) for i in selected["joint"]]
     result.softbodies = [deepcopy(source.softbodies[i]) for i in selected["soft_body"]]
-    for vertex in result.vertices:
+    report_warnings = list(graph.warnings)
+    report_unresolved: list[PmxDiagnostic] = []
+
+    def remap(kind: str, value: int, owner: str, *, optional: bool = False) -> int:
+        if value < 0 and optional:
+            return -1
+        if value in maps[kind]:
+            return maps[kind][value]
+        item = PmxDiagnostic(
+            "error",
+            "dropped_reference",
+            f"{owner} references dropped {kind} {value}",
+            owner,
+            action_required=True,
+        )
+        report_unresolved.append(item)
+        return -1
+
+    for vertex_index, vertex in enumerate(result.vertices):
         for weight in vertex.weight:
-            if weight and int(weight[0]) in maps["bone"]:
-                weight[0] = maps["bone"][int(weight[0])]
-    for bone in result.bones:
+            if weight and int(weight[0]) >= 0:
+                weight[0] = remap(
+                    "bone",
+                    int(weight[0]),
+                    f"vertices[{selected['vertex'][vertex_index]}].weight",
+                )
+    for bone_index, bone in enumerate(result.bones):
         _remap_optional_bone(bone, maps["bone"])
-    for morph in result.morphs:
-        for item in morph.items:
+    for morph_index, morph in enumerate(result.morphs):
+        retained_items = []
+        for item_index, item in enumerate(morph.items):
+            owner = f"morphs[{selected['morph'][morph_index]}].items[{item_index}]"
+            had_error = False
             if isinstance(item, (PmxMorphItemVertex, PmxMorphItemUv)):
-                item.vertex_index = maps["vertex"][item.vertex_index]
+                old_index = item.vertex_index
+                item.vertex_index = remap("vertex", item.vertex_index, owner)
+                had_error = item.vertex_index < 0 and old_index >= 0
             elif isinstance(item, PmxMorphItemBone):
-                item.bone_index = maps["bone"][item.bone_index]
-            elif isinstance(item, PmxMorphItemMaterial):
-                item.material_index = maps["material"][item.material_index]
+                old_index = item.bone_index
+                item.bone_index = remap("bone", item.bone_index, owner)
+                had_error = item.bone_index < 0 and old_index >= 0
+            elif isinstance(item, PmxMorphItemMaterial) and item.material_index >= 0:
+                old_index = item.material_index
+                item.material_index = remap("material", item.material_index, owner)
+                had_error = item.material_index < 0 and old_index >= 0
             elif isinstance(item, (PmxMorphItemGroup, PmxMorphItemFlip)):
-                item.morph_index = maps["morph"][item.morph_index]
+                old_index = item.morph_index
+                item.morph_index = remap("morph", item.morph_index, owner)
+                had_error = item.morph_index < 0 and old_index >= 0
             elif isinstance(item, PmxMorphItemImpulse):
-                item.rigidbody_index = maps["rigid_body"][item.rigidbody_index]
-    for frame in result.frames:
-        frame.items = [
-            PmxFrameItem(
-                item.is_morph,
-                (
-                    maps["morph"].get(item.index, -1)
-                    if item.is_morph
-                    else maps["bone"].get(item.index, -1)
-                ),
+                old_index = item.rigidbody_index
+                item.rigidbody_index = remap("rigid_body", item.rigidbody_index, owner)
+                had_error = item.rigidbody_index < 0 and old_index >= 0
+            if not had_error:
+                retained_items.append(item)
+            elif graph.policy == "project":
+                report_warnings.append(
+                    PmxDiagnostic(
+                        "warning",
+                        "dropped_projected_item",
+                        f"{owner} was dropped under project policy",
+                        owner,
+                    )
+                )
+        morph.items = retained_items
+    for frame_index, frame in enumerate(result.frames):
+        retained_items = []
+        for item_index, item in enumerate(frame.items):
+            kind = "morph" if item.is_morph else "bone"
+            owner = f"frames[{selected['frame'][frame_index]}].items[{item_index}]"
+            item.index = remap(kind, item.index, owner)
+            if item.index >= 0:
+                retained_items.append(PmxFrameItem(item.is_morph, item.index))
+        frame.items = retained_items
+    for body_index, body in enumerate(result.rigidbodies):
+        body.bone_index = remap(
+            "bone",
+            body.bone_index,
+            f"rigid_bodies[{selected['rigid_body'][body_index]}].bone_index",
+            optional=True,
+        )
+    for joint_index, joint in enumerate(result.joints):
+        joint.rigidbody1_index = remap(
+            "rigid_body",
+            joint.rigidbody1_index,
+            f"joints[{selected['joint'][joint_index]}].rigidbody1_index",
+            optional=True,
+        )
+        joint.rigidbody2_index = remap(
+            "rigid_body",
+            joint.rigidbody2_index,
+            f"joints[{selected['joint'][joint_index]}].rigidbody2_index",
+            optional=True,
+        )
+    for soft_index, soft in enumerate(result.softbodies):
+        soft.material_index = remap(
+            "material",
+            soft.material_index,
+            f"soft_bodies[{selected['soft_body'][soft_index]}].material_index",
+        )
+        retained_anchors = []
+        for anchor_index, anchor in enumerate(soft.anchors):
+            owner = f"soft_bodies[{selected['soft_body'][soft_index]}].anchors[{anchor_index}]"
+            anchor.rigidbody_index = remap("rigid_body", anchor.rigidbody_index, owner)
+            anchor.vertex_index = remap("vertex", anchor.vertex_index, owner)
+            if anchor.rigidbody_index >= 0 and anchor.vertex_index >= 0:
+                retained_anchors.append(anchor)
+            elif graph.policy == "project":
+                report_warnings.append(
+                    PmxDiagnostic(
+                        "warning",
+                        "dropped_projected_anchor",
+                        f"{owner} was dropped under project policy",
+                        owner,
+                    )
+                )
+        soft.anchors = retained_anchors
+        retained_pins = []
+        for value in soft.pin_vertex_indices:
+            mapped = remap(
+                "vertex",
+                value,
+                f"soft_bodies[{selected['soft_body'][soft_index]}].pin_vertex_indices",
             )
-            for item in frame.items
-            if (item.is_morph and item.index in maps["morph"])
-            or (not item.is_morph and item.index in maps["bone"])
-        ]
-    for body in result.rigidbodies:
-        body.bone_index = maps["bone"].get(body.bone_index, -1)
-    for joint in result.joints:
-        joint.rigidbody1_index = maps["rigid_body"].get(joint.rigidbody1_index, -1)
-        joint.rigidbody2_index = maps["rigid_body"].get(joint.rigidbody2_index, -1)
-    for soft in result.softbodies:
-        soft.material_index = maps["material"].get(soft.material_index, -1)
-        soft.anchors = [
-            deepcopy(anchor)
-            for anchor in soft.anchors
-            if anchor.rigidbody_index in maps["rigid_body"]
-            and anchor.vertex_index in maps["vertex"]
-        ]
-        for anchor in soft.anchors:
-            anchor.rigidbody_index = maps["rigid_body"][anchor.rigidbody_index]
-            anchor.vertex_index = maps["vertex"][anchor.vertex_index]
-        soft.pin_vertex_indices = [
-            maps["vertex"][index]
-            for index in soft.pin_vertex_indices
-            if index in maps["vertex"]
-        ]
+            if mapped >= 0:
+                retained_pins.append(mapped)
+        soft.pin_vertex_indices = retained_pins
+    if report_unresolved and graph.policy != "project":
+        raise PmxQueryError(
+            "cannot extract dropped references: "
+            + "; ".join(item.message for item in report_unresolved)
+        )
+    try:
+        result = _strict_model_roundtrip(result)
+    except Exception as exc:
+        raise PmxQueryError(f"extracted part failed strict validation: {exc}") from exc
     dropped = {
         kind: sorted(
-            set(range(len(getattr(source, _collection_name(kind), ())))) - set(indexes)
+            set(range(len(getattr(source, _collection_name(kind), ()))))
+            - set(selected.get(kind, ()))
         )
-        for kind, indexes in selected.items()
-        if kind not in {"face", "texture"}
+        for kind in selected
     }
     report = {
         "selected": selected,
         "dropped": dropped,
-        "unresolved": [],
-        "warnings": [],
+        "unresolved": tuple(report_unresolved),
+        "warnings": tuple(report_warnings),
+        "source": snapshot.to_dict(),
+        "strict_roundtrip": True,
     }
-    return PmxPartResult(result, maps, report)
+    return PmxPartResult(result, maps, _json(report))
 
 
 def _collection_name(kind: str) -> str:
@@ -1616,6 +2358,27 @@ def _material_face_indices(model: PmxModel, material_index: int) -> range:
             (cursor + model.materials[material_index].face_count) // 3, len(model.faces)
         ),
     )
+
+
+def _strict_model_roundtrip(model: PmxModel) -> PmxModel:
+    """Validate, canonical-encode and strict-reparse an isolated model."""
+    from pypmxvmd.common.parsers.pmx_parser import PmxParser
+    from pypmxvmd.common.pmx.validator import validate_pmx_model
+    from pypmxvmd.common.pmx.writer import PmxWriter
+
+    candidate = deepcopy(model)
+    candidate.parse_report = None
+    validate_pmx_model(candidate)
+    encoded = PmxWriter().encode(candidate)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pmx", delete=False) as stream:
+            stream.write(encoded)
+            temporary = Path(stream.name)
+        return PmxParser().parse_file(temporary, strict_eof=True)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _remap_optional_bone(bone: PmxBone, mapping: Mapping[int, int]) -> None:
@@ -1647,10 +2410,24 @@ def bind_part_to_target(
     source = part.model if isinstance(part, PmxPartResult) else _input_model(part)[0]
     target_model, target_snapshot = _input_model(target)
     binding = bone_binding or PmxBoneBinding()
+    unknown_strategies = set(binding.match_order) - {
+        "explicit",
+        "name_jp",
+        "name_en",
+        "alias",
+        "structural",
+    }
+    if unknown_strategies:
+        raise PmxAssemblyError(
+            "unknown bone match strategy: " + ", ".join(sorted(unknown_strategies))
+        )
     mapping: dict[int, int] = {}
     unresolved: list[PmxDiagnostic] = []
+    used_targets: dict[int, int] = {}
+    dropped: set[int] = set()
     for source_index, bone in enumerate(source.bones):
         target_index: int | None = None
+        explicit_missing = False
         explicit_key = binding.explicit.get(source_index)
         if explicit_key is None:
             explicit_key = binding.explicit.get(bone.name_jp) or binding.explicit.get(
@@ -1667,25 +2444,93 @@ def bind_part_to_target(
                 matches = [
                     i
                     for i, item in enumerate(target_model.bones)
-                    if explicit_key in _name(item)
+                    if str(explicit_key) in _name(item)
                 ]
                 target_index = matches[0] if len(matches) == 1 else None
+            if target_index is None and binding.missing == "error":
+                explicit_missing = True
+                unresolved.append(
+                    PmxDiagnostic(
+                        "error",
+                        "missing_target_bone",
+                        f"explicit mapping for {bone.name_jp or bone.name_en!r} has no unique target",
+                        f"bones[{source_index}]",
+                        action_required=True,
+                    )
+                )
+            elif target_index is None:
+                explicit_missing = True
         if target_index is None:
-            matches = [
-                i
-                for i, item in enumerate(target_model.bones)
-                if bone.name_jp and bone.name_jp == item.name_jp
-            ]
-            if len(matches) != 1:
-                matches = [
-                    i
-                    for i, item in enumerate(target_model.bones)
-                    if bone.name_en and bone.name_en == item.name_en
-                ]
-            if len(matches) == 1:
-                target_index = matches[0]
+            for strategy in binding.match_order:
+                if strategy == "explicit":
+                    continue
+                if strategy == "name_jp":
+                    value = bone.name_jp
+                    matches = [
+                        i
+                        for i, item in enumerate(target_model.bones)
+                        if value and value == item.name_jp
+                    ]
+                elif strategy == "name_en":
+                    value = bone.name_en
+                    matches = [
+                        i
+                        for i, item in enumerate(target_model.bones)
+                        if value and value == item.name_en
+                    ]
+                elif strategy == "alias":
+                    source_names = (bone.name_jp, bone.name_en)
+                    aliases = [
+                        binding.aliases[name]
+                        for name in source_names
+                        if name in binding.aliases
+                    ]
+                    matches = [
+                        i
+                        for i, item in enumerate(target_model.bones)
+                        if any(str(alias) in _name(item) for alias in aliases)
+                    ]
+                elif strategy == "structural":
+                    matches = [
+                        i
+                        for i, item in enumerate(target_model.bones)
+                        if _normalize_name(bone.name_jp)
+                        == _normalize_name(item.name_jp)
+                        and bone.name_jp
+                    ]
+                if len(matches) > 1:
+                    unresolved.append(
+                        PmxDiagnostic(
+                            "error",
+                            "ambiguous_bone",
+                            f"multiple target bones match {bone.name_jp or bone.name_en!r}",
+                            f"bones[{source_index}]",
+                            action_required=True,
+                        )
+                    )
+                    break
+                if len(matches) == 1:
+                    target_index = matches[0]
+                    break
         if target_index is None:
-            if binding.unmatched_source == "error" or binding.missing == "error":
+            unmatched_policy = (
+                binding.missing if explicit_missing else binding.unmatched_source
+            )
+            if unmatched_policy == "drop":
+                if _bone_is_referenced(source, source_index):
+                    unresolved.append(
+                        PmxDiagnostic(
+                            "error",
+                            "referenced_bone_drop",
+                            f"cannot drop referenced source bone {bone.name_jp or bone.name_en!r}",
+                            f"bones[{source_index}]",
+                            action_required=True,
+                        )
+                    )
+                else:
+                    dropped.add(source_index)
+                continue
+            if unmatched_policy == "error":
                 unresolved.append(
                     PmxDiagnostic(
                         "error",
@@ -1696,6 +2541,19 @@ def bind_part_to_target(
                     )
                 )
             continue
+        previous = used_targets.get(target_index)
+        if previous is not None and previous != source_index:
+            unresolved.append(
+                PmxDiagnostic(
+                    "error",
+                    "target_bone_reused",
+                    f"source bones {previous} and {source_index} both map to target bone {target_index}",
+                    f"bones[{source_index}]",
+                    action_required=True,
+                )
+            )
+            continue
+        used_targets[target_index] = source_index
         mapping[source_index] = target_index
     if unresolved:
         raise PmxCapabilityError(
@@ -1703,19 +2561,326 @@ def bind_part_to_target(
             + "; ".join(item.message for item in unresolved)
         )
     candidate = deepcopy(source)
-    for vertex in candidate.vertices:
-        for weight in vertex.weight:
-            if int(weight[0]) in mapping:
-                weight[0] = mapping[int(weight[0])]
-        if transform is not None:
+    bone_local_map = {index: index for index in range(len(candidate.bones))}
+    if dropped:
+        bone_local_map = {
+            old: new
+            for new, old in enumerate(
+                index for index in range(len(candidate.bones)) if index not in dropped
+            )
+        }
+        candidate.bones = [
+            bone for index, bone in enumerate(candidate.bones) if index not in dropped
+        ]
+        for vertex in candidate.vertices:
+            for weight in vertex.weight:
+                weight[0] = bone_local_map.get(int(weight[0]), -1)
+        for bone in candidate.bones:
+            _remap_optional_bone(bone, bone_local_map)
+        for morph in candidate.morphs:
+            for item in morph.items:
+                if isinstance(item, PmxMorphItemBone):
+                    item.bone_index = bone_local_map.get(item.bone_index, -1)
+        for body in candidate.rigidbodies:
+            body.bone_index = bone_local_map.get(body.bone_index, -1)
+        for frame in candidate.frames:
+            frame.items = [
+                item
+                for item in frame.items
+                if item.is_morph or item.index in bone_local_map
+            ]
+            for item in frame.items:
+                if not item.is_morph:
+                    item.index = bone_local_map[item.index]
+    # Keep references local to the independent part.  Rename reused bones so
+    # the existing transaction merger can match them by target identity.
+    for source_index, target_index in mapping.items():
+        local_index = bone_local_map.get(source_index)
+        if local_index is None:
+            continue
+        candidate.bones[local_index].name_jp = target_model.bones[target_index].name_jp
+        candidate.bones[local_index].name_en = target_model.bones[target_index].name_en
+    if transform is not None:
+        for vertex in candidate.vertices:
             vertex.position = transform.apply(vertex.position)
-    for bone in candidate.bones:
-        _remap_optional_bone(bone, mapping)
+        for bone in candidate.bones:
+            bone.position = transform.apply(bone.position)
+        for body in candidate.rigidbodies:
+            body.position = transform.apply(body.position)
+        for joint in candidate.joints:
+            joint.position = transform.apply(joint.position)
+    try:
+        candidate = _strict_model_roundtrip(candidate)
+    except Exception as exc:
+        raise PmxCapabilityError(f"bound part failed strict validation: {exc}") from exc
+    report = {
+        "bound_to": target_snapshot.source_id,
+        "reused_bones": dict(mapping),
+        "appended_bones": tuple(
+            index
+            for index in range(len(source.bones))
+            if index not in mapping and index not in dropped
+        ),
+        "dropped_bones": tuple(sorted(dropped)),
+        "unresolved": tuple(unresolved),
+        "warnings": [],
+        "strict_roundtrip": True,
+    }
     return PmxPartResult(
         candidate,
         {"bone": mapping},
-        {"bound_to": target_snapshot.source_id, "unresolved": [], "warnings": []},
+        report,
     )
+
+
+def _bone_is_referenced(model: PmxModel, bone_index: int) -> bool:
+    if any(
+        any(weight and int(weight[0]) == bone_index for weight in vertex.weight)
+        for vertex in model.vertices
+    ):
+        return True
+    for bone in model.bones:
+        if bone.parent_index == bone_index or bone.tail_bone_index == bone_index:
+            return True
+        if (
+            bone.inherit_parent_index == bone_index
+            or bone.external_parent_index == bone_index
+        ):
+            return True
+        if bone.ik_target_index == bone_index or any(
+            link.bone_index == bone_index for link in bone.ik_links
+        ):
+            return True
+    return any(body.bone_index == bone_index for body in model.rigidbodies)
+
+
+def _safe_remove_physics(
+    model: PmxModel,
+    baseline: PmxModel,
+    removal: PmxRemovalPolicy,
+) -> Mapping[str, Any]:
+    """Drop only physics resources proven exclusive to removed Material faces."""
+    if not removal.target_materials:
+        return {
+            "removed_bones": (),
+            "removed_rigid_bodies": (),
+            "removed_joints": (),
+            "warnings": (),
+        }
+    selected_materials = {
+        index
+        for index, material in enumerate(baseline.materials)
+        if material.name_jp in removal.target_materials
+        or material.name_en in removal.target_materials
+    }
+    if not selected_materials:
+        return {
+            "removed_bones": (),
+            "removed_rigid_bodies": (),
+            "removed_joints": (),
+            "warnings": (),
+        }
+    ownership: dict[int, int] = {}
+    for material_index in range(len(baseline.materials)):
+        ownership.update(
+            {
+                face: material_index
+                for face in _material_face_indices(baseline, material_index)
+            }
+        )
+    removed_faces = {
+        face for face, owner in ownership.items() if owner in selected_materials
+    }
+    removed_vertices = {
+        vertex for face in removed_faces for vertex in baseline.faces[face]
+    }
+    retained_vertices = {
+        vertex
+        for face, values in enumerate(baseline.faces)
+        if face not in removed_faces
+        for vertex in values
+    }
+    removed_only_bones: set[int] = set()
+    for bone_index in range(len(baseline.bones)):
+        removed_weight = any(
+            any(
+                weight and int(weight[0]) == bone_index
+                for weight in baseline.vertices[vertex].weight
+            )
+            for vertex in removed_vertices
+            if 0 <= vertex < len(baseline.vertices)
+        )
+        retained_weight = any(
+            any(
+                weight and int(weight[0]) == bone_index
+                for weight in baseline.vertices[vertex].weight
+            )
+            for vertex in retained_vertices
+            if 0 <= vertex < len(baseline.vertices)
+        )
+        if removed_weight and not retained_weight:
+            removed_only_bones.add(bone_index)
+    warnings: list[PmxDiagnostic] = []
+    if removal.bones == "keep":
+        removed_only_bones.clear()
+    elif removal.bones in {"drop_explicit", "error"} and removed_only_bones:
+        raise PmxAssemblyError(
+            "bone ownership is not explicit enough for the requested removal policy"
+        )
+    # With orphan vertices retained, their weights still prove the Bone is
+    # live.  Do not turn those weights into invalid -1 references merely to
+    # satisfy a dependency-only cleanup request.
+    if removal.orphan_vertices != "compact_if_safe":
+        removed_only_bones.clear()
+
+    candidate_rigid = {
+        index
+        for index, body in enumerate(baseline.rigidbodies)
+        if body.bone_index in removed_only_bones
+    }
+    for morph_index, morph in enumerate(model.morphs):
+        if any(
+            isinstance(item, PmxMorphItemImpulse)
+            and item.rigidbody_index in candidate_rigid
+            for item in morph.items
+        ):
+            raise PmxAssemblyError(
+                f"cannot delete rigid bodies referenced by morphs[{morph_index}]"
+            )
+    for soft_index, soft in enumerate(model.softbodies):
+        if soft.material_index in selected_materials or any(
+            anchor.rigidbody_index in candidate_rigid for anchor in soft.anchors
+        ):
+            raise PmxAssemblyError(
+                f"cannot safely delete resources referenced by soft_bodies[{soft_index}]"
+            )
+    if removal.rigid_bodies == "keep":
+        candidate_rigid.clear()
+    elif removal.rigid_bodies in {"drop_explicit", "error"} and candidate_rigid:
+        raise PmxAssemblyError(
+            "rigid-body ownership is not explicit enough for removal"
+        )
+    joints_to_remove = {
+        index
+        for index, joint in enumerate(model.joints)
+        if joint.rigidbody1_index in candidate_rigid
+        or joint.rigidbody2_index in candidate_rigid
+    }
+    if removal.joints == "keep":
+        joints_to_remove.clear()
+    elif removal.joints in {"drop_explicit", "error"} and joints_to_remove:
+        raise PmxAssemblyError("Joint ownership is not explicit enough for removal")
+    if joints_to_remove:
+        model.joints = [
+            joint
+            for index, joint in enumerate(model.joints)
+            if index not in joints_to_remove
+        ]
+    rigid_map = {
+        old: new
+        for new, old in enumerate(
+            index
+            for index in range(len(model.rigidbodies))
+            if index not in candidate_rigid
+        )
+    }
+    if candidate_rigid:
+        model.rigidbodies = [
+            body
+            for index, body in enumerate(model.rigidbodies)
+            if index not in candidate_rigid
+        ]
+        for morph in model.morphs:
+            morph.items = [
+                item
+                for item in morph.items
+                if not (
+                    isinstance(item, PmxMorphItemImpulse)
+                    and item.rigidbody_index in candidate_rigid
+                )
+            ]
+        for soft in model.softbodies:
+            soft.anchors = [
+                anchor
+                for anchor in soft.anchors
+                if anchor.rigidbody_index not in candidate_rigid
+            ]
+            for anchor in soft.anchors:
+                anchor.rigidbody_index = rigid_map[anchor.rigidbody_index]
+    if removed_only_bones:
+        # Retained records must not point at a removed Bone.  A shared parent,
+        # frame item, Morph or rigid body is evidence that the Bone is not safe.
+        for bone in model.bones:
+            if bone.parent_index in removed_only_bones:
+                removed_only_bones.discard(bone.parent_index)
+            if bone.tail_bone_index in removed_only_bones:
+                removed_only_bones.discard(bone.tail_bone_index)
+        for body in model.rigidbodies:
+            if body.bone_index in removed_only_bones:
+                removed_only_bones.discard(body.bone_index)
+        for morph_index, morph in enumerate(model.morphs):
+            if any(
+                isinstance(item, PmxMorphItemBone)
+                and item.bone_index in removed_only_bones
+                for item in morph.items
+            ):
+                if removal.morph_references == "drop":
+                    morph.items = [
+                        item
+                        for item in morph.items
+                        if not (
+                            isinstance(item, PmxMorphItemBone)
+                            and item.bone_index in removed_only_bones
+                        )
+                    ]
+                else:
+                    raise PmxAssemblyError(
+                        f"cannot delete Bones referenced by morphs[{morph_index}]"
+                    )
+        if any(
+            any(
+                not item.is_morph and item.index in removed_only_bones
+                for item in frame.items
+            )
+            for frame in model.frames
+        ):
+            raise PmxAssemblyError("cannot delete Bones referenced by a Display Frame")
+        bone_map = {
+            old: new
+            for new, old in enumerate(
+                index
+                for index in range(len(model.bones))
+                if index not in removed_only_bones
+            )
+        }
+        model.bones = [
+            bone
+            for index, bone in enumerate(model.bones)
+            if index not in removed_only_bones
+        ]
+        for vertex in model.vertices:
+            for weight in vertex.weight:
+                if int(weight[0]) in removed_only_bones:
+                    weight[0] = -1
+                else:
+                    weight[0] = bone_map[int(weight[0])]
+        for bone in model.bones:
+            _remap_optional_bone(bone, bone_map)
+        for body in model.rigidbodies:
+            body.bone_index = bone_map.get(body.bone_index, -1)
+        for frame in model.frames:
+            frame.items = [
+                item for item in frame.items if item.is_morph or item.index in bone_map
+            ]
+            for item in frame.items:
+                if not item.is_morph:
+                    item.index = bone_map[item.index]
+    return {
+        "removed_bones": tuple(sorted(removed_only_bones)),
+        "removed_rigid_bodies": tuple(sorted(candidate_rigid)),
+        "removed_joints": tuple(sorted(joints_to_remove)),
+        "warnings": tuple(warnings),
+    }
 
 
 def assemble_part(
@@ -1725,6 +2890,8 @@ def assemble_part(
     removal_policy: PmxRemovalPolicy | None = None,
     resource_policy: PmxResourcePolicy | None = None,
     display_frame_policy: str = "merge_named",
+    bone_binding: PmxBoneBinding | None = None,
+    transform: PmxCoordinateTransform | None = None,
 ) -> PmxAssemblyResult:
     """Compose a part through the existing model transaction machinery."""
     from pypmxvmd.common.pmx.transaction import PmxEditTransaction
@@ -1734,25 +2901,66 @@ def assemble_part(
         part.model if isinstance(part, PmxPartResult) else _input_model(part)[0]
     )
     removal = removal_policy or PmxRemovalPolicy()
+    resources = resource_policy or PmxResourcePolicy()
+    if resources.materials == "error":
+        target_names = {
+            name
+            for material in target_model.materials
+            for name in (material.name_jp, material.name_en)
+            if name
+        }
+        conflicts = [
+            material.name_jp or material.name_en
+            for material in part_model.materials
+            if material.name_jp in target_names or material.name_en in target_names
+        ]
+        if conflicts:
+            raise PmxAssemblyError("material name conflicts: " + ", ".join(conflicts))
+    if resources.textures == "error":
+        conflicts = [
+            texture
+            for texture in part_model.textures
+            if texture in target_model.textures
+        ]
+        if conflicts:
+            raise PmxAssemblyError("texture conflicts: " + ", ".join(conflicts))
     if display_frame_policy not in {"merge_named", "append", "drop"}:
         raise ValueError("display_frame_policy must be merge_named, append, or drop")
+    if bone_binding is not None or transform is not None:
+        part_model = bind_part_to_target(
+            part_model,
+            target_model,
+            bone_binding=bone_binding,
+            transform=transform,
+        ).model
     tx = PmxEditTransaction(target_model)
+    removal_report: Mapping[str, Any] = {
+        "removed_bones": (),
+        "removed_rigid_bodies": (),
+        "removed_joints": (),
+        "warnings": (),
+    }
     if removal.target_materials:
+        baseline = deepcopy(target_model)
         tx.remove_part(
             material_names=removal.target_materials,
             compact_vertices=removal.orphan_vertices == "compact_if_safe",
         )
+        removal_report = _safe_remove_physics(tx.model, baseline, removal)
     mapping = tx.merge_part(part_model, include_frames=display_frame_policy != "drop")
     # The transaction-local model has changed section counts; its source parse
     # report is no longer authoritative and must not be reused by the writer.
     tx.model.parse_report = None
+    verified = _strict_model_roundtrip(tx.model)
     return PmxAssemblyResult(
-        tx.model,
+        verified,
         mapping,
         {
-            "resource_policy": (resource_policy or PmxResourcePolicy()).to_dict(),
+            "resource_policy": resources.to_dict(),
             "removal_policy": removal.to_dict(),
+            "removal_report": removal_report,
             "display_frame_policy": display_frame_policy,
+            "strict_roundtrip": True,
         },
     )
 
@@ -1809,6 +3017,7 @@ def _references(kind: str, index: int, item: Any, target: PmxResourceRef) -> boo
             or (item.tail_bone_index == ti)
             or (item.inherit_parent_index == ti)
             or (item.ik_target_index == ti)
+            or any(link.bone_index == ti for link in item.ik_links)
         )
     if kind == "morph":
         return any(
@@ -1865,22 +3074,45 @@ def explain_pmx_dependencies(
         raise ValueError("direction must be forward, reverse, or both")
     selection = PmxPartSelection()
     resolved_roots: list[PmxResourceRef] = []
+    root_diagnostics: list[PmxDiagnostic] = []
+    selection_fields = {
+        "vertex": "vertex_indices",
+        "face": "face_indices",
+        "material": "material_indices",
+        "texture": "texture_indices",
+        "bone": "bone_indices",
+        "morph": "morph_indices",
+        "frame": "frame_indices",
+        "rigid_body": "rigid_body_indices",
+        "joint": "joint_indices",
+        "soft_body": "soft_body_indices",
+    }
+
+    def add_root(ref: PmxResourceRef) -> None:
+        nonlocal selection
+        field_name = selection_fields.get(ref.kind)
+        if field_name is None or ref.index is None:
+            root_diagnostics.append(
+                PmxDiagnostic(
+                    "error",
+                    "unsupported_root",
+                    f"unsupported dependency root {ref.stable_key}",
+                    action_required=True,
+                )
+            )
+            return
+        values = asdict(selection)
+        values[field_name] = tuple(values[field_name]) + (ref.index,)
+        selection = PmxPartSelection(**values)
+        resolved_roots.append(ref)
+
     for root in roots:
         if isinstance(root, PmxResourceRef):
-            if root.kind == "morph" and root.index is not None:
-                selection = PmxPartSelection(
-                    morph_indices=selection.morph_indices + (root.index,)
-                )
-                resolved_roots.append(
-                    _ref(model, "morph", root.index, snapshot.source_id)
-                )
-            elif root.kind == "material" and root.index is not None:
-                selection = PmxPartSelection(
-                    material_indices=selection.material_indices + (root.index,)
-                )
-                resolved_roots.append(
-                    _ref(model, "material", root.index, snapshot.source_id)
-                )
+            add_root(
+                root
+                if root.index is None
+                else _ref(model, root.kind, root.index, snapshot.source_id)
+            )
         elif isinstance(root, str) and ":" in root:
             kind, value = root.split(":", 1)
             matches = find_pmx_resources(
@@ -1888,36 +3120,46 @@ def explain_pmx_dependencies(
             )
             if len(matches) == 1:
                 ref = matches.candidates[0].ref
-                selection = PmxPartSelection(
-                    material_indices=selection.material_indices
-                    + ((ref.index,) if kind == "material" else ()),
-                    morph_indices=selection.morph_indices
-                    + ((ref.index,) if kind == "morph" else ()),
+                add_root(ref)
+            else:
+                root_diagnostics.append(
+                    PmxDiagnostic(
+                        "error",
+                        "unknown_dependency_root",
+                        f"dependency root {root!r} did not resolve uniquely",
+                        action_required=True,
+                    )
                 )
-                resolved_roots.append(ref)
     graph = analyze_part(
         model,
         selection=selection,
         dependency_policy=dependency_policy,
         max_depth=max_depth,
     )
-    chains = tuple(
-        {
-            "root": root,
-            "reason": "selected root and direct dependencies",
-            "nodes": (root,)
-            + graph.dependencies.get(root.kind, {}).get(root.index, ()),
-        }
-        for root in resolved_roots
-    )
+    chains = []
+    for root in resolved_roots:
+        forward = graph.dependencies.get(root.kind, {}).get(root.index, ())
+        reverse = who_references(model, root)
+        nodes = [root]
+        if direction in {"forward", "both"}:
+            nodes.extend(forward)
+        if direction in {"reverse", "both"}:
+            nodes.extend(reverse)
+        chains.append(
+            {
+                "root": root,
+                "reason": f"{direction} dependency explanation",
+                "nodes": tuple(dict.fromkeys(nodes)),
+            }
+        )
     return PmxDependencyGraph(
         graph.source,
         graph.selected,
         graph.dependencies,
-        graph.unresolved,
+        tuple(root_diagnostics) + graph.unresolved,
         graph.warnings,
         graph.policy,
-        chains,
+        tuple(chains),
         graph.schema_version,
     )
 
@@ -1949,13 +3191,32 @@ def evaluate_morph_state(
             )
             return
         if not 0 <= index < len(model.morphs):
+            unsupported.append(
+                PmxDiagnostic(
+                    "error",
+                    "invalid_morph_reference",
+                    f"morph state references missing morph {index}",
+                    f"morphs[{index}]",
+                    action_required=True,
+                )
+            )
             return
         visiting.append(index)
         morph = model.morphs[index]
         expanded[index] = expanded.get(index, 0.0) + weight
-        if morph.morph_type in (MorphType.GROUP, MorphType.FLIP):
+        if morph.morph_type == MorphType.GROUP:
             for item in morph.items:
                 apply(item.morph_index, weight * item.value)
+        elif morph.morph_type == MorphType.FLIP:
+            unsupported.append(
+                PmxDiagnostic(
+                    "error",
+                    "unsupported_morph",
+                    "Flip morph runtime semantics are not statically evaluated",
+                    f"morphs[{index}]",
+                    action_required=True,
+                )
+            )
         elif morph.morph_type == MorphType.VERTEX:
             for item in morph.items:
                 row = offsets.setdefault(item.vertex_index, [0.0, 0.0, 0.0])
@@ -1998,6 +3259,25 @@ def evaluate_morph_state(
                     "edge_size",
                 ):
                     value = getattr(item, field_name)
+                    if field_name in {"texture_tint", "sphere_tint", "toon_tint"}:
+                        neutral = (
+                            1.0
+                            if item.operation == MorphMaterialOperation.MULTIPLY
+                            else 0.0
+                        )
+                        if any(
+                            not math.isclose(float(component), neutral)
+                            for component in value
+                        ):
+                            unsupported.append(
+                                PmxDiagnostic(
+                                    "error",
+                                    "unsupported_material_tint",
+                                    f"{field_name} cannot be baked into canonical PMX material fields",
+                                    f"morphs[{index}]",
+                                    action_required=True,
+                                )
+                            )
                     if field_name not in update:
                         # Texture/sphere/toon tints are PMX morph factors but are
                         # not material model colours; retain their neutral values
@@ -2027,6 +3307,15 @@ def evaluate_morph_state(
                             else current + value * weight
                         )
         elif morph.morph_type == MorphType.BONE:
+            unsupported.append(
+                PmxDiagnostic(
+                    "warning",
+                    "bone_morph_preserved",
+                    "Bone morphs are reported and preserved; static pose baking is unsupported",
+                    f"morphs[{index}]",
+                    action_required=True,
+                )
+            )
             for item in morph.items:
                 update = bones.setdefault(
                     item.bone_index,
@@ -2133,8 +3422,10 @@ def bake_morph_state(
     candidate = deepcopy(model)
     evaluation = evaluate_morph_state(model, state)
     unsupported_items = tuple(evaluation.unsupported)
-    if unsupported == "error" and any(
-        item.action_required for item in unsupported_items
+    if (
+        mode != "preserve_controls"
+        and unsupported == "error"
+        and any(item.action_required for item in unsupported_items)
     ):
         raise PmxCapabilityError("Morph state contains unsupported static operations")
     if mode == "preserve_controls":
@@ -2812,6 +4103,34 @@ def apply_plan(
             + "; ".join(item.message for item in graph.unresolved)
         )
     part = extract_part(source_model, analysis=graph).model
+    raw_binding = plan.normalized_spec.get("bone_binding", {})
+    binding = PmxBoneBinding(
+        explicit={
+            (int(key) if str(key).lstrip("-").isdigit() else key): value
+            for key, value in raw_binding.items()
+        },
+        unmatched_source=str(
+            plan.normalized_spec.get("options", {}).get("unmatched_source", "append")
+        ),
+    )
+    raw_options = plan.normalized_spec.get("options", {})
+    removal = PmxRemovalPolicy(
+        target_materials=tuple(raw_options.get("target_materials", ()) or ()),
+        bones=str(raw_options.get("bones", "dependency_only")),
+        rigid_bodies=str(raw_options.get("rigid_bodies", "dependency_only")),
+        joints=str(raw_options.get("joints", "dependency_only")),
+        orphan_vertices=str(raw_options.get("orphan_vertices", "keep")),
+        morph_references=str(raw_options.get("morph_references", "error")),
+    )
+    resource = PmxResourcePolicy(
+        textures=str(raw_options.get("textures", "deduplicate_exact")),
+        texture_path_conflict=str(
+            raw_options.get("texture_path_conflict", "rename_and_report")
+        ),
+        materials=str(raw_options.get("materials", "append")),
+        display_frames=str(raw_options.get("display_frames", "merge_named")),
+    )
+    bound_part = bind_part_to_target(part, target_model, bone_binding=binding)
     variant_values = plan.normalized_spec.get("variants") or (
         {"name": Path(plan.planned_outputs[0]["path"]).stem},
     )
@@ -2837,9 +4156,21 @@ def apply_plan(
         raw_state = (
             variant.get("morph_state", {}) if isinstance(variant, Mapping) else {}
         )
-        state = PmxMorphState.from_names(part, raw_state, unknown="ignore")
-        baked = bake_morph_state(part, state, mode=mode, unsupported="report")
-        assembled = assemble_part(target_model, baked.model)
+        state = PmxMorphState.from_names(bound_part.model, raw_state, unknown="ignore")
+        baked = bake_morph_state(
+            bound_part.model, state, mode=mode, unsupported="error"
+        )
+        assembled = assemble_part(
+            target_model,
+            baked.model,
+            removal_policy=removal,
+            resource_policy=resource,
+            display_frame_policy=(
+                str(variant.get("display_frames", resource.display_frames))
+                if isinstance(variant, Mapping)
+                else resource.display_frames
+            ),
+        )
         preflight.append((path, assembled.model))
     temporary_paths: list[Path] = []
     try:
@@ -2875,6 +4206,7 @@ def apply_plan(
 
 
 __all__ = [
+    "PmxAssemblyError",
     "PmxInspectionError",
     "PmxQueryError",
     "PmxCapabilityError",
@@ -2903,6 +4235,9 @@ __all__ = [
     "PmxResourcePolicy",
     "PmxRemovalPolicy",
     "PmxVariantSpec",
+    "PmxVariantResult",
+    "PmxVariantBuildResult",
+    "PmxVariantBuilder",
     "PmxComparison",
     "PmxBoneCandidate",
     "PmxBoneSuggestion",

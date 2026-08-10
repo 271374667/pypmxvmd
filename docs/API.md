@@ -423,6 +423,43 @@ operations are canonical whole-model transactions, not source-byte-preserving ed
 
 ---
 
+#### Outfit observation, extraction, and batch variants
+
+`analyze_part(model, selection=..., dependency_policy="closed")` is a read-only
+dependency closure over Material, Face, Vertex, Bone, Morph, Display Frame,
+Rigid Body, Joint, and Soft Body references. `PmxDependencyGraph.report` is
+JSON-serializable. Invalid references, cycles, ambiguous roots, and depth limits
+are reported in `unresolved`; they are never silently discarded. `project`
+records projected references as warnings, while `explicit` requires every
+dependency to be supplied by the caller.
+
+`extract_part()` preserves material face ranges, returns source-to-part mappings
+for every section, and performs a canonical writer/strict-reparse check before
+returning. `bind_part_to_target()` supports explicit, Japanese-name,
+English-name, and alias matching plus `PmxCoordinateTransform`; unmatched source
+bones append by default, while missing explicit targets follow the `missing`
+policy and fail closed when configured as `error`.
+
+For isolated batch output use `PmxVariantBuilder`:
+
+```python
+builder = pypmxvmd.PmxVariantBuilder(
+    target="body_target.pmx",
+    source="clothing_source.pmx",
+    selection=pypmxvmd.PmxPartSelection(material_names=("上衣",)),
+)
+builder.add_variant("p1", morph_state={"上着P2": 0.0}, output_path="p1.pmx")
+result = builder.build()
+```
+
+Each variant starts from the same target snapshot. All variants are preflighted
+and encoded before any output is atomically replaced; inputs cannot be
+overwritten and existing outputs are protected by default. High-level PMX 2.1
+Flip/Impulse Morph and Soft Body extraction/baking remain fail-closed even though
+canonical PMX 2.1 I/O is available.
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 Validate PMX semantics without relying on `assert`. The centralized validator

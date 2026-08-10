@@ -125,3 +125,78 @@ def test_workspace_and_plan_require_explicit_confirmation(tmp_path: Path):
     approval = plan.approve(plan.required_confirmations)
     result = apply_plan(plan, approval=approval)
     assert result["plan_id"] == plan.plan_id
+
+
+def test_face_selection_reorders_material_ranges_and_reports_face_mapping():
+    model = _model()
+    model.vertices.extend(
+        [
+            PmxVertex(position=[2.0, 0.0, 0.0], weight=[[0, 1.0]]),
+            PmxVertex(position=[3.0, 0.0, 0.0], weight=[[0, 1.0]]),
+            PmxVertex(position=[2.0, 1.0, 0.0], weight=[[0, 1.0]]),
+        ]
+    )
+    model.faces.append([3, 4, 5])
+    model.materials[0].face_count = 3
+    model.materials.append(PmxMaterial(name_jp="下装", face_count=3))
+    graph = analyze_part(
+        model,
+        selection=PmxPartSelection(face_indices=(1,)),
+    )
+    result = pypmxvmd.extract_part(model, analysis=graph)
+    assert result.mapping["face"] == {1: 0}
+    assert result.model.faces == [[0, 1, 2]]
+    assert [material.face_count for material in result.model.materials] == [3]
+    assert result.report["strict_roundtrip"] is True
+
+
+def test_binding_alias_append_drop_and_transform_order():
+    source = _model()
+    source.bones[0].name_jp = "服装センター"
+    target = _model()
+    target.bones[0].name_jp = "センター"
+    bound = pypmxvmd.bind_part_to_target(
+        source,
+        target,
+        bone_binding=pypmxvmd.PmxBoneBinding(
+            aliases={"服装センター": "センター"},
+            unmatched_source="append",
+        ),
+        transform=pypmxvmd.PmxCoordinateTransform(
+            scale=2.0,
+            rotation=(0.0, 0.0, 0.0, 1.0),
+            translation=(1.0, 0.0, 0.0),
+        ),
+    )
+    assert bound.report["reused_bones"] == {0: 0}
+    assert bound.model.vertices[1].position == [3.0, 0.0, 0.0]
+
+
+def test_variant_builder_isolates_variants_and_protects_inputs(tmp_path: Path):
+    source = _model()
+    target = _model()
+    source_path = tmp_path / "source.pmx"
+    target_path = tmp_path / "target.pmx"
+    output_a = tmp_path / "a.pmx"
+    output_b = tmp_path / "b.pmx"
+    pypmxvmd.save_pmx(source, source_path)
+    pypmxvmd.save_pmx(target, target_path)
+    builder = pypmxvmd.PmxVariantBuilder(
+        source=source_path,
+        target=target_path,
+        selection=PmxPartSelection(
+            material_names=("上衣",), include_morph_names=("上着P2",)
+        ),
+    )
+    builder.add_variant("a", morph_state={"上着P2": 0.0}, output_path=output_a)
+    builder.add_variant("b", morph_state={"上着P2": 1.0}, output_path=output_b)
+    result = builder.build()
+    assert [item.name for item in result.variants] == ["a", "b"]
+    assert output_a.is_file() and output_b.is_file()
+    assert result.models[0].vertices != result.models[1].vertices
+    with pytest.raises(PmxPlanError, match="cannot overwrite an input"):
+        pypmxvmd.PmxVariantBuilder(
+            source=source_path,
+            target=target_path,
+            selection=PmxPartSelection(material_names=("上衣",)),
+        ).add_variant("bad", output_path=source_path).build()

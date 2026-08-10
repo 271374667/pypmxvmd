@@ -109,6 +109,10 @@ class PmxCapabilityError(PmxError):
     """The requested operation is not supported by the inspected model."""
 
 
+class PmxAssemblyError(PmxCapabilityError):
+    """A part assembly would create ambiguous or unsafe PMX references."""
+
+
 class PmxPlanError(PmxError):
     """A dry-run plan is not executable without further decisions."""
 
