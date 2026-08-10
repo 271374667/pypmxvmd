@@ -154,17 +154,20 @@ document = pypmxvmd.load_pmx("character.pmx", mode="document")
 的 canonical 语义模型；PMX 2.1 不进入尚未完整的原生 parser。该兼容入口等价于
 `load_pmx(..., mode="partial")`。
 传入 `track_spans=True` 时，`field_spans` 保存已登记的定长字段，`record_spans`
-保存现有 Material、Bone、Rigid Body 和 Joint record 的精确字节范围。
+保存现有 Vertex、Face、Material、Bone、Morph、Display Frame、Rigid Body 和 Joint
+record 的精确字节范围。
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 严格读取一次不可变源字节快照，并返回 canonical model、完整性报告、section 证据、字段
-span 和现有 Material/Bone/Rigid Body/Joint record 的精确 span。Material、Bone、Rigid Body、Joint
+span 和现有 Vertex/Face/Material/Bone/Morph/Display Frame/Rigid Body/Joint record 的精确
+span。Material、Bone、Rigid Body、Joint
 record 中
 可直接映射的部分定长数值、枚举、flags、索引和向量字段已登记；四类 record span
-另用于下文 W11a-W11d 事务。其他变长 record、集合增删和全局 index 重编号不登记。
+另用于下文 W11a-W11d 事务，新增的四类 span 作为 W12 源证据。Soft Body record
+仍未登记高层编辑。
 
 ```python
 document = pypmxvmd.load_pmx_document("model.pmx")
@@ -304,6 +307,51 @@ reparse 完整输出并比较全部模型语义。Material/纹理表增删、对
 
 ---
 
+#### W12 集合编辑：Vertex、Face、Morph、Display Frame
+
+以下入口创建隔离的集合级事务：
+
+- `PmxDocument.edit_vertices()` / `pypmxvmd.edit_pmx_vertices(document)`
+- `PmxDocument.edit_faces()` / `pypmxvmd.edit_pmx_faces(document)`
+- `PmxDocument.edit_morphs()` / `pypmxvmd.edit_pmx_morphs(document)`
+- `PmxDocument.edit_frames()` / `pypmxvmd.edit_pmx_frames(document)`
+
+`PmxVertexEditor` 支持几何、Additional UV、BDEF1/BDEF2/BDEF4/SDEF/QDEF、SDEF
+三向量、edge scale 和权重 Bone index。Vertex 增删/重排会同步更新 Face、Vertex/UV
+Morph、Soft Body Anchor/Pin 引用；删除还会移除依赖记录并同步 Material face count。
+
+`PmxFaceEditor` 支持三角形修改、增删与重排。增删会维持连续 Material 面范围和
+`face_count`；`remap_vertex_indices()` 可应用显式 Vertex 映射。会让 Material 范围
+交错的重排会明确拒绝。
+
+`PmxMorphEditor` 支持名称、panel 和全部 PMX 2.0 item 集合，以及 PMX 2.1
+Flip/Impulse。Morph 增删/重排会更新 Group/Flip 和 Display Frame 引用；显式删除
+Morph 时同时移除指向它的 item。
+
+`PmxFrameEditor` 支持名称、item 集合和 frame 集合编辑。事务后统一验证 Bone/Morph
+引用；不允许在前两个位置以外新建 special frame。
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+
+vertices = document.edit_vertices()
+vertices.set_edge_scale(0, 1.5)
+vertices.write_file("vertex-edited.pmx")
+
+faces = document.edit_faces()
+faces.append_face([0, 2, 3], material_index=0)
+faces.write_file("face-edited.pmx")
+```
+
+`encode()` 返回对应的 `Pmx*EditResult`；`write_file()` 会集中验证、strict reparse、
+比较全模型语义并原子替换目标。no-op 精确返回源字节；发生变更时 W12 使用 canonical
+全模型编码，以便索引宽度安全增长，因此保证声明范围外的语义不变，但不承诺源字节或
+源布局相等。非法字段、范围、引用或顺序分别抛出 `PmxVertexEditError`、
+`PmxFaceEditError`、`PmxMorphEditError` 或 `PmxFrameEditError`。Soft Body record
+高层编辑仍未支持。
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 集中验证 PMX 语义且不依赖 `assert`。当前覆盖 PMX 2.0 权重布局、条件字段、跨 section
@@ -351,14 +399,15 @@ pypmxvmd.save_pmx(model, "output.pmx")
 |---|---|---|
 | 读取 `strict` | 是 | 完整 PMX 2.0 `PmxModel`，否则 fail closed |
 | 读取 `partial` | 是 | 带完整性报告的 `PmxParseResult` |
-| 读取 `document` / span | 是（PMX 2.0） | `PmxDocument` / `field_spans` / Material/Bone/Rigid Body/Joint `record_spans` |
-| 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0 |
+| 读取 `document` / span | 是（PMX 2.0/2.1） | `PmxDocument`、定长字段和八类 record span |
+| 写入 `canonical` | 是 | 原子生成语义稳定的 PMX 2.0/2.1 |
 | 写入定长字段 `lossless_patch` | 是 | 经审计的原子源字节 patch |
 | 编辑现有 Bone record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 编辑现有 Rigid Body record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 编辑现有 Joint record | 是（PMX 2.0 Spring 6DOF） | 事务化变长 record 替换 |
 | 编辑现有 Material record | 是（PMX 2.0） | 事务化变长 record 替换 |
-| 写入 `preserve_layout` 或其他变长编辑 | 否 | fail closed |
+| 编辑 Vertex/Face/Morph/Display Frame 集合 | 是 | canonical W12 事务与引用重编号 |
+| 写入 `preserve_layout` | 否 | fail closed |
 
 ---
 
@@ -1290,6 +1339,10 @@ PyPMXVMD 使用标准Python异常进行错误处理：
 | `PmxValidationError` | 字段验证失败，包含 `field`、`expected`、`actual` |
 | `PmxPatchError` | lossless patch 的路径/类型/范围/before/重读/语义检查失败 |
 | `PmxBoneEditError` | 骨骼编辑事务违反字段、布局、引用或集合安全契约 |
+| `PmxVertexEditError` | Vertex 事务违反字段、引用重编号或编辑范围契约 |
+| `PmxFaceEditError` | Face 事务违反拓扑或 Material 连续范围约束 |
+| `PmxMorphEditError` | Morph 事务违反 item、类型、引用或编辑范围约束 |
+| `PmxFrameEditError` | Display Frame 事务违反 item 引用或 special frame 约束 |
 | `UnsupportedPmxFeatureError` | 已识别的 PMX 版本/模式尚未实现，包含 `feature`、`available` |
 
 ```python

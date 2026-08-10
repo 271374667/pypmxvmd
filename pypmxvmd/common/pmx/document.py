@@ -19,9 +19,13 @@ if TYPE_CHECKING:
     from pypmxvmd.common.pmx.cursor import PmxByteSpan
     from pypmxvmd.common.pmx.editing import (
         PmxBoneEditor,
+        PmxFaceEditor,
+        PmxFrameEditor,
         PmxJointEditor,
         PmxMaterialEditor,
+        PmxMorphEditor,
         PmxRigidBodyEditor,
+        PmxVertexEditor,
     )
     from pypmxvmd.common.pmx.report import PmxParseReport
 
@@ -314,6 +318,30 @@ class PmxDocument:
         from pypmxvmd.common.pmx.editing import PmxMaterialEditor
 
         return PmxMaterialEditor(self)
+
+    def edit_vertices(self) -> "PmxVertexEditor":
+        """Create an isolated transaction for W12 Vertex editing."""
+        from pypmxvmd.common.pmx.editing import PmxVertexEditor
+
+        return PmxVertexEditor(self)
+
+    def edit_faces(self) -> "PmxFaceEditor":
+        """Create an isolated transaction for W12 Face editing."""
+        from pypmxvmd.common.pmx.editing import PmxFaceEditor
+
+        return PmxFaceEditor(self)
+
+    def edit_morphs(self) -> "PmxMorphEditor":
+        """Create an isolated transaction for W12 Morph editing."""
+        from pypmxvmd.common.pmx.editing import PmxMorphEditor
+
+        return PmxMorphEditor(self)
+
+    def edit_frames(self) -> "PmxFrameEditor":
+        """Create an isolated transaction for W12 Display Frame editing."""
+        from pypmxvmd.common.pmx.editing import PmxFrameEditor
+
+        return PmxFrameEditor(self)
 
     def span_for(self, field_path: str | FieldPath) -> BinarySpan:
         path = (

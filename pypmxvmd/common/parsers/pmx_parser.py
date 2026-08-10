@@ -746,6 +746,7 @@ class PmxParser:
             # 报告进度
             if i % 1000 == 0:
                 self._report_progress(i, vertex_count)
+            record_start = cursor.position
 
             # 基础顶点数据
             pos_x, pos_y, pos_z = cursor.unpack("<3f")
@@ -833,6 +834,7 @@ class PmxParser:
             )
 
             vertices.append(vertex)
+            cursor.mark_record(f"vertices[{i}]", record_start)
 
         self._report_progress(vertex_count, vertex_count)
         return vertices
@@ -859,12 +861,14 @@ class PmxParser:
         for i in range(face_count):
             if i % 1000 == 0:
                 self._report_progress(i, face_count)
+            record_start = cursor.position
 
             indices = [
                 cursor.read_index(self._vertex_index_size, signed=False)
                 for _ in range(3)
             ]
             faces.append(indices)
+            cursor.mark_record(f"faces[{i}]", record_start)
 
         self._report_progress(face_count, face_count)
         return faces
@@ -1172,6 +1176,7 @@ class PmxParser:
 
         for index in range(morph_count):
             self._report_progress(index, morph_count)
+            record_start = cursor.position
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
 
@@ -1313,6 +1318,7 @@ class PmxParser:
                     items=items,
                 )
             )
+            cursor.mark_record(f"morphs[{index}]", record_start)
 
         self._report_progress(morph_count, morph_count)
         return morphs
@@ -1329,6 +1335,7 @@ class PmxParser:
 
         for index in range(frame_count):
             self._report_progress(index, frame_count)
+            record_start = cursor.position
             name_jp = cursor.read_string(encoding)
             name_en = cursor.read_string(encoding)
             special_offset = cursor.position
@@ -1367,6 +1374,7 @@ class PmxParser:
                     items=items,
                 )
             )
+            cursor.mark_record(f"display_frames[{index}]", record_start)
 
         self._report_progress(frame_count, frame_count)
         return frames

@@ -77,6 +77,22 @@ class PmxMaterialEditError(PmxPatchError):
     """A transactional Material edit violated the W11d safety contract."""
 
 
+class PmxVertexEditError(PmxPatchError):
+    """A transactional Vertex edit violated the W12 safety contract."""
+
+
+class PmxFaceEditError(PmxPatchError):
+    """A transactional Face edit violated the W12 safety contract."""
+
+
+class PmxMorphEditError(PmxPatchError):
+    """A transactional Morph edit violated the W12 safety contract."""
+
+
+class PmxFrameEditError(PmxPatchError):
+    """A transactional Display Frame edit violated the W12 safety contract."""
+
+
 class UnsupportedPmxFeatureError(PmxError):
     """A recognized PMX mode or format feature is not implemented yet."""
 

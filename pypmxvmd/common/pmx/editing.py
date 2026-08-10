@@ -12,10 +12,21 @@ from typing import TYPE_CHECKING, Callable, Iterable, Optional, Sequence, TypeVa
 from pypmxvmd.common.models.pmx import (
     PmxBone,
     PmxBoneIkLink,
+    PmxFrame,
+    PmxFrameItem,
     PmxJoint,
     PmxMaterial,
     PmxModel,
+    PmxMorph,
+    PmxMorphItemBone,
+    PmxMorphItemFlip,
+    PmxMorphItemGroup,
+    PmxMorphItemImpulse,
+    PmxMorphItemMaterial,
+    PmxMorphItemUv,
+    PmxMorphItemVertex,
     PmxRigidBody,
+    PmxVertex,
 )
 from pypmxvmd.common.pmx.document import (
     BinaryPatch,
@@ -24,18 +35,25 @@ from pypmxvmd.common.pmx.document import (
 )
 from pypmxvmd.common.pmx.errors import (
     PmxBoneEditError,
+    PmxFaceEditError,
+    PmxFrameEditError,
     PmxJointEditError,
     PmxMaterialEditError,
+    PmxMorphEditError,
     PmxPatchError,
     PmxRigidBodyEditError,
     PmxValidationError,
+    PmxVertexEditError,
 )
 from pypmxvmd.common.pmx.types import (
     JointType,
+    MorphPanel,
+    MorphType,
     RigidBodyPhysMode,
     RigidBodyShape,
     SphMode,
     ToonSharing,
+    WeightMode,
 )
 from pypmxvmd.common.pmx.validator import validate_pmx_model
 
@@ -982,6 +1000,976 @@ class PmxMaterialEditor:
         return index, "" if index == -1 else self.model.textures[index]
 
 
+@dataclass(frozen=True, slots=True)
+class _CanonicalEditOutput:
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+    changed_record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class PmxVertexEditResult:
+    """Verified output produced by one W12 Vertex transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+    changed_record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class PmxFaceEditResult:
+    """Verified output produced by one W12 Face transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+    changed_record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class PmxMorphEditResult:
+    """Verified output produced by one W12 Morph transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+    changed_record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class PmxFrameEditResult:
+    """Verified output produced by one W12 Display Frame transaction."""
+
+    output_bytes: bytes
+    patches: tuple[BinaryPatch, ...]
+    model: PmxModel
+    changed_record_count: int
+
+
+class _CanonicalCollectionEditor:
+    """Shared source-backed transaction for collection-level W12 edits."""
+
+    _error_type: type[PmxPatchError]
+    _allowed_roots: frozenset[str]
+    _description: str
+
+    def __init__(self, document: PmxDocument) -> None:
+        if not isinstance(document, PmxDocument):
+            raise TypeError(f"{type(self).__name__} requires a PmxDocument")
+        try:
+            clean = document.encode_lossless() == document.source_bytes
+        except PmxPatchError as exc:
+            raise self._error_type(
+                f"{type(self).__name__} requires a clean source-backed document"
+            ) from exc
+        if not clean:
+            raise self._error_type(
+                f"{type(self).__name__} requires an otherwise unmodified PmxDocument"
+            )
+
+        self.document = document
+        self.model = deepcopy(document.model)
+        self._baseline_model = deepcopy(document.model)
+        self._changed_records: set[str] = set()
+
+    def _touch(self, field_path: str) -> None:
+        self._changed_records.add(field_path)
+
+    def _encode_canonical(self) -> _CanonicalEditOutput:
+        mismatch = find_semantic_mismatch(self.model, self._baseline_model)
+        if mismatch is None:
+            return _CanonicalEditOutput(
+                self.document.source_bytes,
+                (),
+                deepcopy(self._baseline_model),
+                0,
+            )
+
+        _reject_unsupported_model_roots(
+            self.model,
+            self._baseline_model,
+            self._allowed_roots,
+            self._error_type,
+        )
+        self._validate_scope()
+        candidate = deepcopy(self.model)
+        candidate.parse_report = None
+        validate_pmx_model(candidate, limits=self.document.limits, strict_eof=True)
+
+        from pypmxvmd.common.pmx.writer import PmxWriter
+
+        writer = PmxWriter(limits=self.document.limits)
+        layout = writer.layout_for(candidate)
+        header = candidate.header
+        header.vertex_index_size = layout.vertex
+        header.texture_index_size = layout.texture
+        header.material_index_size = layout.material
+        header.bone_index_size = layout.bone
+        header.morph_index_size = layout.morph
+        header.rigid_body_index_size = layout.rigid_body
+        header.raw_global_flags = layout.as_global_flags(
+            int(header.encoding), header.additional_uv_count
+        )
+
+        try:
+            output_bytes = writer.encode(candidate)
+            reparsed = self.document.strict_reparse(output_bytes)
+        except (PmxPatchError, PmxValidationError) as exc:
+            raise self._error_type(str(exc)) from exc
+        mismatch = find_semantic_mismatch(reparsed, candidate)
+        if mismatch is not None:
+            raise self._error_type(
+                f"{self._description} transaction changed unintended semantics: "
+                f"{mismatch}"
+            )
+        changed_count = max(1, len(self._changed_records))
+        patch = BinaryPatch(
+            0,
+            self.document.source_bytes,
+            output_bytes,
+            f"canonical W12 {self._description} transaction",
+        )
+        return _CanonicalEditOutput(
+            output_bytes,
+            (patch,),
+            reparsed,
+            changed_count,
+        )
+
+    def _validate_scope(self) -> None:
+        """Validate editor-specific cross-section fields before encoding."""
+        return None
+
+    def _write_canonical(self, file_path: str | Path) -> _CanonicalEditOutput:
+        from pypmxvmd.common.pmx.writer import PmxWriter
+
+        result = self._encode_canonical()
+        PmxWriter._atomic_write(Path(file_path), result.output_bytes)
+        return result
+
+
+class PmxVertexEditor(_CanonicalCollectionEditor):
+    """Edit Vertex records and keep every vertex reference coherent."""
+
+    _error_type = PmxVertexEditError
+    _allowed_roots = frozenset(
+        {"vertices", "faces", "materials", "morphs", "softbodies"}
+    )
+    _description = "Vertex"
+
+    def _validate_scope(self) -> None:
+        _compare_record_metadata(
+            self.model.materials,
+            self._baseline_model.materials,
+            {"face_count"},
+            "materials",
+            PmxVertexEditError,
+        )
+        _compare_record_metadata(
+            self.model.morphs,
+            self._baseline_model.morphs,
+            {"items"},
+            "morphs",
+            PmxVertexEditError,
+        )
+        _compare_record_metadata(
+            self.model.softbodies,
+            self._baseline_model.softbodies,
+            {"anchors", "pin_vertex_indices"},
+            "soft_bodies",
+            PmxVertexEditError,
+        )
+
+    def vertex(self, vertex_index: int) -> PmxVertex:
+        return self.model.vertices[
+            _collection_index(
+                vertex_index,
+                len(self.model.vertices),
+                "vertex_index",
+                PmxVertexEditError,
+            )
+        ]
+
+    def set_geometry(
+        self,
+        vertex_index: int,
+        *,
+        position: Optional[Sequence[float]] = None,
+        normal: Optional[Sequence[float]] = None,
+        uv: Optional[Sequence[float]] = None,
+    ) -> "PmxVertexEditor":
+        if position is None and normal is None and uv is None:
+            raise PmxVertexEditError("set_geometry requires at least one value")
+        vertex = self.vertex(vertex_index)
+        if position is not None:
+            vertex.position = _vector3(position, "vertex.position", PmxVertexEditError)
+        if normal is not None:
+            vertex.normal = _vector3(normal, "vertex.normal", PmxVertexEditError)
+        if uv is not None:
+            vertex.uv = _vector2(uv, "vertex.uv", PmxVertexEditError)
+        self._touch(f"vertices[{vertex_index}]")
+        return self
+
+    def set_additional_uvs(
+        self, vertex_index: int, values: Sequence[Sequence[float]]
+    ) -> "PmxVertexEditor":
+        if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+            raise PmxVertexEditError("vertex.additional_uvs must be a sequence")
+        expected = self.model.header.additional_uv_count
+        if len(values) != expected:
+            raise PmxVertexEditError(
+                f"vertex.additional_uvs must contain exactly {expected} vec4 values"
+            )
+        self.vertex(vertex_index).additional_uvs = [
+            _vector4(value, f"vertex.additional_uvs[{index}]", PmxVertexEditError)
+            for index, value in enumerate(values)
+        ]
+        self._touch(f"vertices[{vertex_index}]")
+        return self
+
+    def set_weight(
+        self,
+        vertex_index: int,
+        weight_mode: WeightMode | int,
+        weights: Sequence[Sequence[float | int]],
+        *,
+        sdef_c: Optional[Sequence[float]] = None,
+        sdef_r0: Optional[Sequence[float]] = None,
+        sdef_r1: Optional[Sequence[float]] = None,
+    ) -> "PmxVertexEditor":
+        mode = _enum_member(
+            weight_mode,
+            WeightMode,
+            "vertex.weight_mode",
+            PmxVertexEditError,
+        )
+        if mode == WeightMode.QDEF and self.model.header.version < 2.1:
+            raise PmxVertexEditError("QDEF requires PMX 2.1")
+        if not isinstance(weights, Sequence) or isinstance(weights, (str, bytes)):
+            raise PmxVertexEditError("vertex.weight must be a sequence")
+        expected = {
+            WeightMode.BDEF1: 1,
+            WeightMode.BDEF2: 2,
+            WeightMode.BDEF4: 4,
+            WeightMode.SDEF: 2,
+            WeightMode.QDEF: 4,
+        }[mode]
+        if len(weights) != expected:
+            raise PmxVertexEditError(
+                f"{mode.name} requires exactly {expected} weight records"
+            )
+        normalized: list[list[int | float] | tuple[int | float, int | float]] = []
+        for index, item in enumerate(weights):
+            if (
+                not isinstance(item, Sequence)
+                or isinstance(item, (str, bytes))
+                or len(item) != 2
+            ):
+                raise PmxVertexEditError(
+                    f"vertex.weight[{index}] must be [bone_index, weight]"
+                )
+            normalized_item = (
+                _integer(
+                    item[0],
+                    f"vertex.weight[{index}].bone_index",
+                    PmxVertexEditError,
+                ),
+                _number(
+                    item[1],
+                    f"vertex.weight[{index}].weight",
+                    PmxVertexEditError,
+                ),
+            )
+            normalized.append(
+                normalized_item
+                if mode in (WeightMode.BDEF4, WeightMode.QDEF)
+                else list(normalized_item)
+            )
+        vertex = self.vertex(vertex_index)
+        vertex.weight_mode = mode
+        vertex.weight = normalized
+        if mode == WeightMode.SDEF:
+            if sdef_c is None or sdef_r0 is None or sdef_r1 is None:
+                raise PmxVertexEditError("SDEF requires C, R0, and R1 vectors")
+            vertex.sdef_c = _vector3(sdef_c, "vertex.sdef_c", PmxVertexEditError)
+            vertex.sdef_r0 = _vector3(sdef_r0, "vertex.sdef_r0", PmxVertexEditError)
+            vertex.sdef_r1 = _vector3(sdef_r1, "vertex.sdef_r1", PmxVertexEditError)
+        else:
+            if any(value is not None for value in (sdef_c, sdef_r0, sdef_r1)):
+                raise PmxVertexEditError("SDEF vectors are only valid in SDEF mode")
+            vertex.sdef_c = None
+            vertex.sdef_r0 = None
+            vertex.sdef_r1 = None
+        self._touch(f"vertices[{vertex_index}]")
+        return self
+
+    def set_edge_scale(self, vertex_index: int, edge_scale: float) -> "PmxVertexEditor":
+        self.vertex(vertex_index).edge_scale = _number(
+            edge_scale, "vertex.edge_scale", PmxVertexEditError
+        )
+        self._touch(f"vertices[{vertex_index}]")
+        return self
+
+    def append_vertex(self, vertex: PmxVertex) -> "PmxVertexEditor":
+        return self.insert_vertex(len(self.model.vertices), vertex)
+
+    def insert_vertex(self, vertex_index: int, vertex: PmxVertex) -> "PmxVertexEditor":
+        index = _insertion_index(
+            vertex_index,
+            len(self.model.vertices),
+            "vertex_index",
+            PmxVertexEditError,
+        )
+        _remap_vertex_references(
+            self.model, lambda value: value + 1 if value >= index else value
+        )
+        self.model.vertices.insert(
+            index,
+            _record_copy(vertex, PmxVertex, "vertex", PmxVertexEditError),
+        )
+        self._touch(f"vertices[{index}]")
+        return self
+
+    def delete_vertex(self, vertex_index: int) -> "PmxVertexEditor":
+        index = _collection_index(
+            vertex_index,
+            len(self.model.vertices),
+            "vertex_index",
+            PmxVertexEditError,
+        )
+        face_materials = _face_material_indices(self.model, PmxVertexEditError)
+        retained_faces: list[list[int]] = []
+        retained_materials: list[int] = []
+        for face, material_index in zip(self.model.faces, face_materials):
+            if index in face:
+                continue
+            retained_faces.append(
+                [value - 1 if value > index else value for value in face]
+            )
+            retained_materials.append(material_index)
+        self.model.faces = retained_faces
+        _apply_material_face_indices(self.model, retained_materials, PmxVertexEditError)
+
+        for morph in self.model.morphs:
+            if morph.morph_type in (
+                MorphType.VERTEX,
+                MorphType.UV,
+                MorphType.EXTENDED_UV1,
+                MorphType.EXTENDED_UV2,
+                MorphType.EXTENDED_UV3,
+                MorphType.EXTENDED_UV4,
+            ):
+                morph.items = [
+                    item for item in morph.items if item.vertex_index != index
+                ]
+                for item in morph.items:
+                    if item.vertex_index > index:
+                        item.vertex_index -= 1
+        for soft_body in self.model.softbodies:
+            soft_body.anchors = [
+                anchor for anchor in soft_body.anchors if anchor.vertex_index != index
+            ]
+            for anchor in soft_body.anchors:
+                if anchor.vertex_index > index:
+                    anchor.vertex_index -= 1
+            soft_body.pin_vertex_indices = [
+                value - 1 if value > index else value
+                for value in soft_body.pin_vertex_indices
+                if value != index
+            ]
+        self.model.vertices.pop(index)
+        self._touch(f"vertices[{index}]")
+        return self
+
+    def reorder_vertices(self, order: Sequence[int]) -> "PmxVertexEditor":
+        normalized = _permutation(
+            order, len(self.model.vertices), "vertex order", PmxVertexEditError
+        )
+        mapping = {
+            old_index: new_index for new_index, old_index in enumerate(normalized)
+        }
+        self.model.vertices = [self.model.vertices[index] for index in normalized]
+        _remap_vertex_references(self.model, mapping.__getitem__)
+        self._touch("vertices")
+        return self
+
+    def remap_bone_indices(self, mapping: dict[int, int]) -> "PmxVertexEditor":
+        normalized = _index_mapping(mapping, "bone mapping", PmxVertexEditError)
+        for vertex_index, vertex in enumerate(self.model.vertices):
+            vertex.weight = [
+                type(weight)(
+                    (
+                        normalized.get(cast(int, weight[0]), cast(int, weight[0])),
+                        weight[1],
+                    )
+                )
+                for weight in vertex.weight
+            ]
+            self._touch(f"vertices[{vertex_index}]")
+        return self
+
+    append = append_vertex
+    insert = insert_vertex
+    delete = delete_vertex
+    reorder = reorder_vertices
+
+    def encode(self) -> PmxVertexEditResult:
+        result = self._encode_canonical()
+        return PmxVertexEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+    def write_file(self, file_path: str | Path) -> PmxVertexEditResult:
+        result = self._write_canonical(file_path)
+        return PmxVertexEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+
+class PmxFaceEditor(_CanonicalCollectionEditor):
+    """Edit triangle topology while preserving Material face ranges."""
+
+    _error_type = PmxFaceEditError
+    _allowed_roots = frozenset({"faces", "materials"})
+    _description = "Face"
+
+    def _validate_scope(self) -> None:
+        _compare_record_metadata(
+            self.model.materials,
+            self._baseline_model.materials,
+            {"face_count"},
+            "materials",
+            PmxFaceEditError,
+        )
+
+    def face(self, face_index: int) -> list[int]:
+        return self.model.faces[
+            _collection_index(
+                face_index, len(self.model.faces), "face_index", PmxFaceEditError
+            )
+        ]
+
+    def set_face(
+        self, face_index: int, vertex_indices: Sequence[int]
+    ) -> "PmxFaceEditor":
+        index = _collection_index(
+            face_index, len(self.model.faces), "face_index", PmxFaceEditError
+        )
+        self.model.faces[index] = _triangle(vertex_indices, PmxFaceEditError)
+        self._touch(f"faces[{index}]")
+        return self
+
+    def append_face(
+        self, vertex_indices: Sequence[int], material_index: int
+    ) -> "PmxFaceEditor":
+        material = _collection_index(
+            material_index,
+            len(self.model.materials),
+            "material_index",
+            PmxFaceEditError,
+        )
+        assignments = _face_material_indices(self.model, PmxFaceEditError)
+        insertion = sum(1 for value in assignments if value <= material)
+        self.model.faces.insert(insertion, _triangle(vertex_indices, PmxFaceEditError))
+        assignments.insert(insertion, material)
+        _apply_material_face_indices(self.model, assignments, PmxFaceEditError)
+        self._touch(f"faces[{insertion}]")
+        return self
+
+    def insert_face(
+        self,
+        face_index: int,
+        vertex_indices: Sequence[int],
+        material_index: int,
+    ) -> "PmxFaceEditor":
+        index = _insertion_index(
+            face_index, len(self.model.faces), "face_index", PmxFaceEditError
+        )
+        material = _collection_index(
+            material_index,
+            len(self.model.materials),
+            "material_index",
+            PmxFaceEditError,
+        )
+        assignments = _face_material_indices(self.model, PmxFaceEditError)
+        lower = sum(1 for value in assignments if value < material)
+        upper = sum(1 for value in assignments if value <= material)
+        if not lower <= index <= upper:
+            raise PmxFaceEditError(
+                f"face_index must be within material {material} range {lower}..{upper}"
+            )
+        self.model.faces.insert(index, _triangle(vertex_indices, PmxFaceEditError))
+        assignments.insert(index, material)
+        _apply_material_face_indices(self.model, assignments, PmxFaceEditError)
+        self._touch(f"faces[{index}]")
+        return self
+
+    def delete_face(self, face_index: int) -> "PmxFaceEditor":
+        index = _collection_index(
+            face_index, len(self.model.faces), "face_index", PmxFaceEditError
+        )
+        assignments = _face_material_indices(self.model, PmxFaceEditError)
+        self.model.faces.pop(index)
+        assignments.pop(index)
+        _apply_material_face_indices(self.model, assignments, PmxFaceEditError)
+        self._touch(f"faces[{index}]")
+        return self
+
+    def reorder_faces(self, order: Sequence[int]) -> "PmxFaceEditor":
+        normalized = _permutation(
+            order, len(self.model.faces), "face order", PmxFaceEditError
+        )
+        assignments = _face_material_indices(self.model, PmxFaceEditError)
+        reordered_assignments = [assignments[index] for index in normalized]
+        if reordered_assignments != sorted(reordered_assignments):
+            raise PmxFaceEditError(
+                "Face reorder cannot interleave Material ranges; reorder within ranges"
+            )
+        self.model.faces = [self.model.faces[index] for index in normalized]
+        _apply_material_face_indices(
+            self.model, reordered_assignments, PmxFaceEditError
+        )
+        self._touch("faces")
+        return self
+
+    def remap_vertex_indices(self, mapping: dict[int, int]) -> "PmxFaceEditor":
+        normalized = _index_mapping(mapping, "vertex mapping", PmxFaceEditError)
+        for face_index, face in enumerate(self.model.faces):
+            self.model.faces[face_index] = [
+                normalized.get(vertex_index, vertex_index) for vertex_index in face
+            ]
+            self._touch(f"faces[{face_index}]")
+        return self
+
+    append = append_face
+    insert = insert_face
+    delete = delete_face
+    reorder = reorder_faces
+
+    def encode(self) -> PmxFaceEditResult:
+        result = self._encode_canonical()
+        return PmxFaceEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+    def write_file(self, file_path: str | Path) -> PmxFaceEditResult:
+        result = self._write_canonical(file_path)
+        return PmxFaceEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+
+class PmxMorphEditor(_CanonicalCollectionEditor):
+    """Edit Morph records/items and remap Morph references transactionally."""
+
+    _error_type = PmxMorphEditError
+    _allowed_roots = frozenset({"morphs", "frames"})
+    _description = "Morph"
+
+    def _validate_scope(self) -> None:
+        _compare_record_metadata(
+            self.model.frames,
+            self._baseline_model.frames,
+            {"items"},
+            "display_frames",
+            PmxMorphEditError,
+        )
+
+    def morph(self, morph_index: int) -> PmxMorph:
+        return self.model.morphs[
+            _collection_index(
+                morph_index,
+                len(self.model.morphs),
+                "morph_index",
+                PmxMorphEditError,
+            )
+        ]
+
+    def set_names(
+        self,
+        morph_index: int,
+        *,
+        name_jp: Optional[str] = None,
+        name_en: Optional[str] = None,
+    ) -> "PmxMorphEditor":
+        if name_jp is None and name_en is None:
+            raise PmxMorphEditError("set_names requires name_jp and/or name_en")
+        morph = self.morph(morph_index)
+        if name_jp is not None:
+            if not isinstance(name_jp, str):
+                raise PmxMorphEditError("Morph Japanese name must be a string")
+            morph.name_jp = name_jp
+        if name_en is not None:
+            if not isinstance(name_en, str):
+                raise PmxMorphEditError("Morph English name must be a string")
+            morph.name_en = name_en
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def set_panel(self, morph_index: int, panel: MorphPanel | int) -> "PmxMorphEditor":
+        self.morph(morph_index).panel = _enum_member(
+            panel, MorphPanel, "morph.panel", PmxMorphEditError
+        )
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def replace_items(
+        self, morph_index: int, items: Sequence[object]
+    ) -> "PmxMorphEditor":
+        if not isinstance(items, Sequence) or isinstance(items, (str, bytes)):
+            raise PmxMorphEditError("morph.items must be a sequence")
+        morph = self.morph(morph_index)
+        morph.items = [
+            _morph_item_copy(morph.morph_type, item, PmxMorphEditError)
+            for item in items
+        ]
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def append_item(self, morph_index: int, item: object) -> "PmxMorphEditor":
+        morph = self.morph(morph_index)
+        morph.items.append(_morph_item_copy(morph.morph_type, item, PmxMorphEditError))
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def insert_item(
+        self, morph_index: int, item_index: int, item: object
+    ) -> "PmxMorphEditor":
+        morph = self.morph(morph_index)
+        index = _insertion_index(
+            item_index,
+            len(morph.items),
+            "item_index",
+            PmxMorphEditError,
+        )
+        morph.items.insert(
+            index, _morph_item_copy(morph.morph_type, item, PmxMorphEditError)
+        )
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def delete_item(self, morph_index: int, item_index: int) -> "PmxMorphEditor":
+        morph = self.morph(morph_index)
+        index = _collection_index(
+            item_index, len(morph.items), "item_index", PmxMorphEditError
+        )
+        morph.items.pop(index)
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def reorder_items(self, morph_index: int, order: Sequence[int]) -> "PmxMorphEditor":
+        morph = self.morph(morph_index)
+        normalized = _permutation(
+            order, len(morph.items), "Morph item order", PmxMorphEditError
+        )
+        morph.items = [morph.items[index] for index in normalized]
+        self._touch(f"morphs[{morph_index}]")
+        return self
+
+    def append_morph(self, morph: PmxMorph) -> "PmxMorphEditor":
+        return self.insert_morph(len(self.model.morphs), morph)
+
+    def insert_morph(self, morph_index: int, morph: PmxMorph) -> "PmxMorphEditor":
+        index = _insertion_index(
+            morph_index,
+            len(self.model.morphs),
+            "morph_index",
+            PmxMorphEditError,
+        )
+        _remap_morph_references(
+            self.model,
+            lambda value: value + 1 if value >= index else value,
+        )
+        self.model.morphs.insert(
+            index, _record_copy(morph, PmxMorph, "morph", PmxMorphEditError)
+        )
+        self._touch(f"morphs[{index}]")
+        return self
+
+    def delete_morph(self, morph_index: int) -> "PmxMorphEditor":
+        index = _collection_index(
+            morph_index,
+            len(self.model.morphs),
+            "morph_index",
+            PmxMorphEditError,
+        )
+        self.model.morphs.pop(index)
+        for morph in self.model.morphs:
+            if morph.morph_type in (MorphType.GROUP, MorphType.FLIP):
+                morph.items = [
+                    item for item in morph.items if item.morph_index != index
+                ]
+                for item in morph.items:
+                    if item.morph_index > index:
+                        item.morph_index -= 1
+        for frame in self.model.frames:
+            frame.items = [
+                item
+                for item in frame.items
+                if not (item.is_morph and item.index == index)
+            ]
+            for item in frame.items:
+                if item.is_morph and item.index > index:
+                    item.index -= 1
+        self._touch(f"morphs[{index}]")
+        return self
+
+    def reorder_morphs(self, order: Sequence[int]) -> "PmxMorphEditor":
+        normalized = _permutation(
+            order, len(self.model.morphs), "Morph order", PmxMorphEditError
+        )
+        mapping = {
+            old_index: new_index for new_index, old_index in enumerate(normalized)
+        }
+        self.model.morphs = [self.model.morphs[index] for index in normalized]
+        _remap_morph_references(self.model, mapping.__getitem__)
+        self._touch("morphs")
+        return self
+
+    append = append_morph
+    insert = insert_morph
+    delete = delete_morph
+    reorder = reorder_morphs
+
+    def encode(self) -> PmxMorphEditResult:
+        result = self._encode_canonical()
+        return PmxMorphEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+    def write_file(self, file_path: str | Path) -> PmxMorphEditResult:
+        result = self._write_canonical(file_path)
+        return PmxMorphEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+
+class PmxFrameEditor(_CanonicalCollectionEditor):
+    """Edit Display Frame records/items with strict special-frame rules."""
+
+    _error_type = PmxFrameEditError
+    _allowed_roots = frozenset({"frames"})
+    _description = "Display Frame"
+
+    def frame(self, frame_index: int) -> PmxFrame:
+        return self.model.frames[
+            _collection_index(
+                frame_index,
+                len(self.model.frames),
+                "frame_index",
+                PmxFrameEditError,
+            )
+        ]
+
+    def set_names(
+        self,
+        frame_index: int,
+        *,
+        name_jp: Optional[str] = None,
+        name_en: Optional[str] = None,
+    ) -> "PmxFrameEditor":
+        if name_jp is None and name_en is None:
+            raise PmxFrameEditError("set_names requires name_jp and/or name_en")
+        frame = self.frame(frame_index)
+        if name_jp is not None:
+            if not isinstance(name_jp, str):
+                raise PmxFrameEditError("Display Frame Japanese name must be a string")
+            frame.name_jp = name_jp
+        if name_en is not None:
+            if not isinstance(name_en, str):
+                raise PmxFrameEditError("Display Frame English name must be a string")
+            frame.name_en = name_en
+        self._touch(f"display_frames[{frame_index}]")
+        return self
+
+    def set_special(self, frame_index: int, is_special: bool) -> "PmxFrameEditor":
+        index = _collection_index(
+            frame_index,
+            len(self.model.frames),
+            "frame_index",
+            PmxFrameEditError,
+        )
+        value = _boolean(is_special, "display_frame.is_special", PmxFrameEditError)
+        if value and index >= 2:
+            raise PmxFrameEditError(
+                "Only the first two Display Frames may be marked special"
+            )
+        self.model.frames[index].is_special = value
+        self._touch(f"display_frames[{index}]")
+        return self
+
+    def replace_items(
+        self, frame_index: int, items: Sequence[PmxFrameItem]
+    ) -> "PmxFrameEditor":
+        if not isinstance(items, Sequence) or isinstance(items, (str, bytes)):
+            raise PmxFrameEditError("display_frame.items must be a sequence")
+        self.frame(frame_index).items = [
+            _record_copy(item, PmxFrameItem, "frame item", PmxFrameEditError)
+            for item in items
+        ]
+        self._touch(f"display_frames[{frame_index}]")
+        return self
+
+    def append_item(self, frame_index: int, item: PmxFrameItem) -> "PmxFrameEditor":
+        self.frame(frame_index).items.append(
+            _record_copy(item, PmxFrameItem, "frame item", PmxFrameEditError)
+        )
+        self._touch(f"display_frames[{frame_index}]")
+        return self
+
+    def insert_item(
+        self, frame_index: int, item_index: int, item: PmxFrameItem
+    ) -> "PmxFrameEditor":
+        frame = self.frame(frame_index)
+        index = _insertion_index(
+            item_index,
+            len(frame.items),
+            "item_index",
+            PmxFrameEditError,
+        )
+        frame.items.insert(
+            index, _record_copy(item, PmxFrameItem, "frame item", PmxFrameEditError)
+        )
+        self._touch(f"display_frames[{frame_index}]")
+        return self
+
+    def delete_item(self, frame_index: int, item_index: int) -> "PmxFrameEditor":
+        frame = self.frame(frame_index)
+        index = _collection_index(
+            item_index, len(frame.items), "item_index", PmxFrameEditError
+        )
+        frame.items.pop(index)
+        self._touch(f"display_frames[{frame_index}]")
+        return self
+
+    def reorder_items(self, frame_index: int, order: Sequence[int]) -> "PmxFrameEditor":
+        frame = self.frame(frame_index)
+        normalized = _permutation(
+            order, len(frame.items), "Display Frame item order", PmxFrameEditError
+        )
+        frame.items = [frame.items[index] for index in normalized]
+        self._touch(f"display_frames[{frame_index}]")
+        return self
+
+    def append_frame(self, frame: PmxFrame) -> "PmxFrameEditor":
+        if frame.is_special:
+            raise PmxFrameEditError("Appended Display Frames cannot be special")
+        self.model.frames.append(
+            _record_copy(frame, PmxFrame, "display frame", PmxFrameEditError)
+        )
+        self._touch(f"display_frames[{len(self.model.frames) - 1}]")
+        return self
+
+    def insert_frame(self, frame_index: int, frame: PmxFrame) -> "PmxFrameEditor":
+        index = _insertion_index(
+            frame_index,
+            len(self.model.frames),
+            "frame_index",
+            PmxFrameEditError,
+        )
+        copied = _record_copy(frame, PmxFrame, "display frame", PmxFrameEditError)
+        if copied.is_special and index >= 2:
+            raise PmxFrameEditError(
+                "Only the first two Display Frames may be marked special"
+            )
+        self.model.frames.insert(index, copied)
+        self._touch(f"display_frames[{index}]")
+        return self
+
+    def delete_frame(self, frame_index: int) -> "PmxFrameEditor":
+        index = _collection_index(
+            frame_index,
+            len(self.model.frames),
+            "frame_index",
+            PmxFrameEditError,
+        )
+        self.model.frames.pop(index)
+        self._touch(f"display_frames[{index}]")
+        return self
+
+    def reorder_frames(self, order: Sequence[int]) -> "PmxFrameEditor":
+        normalized = _permutation(
+            order, len(self.model.frames), "Display Frame order", PmxFrameEditError
+        )
+        frames = [self.model.frames[index] for index in normalized]
+        if any(frame.is_special for frame in frames[2:]):
+            raise PmxFrameEditError(
+                "Display Frame reorder cannot move a special frame past index 1"
+            )
+        self.model.frames = frames
+        self._touch("display_frames")
+        return self
+
+    append = append_frame
+    insert = insert_frame
+    delete = delete_frame
+    reorder = reorder_frames
+
+    def encode(self) -> PmxFrameEditResult:
+        _validate_special_frame_changes(
+            self.model.frames, self._baseline_model.frames, PmxFrameEditError
+        )
+        result = self._encode_canonical()
+        return PmxFrameEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+    def write_file(self, file_path: str | Path) -> PmxFrameEditResult:
+        _validate_special_frame_changes(
+            self.model.frames, self._baseline_model.frames, PmxFrameEditError
+        )
+        result = self._write_canonical(file_path)
+        return PmxFrameEditResult(
+            result.output_bytes,
+            result.patches,
+            result.model,
+            result.changed_record_count,
+        )
+
+
+def edit_pmx_vertices(document: PmxDocument) -> PmxVertexEditor:
+    """Create a W12 Vertex transaction from a clean source-backed document."""
+    return PmxVertexEditor(document)
+
+
+def edit_pmx_faces(document: PmxDocument) -> PmxFaceEditor:
+    """Create a W12 Face transaction from a clean source-backed document."""
+    return PmxFaceEditor(document)
+
+
+def edit_pmx_morphs(document: PmxDocument) -> PmxMorphEditor:
+    """Create a W12 Morph transaction from a clean source-backed document."""
+    return PmxMorphEditor(document)
+
+
+def edit_pmx_frames(document: PmxDocument) -> PmxFrameEditor:
+    """Create a W12 Display Frame transaction from a clean document."""
+    return PmxFrameEditor(document)
+
+
 def edit_pmx_bones(document: PmxDocument) -> PmxBoneEditor:
     """Create a W11a Bone transaction from a clean source-backed document."""
     return PmxBoneEditor(document)
@@ -1029,6 +2017,252 @@ def ik_link(
         limit_max=maximum,
         has_limits=True,
     )
+
+
+def _reject_unsupported_model_roots(
+    model: PmxModel,
+    baseline_model: PmxModel,
+    allowed_roots: frozenset[str],
+    error_type: type[PmxPatchError],
+) -> None:
+    """Reject direct edits outside the collection and its declared references."""
+    ignored = {"_validated", "parse_report"}
+    for name, baseline_value in vars(baseline_model).items():
+        if name in ignored or name in allowed_roots:
+            continue
+        actual = getattr(model, name)
+        mismatch = find_semantic_mismatch(actual, baseline_value, name)
+        if mismatch is not None:
+            raise error_type(f"Unsupported non-W12 edit: {mismatch}")
+
+
+def _compare_record_metadata(
+    records: Sequence[object],
+    baseline_records: Sequence[object],
+    allowed_fields: set[str],
+    path: str,
+    error_type: type[PmxPatchError],
+) -> None:
+    if len(records) != len(baseline_records):
+        raise error_type(f"Unsupported cross-section collection change: {path}")
+    for index, (record, baseline) in enumerate(zip(records, baseline_records)):
+        actual_copy = deepcopy(record)
+        baseline_copy = deepcopy(baseline)
+        for field in allowed_fields:
+            if hasattr(actual_copy, field) and hasattr(baseline_copy, field):
+                setattr(actual_copy, field, deepcopy(getattr(baseline_copy, field)))
+        mismatch = find_semantic_mismatch(
+            actual_copy, baseline_copy, f"{path}[{index}]"
+        )
+        if mismatch is not None:
+            raise error_type(f"Unsupported cross-section edit: {mismatch}")
+
+
+def _collection_index(
+    value: int,
+    length: int,
+    field: str,
+    error_type: type[PmxPatchError],
+) -> int:
+    index = _integer(value, field, error_type)
+    if not 0 <= index < length:
+        raise error_type(
+            f"{field} {index} is outside 0..{length - 1}", field_path=field
+        )
+    return index
+
+
+def _insertion_index(
+    value: int,
+    length: int,
+    field: str,
+    error_type: type[PmxPatchError],
+) -> int:
+    index = _integer(value, field, error_type)
+    if not 0 <= index <= length:
+        raise error_type(f"{field} {index} is outside 0..{length}", field_path=field)
+    return index
+
+
+def _record_copy(
+    value: object,
+    expected_type: type[RecordT],
+    label: str,
+    error_type: type[PmxPatchError],
+) -> RecordT:
+    if not isinstance(value, expected_type):
+        raise error_type(f"{label} must be {expected_type.__name__}")
+    return deepcopy(value)
+
+
+def _permutation(
+    order: Sequence[int],
+    length: int,
+    label: str,
+    error_type: type[PmxPatchError],
+) -> list[int]:
+    if not isinstance(order, Sequence) or isinstance(order, (str, bytes)):
+        raise error_type(f"{label} must be a sequence")
+    values = [
+        _integer(value, f"{label}[{index}]", error_type)
+        for index, value in enumerate(order)
+    ]
+    if sorted(values) != list(range(length)):
+        raise error_type(f"{label} must be a permutation of 0..{length - 1}")
+    return values
+
+
+def _index_mapping(
+    mapping: dict[int, int],
+    label: str,
+    error_type: type[PmxPatchError],
+) -> dict[int, int]:
+    if not isinstance(mapping, dict):
+        raise error_type(f"{label} must be a dict")
+    return {
+        _integer(key, f"{label}.old", error_type): _integer(
+            value, f"{label}.new", error_type
+        )
+        for key, value in mapping.items()
+    }
+
+
+def _triangle(values: Sequence[int], error_type: type[PmxPatchError]) -> list[int]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise error_type("face must be a 3-value sequence")
+    if len(values) != 3:
+        raise error_type("face must contain exactly three vertex indices")
+    return [
+        _integer(value, f"face[{index}]", error_type)
+        for index, value in enumerate(values)
+    ]
+
+
+def _vector2(
+    value: Sequence[float], field: str, error_type: type[PmxPatchError]
+) -> list[float]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise error_type(f"{field} must be a 2-value sequence", field_path=field)
+    if len(value) != 2:
+        raise error_type(f"{field} must contain 2 values", field_path=field)
+    return [_number(item, f"{field}[{i}]", error_type) for i, item in enumerate(value)]
+
+
+def _face_material_indices(
+    model: PmxModel, error_type: type[PmxPatchError]
+) -> list[int]:
+    assignments: list[int] = []
+    for material_index, material in enumerate(model.materials):
+        if material.face_count < 0 or material.face_count % 3:
+            raise error_type(
+                "Material face_count must be a non-negative multiple of three",
+                field_path=f"materials[{material_index}].face_count",
+            )
+        assignments.extend([material_index] * (material.face_count // 3))
+    if len(assignments) != len(model.faces):
+        raise error_type(
+            "Material face_count values do not match the current face collection"
+        )
+    return assignments
+
+
+def _apply_material_face_indices(
+    model: PmxModel,
+    assignments: Sequence[int],
+    error_type: type[PmxPatchError],
+) -> None:
+    if len(assignments) != len(model.faces):
+        raise error_type("Material assignment count must equal face count")
+    if any(
+        not isinstance(value, int) or not 0 <= value < len(model.materials)
+        for value in assignments
+    ):
+        raise error_type("Material assignment contains an invalid material index")
+    counts = [0] * len(model.materials)
+    for value in assignments:
+        counts[value] += 3
+    for material, count in zip(model.materials, counts):
+        material.face_count = count
+
+
+def _remap_vertex_references(model: PmxModel, remap: Callable[[int], int]) -> None:
+    for face in model.faces:
+        for corner, value in enumerate(face):
+            face[corner] = remap(value)
+    for morph in model.morphs:
+        if morph.morph_type in (
+            MorphType.VERTEX,
+            MorphType.UV,
+            MorphType.EXTENDED_UV1,
+            MorphType.EXTENDED_UV2,
+            MorphType.EXTENDED_UV3,
+            MorphType.EXTENDED_UV4,
+        ):
+            for item in morph.items:
+                item.vertex_index = remap(item.vertex_index)
+    for soft_body in model.softbodies:
+        for anchor in soft_body.anchors:
+            anchor.vertex_index = remap(anchor.vertex_index)
+        soft_body.pin_vertex_indices = [
+            remap(value) for value in soft_body.pin_vertex_indices
+        ]
+
+
+def _remap_morph_references(model: PmxModel, remap: Callable[[int], int]) -> None:
+    for morph in model.morphs:
+        if morph.morph_type in (MorphType.GROUP, MorphType.FLIP):
+            for item in morph.items:
+                item.morph_index = remap(item.morph_index)
+    for frame in model.frames:
+        for item in frame.items:
+            if item.is_morph:
+                item.index = remap(item.index)
+
+
+def _morph_item_copy(
+    morph_type: MorphType,
+    item: object,
+    error_type: type[PmxPatchError],
+) -> object:
+    expected = {
+        MorphType.GROUP: PmxMorphItemGroup,
+        MorphType.VERTEX: PmxMorphItemVertex,
+        MorphType.BONE: PmxMorphItemBone,
+        MorphType.UV: PmxMorphItemUv,
+        MorphType.EXTENDED_UV1: PmxMorphItemUv,
+        MorphType.EXTENDED_UV2: PmxMorphItemUv,
+        MorphType.EXTENDED_UV3: PmxMorphItemUv,
+        MorphType.EXTENDED_UV4: PmxMorphItemUv,
+        MorphType.MATERIAL: PmxMorphItemMaterial,
+        MorphType.FLIP: PmxMorphItemFlip,
+        MorphType.IMPULSE: PmxMorphItemImpulse,
+    }.get(morph_type)
+    if expected is None or not isinstance(item, expected):
+        raise error_type(
+            f"Morph type {morph_type!r} requires {getattr(expected, '__name__', 'a supported item')}"
+        )
+    return deepcopy(item)
+
+
+def _validate_special_frame_changes(
+    frames: Sequence[PmxFrame],
+    baseline_frames: Sequence[PmxFrame],
+    error_type: type[PmxPatchError],
+) -> None:
+    new_special = [index for index, frame in enumerate(frames) if frame.is_special]
+    old_special = [
+        index for index, frame in enumerate(baseline_frames) if frame.is_special
+    ]
+    if any(index >= 2 for index in new_special) and new_special != old_special:
+        raise error_type(
+            "Only the first two Display Frames may be marked special",
+            field_path="display_frames.is_special",
+        )
+    if len(new_special) > 2 and new_special != old_special:
+        raise error_type(
+            "Display Frames may contain at most two special frames",
+            field_path="display_frames.is_special",
+        )
 
 
 def _require_clean_record_document(
@@ -1453,6 +2687,14 @@ def _vector4(
 
 
 __all__ = [
+    "PmxVertexEditResult",
+    "PmxVertexEditor",
+    "PmxFaceEditResult",
+    "PmxFaceEditor",
+    "PmxMorphEditResult",
+    "PmxMorphEditor",
+    "PmxFrameEditResult",
+    "PmxFrameEditor",
     "PmxBoneEditResult",
     "PmxBoneEditor",
     "PmxRigidBodyEditResult",
@@ -1461,6 +2703,10 @@ __all__ = [
     "PmxJointEditor",
     "PmxMaterialEditResult",
     "PmxMaterialEditor",
+    "edit_pmx_vertices",
+    "edit_pmx_faces",
+    "edit_pmx_morphs",
+    "edit_pmx_frames",
     "edit_pmx_bones",
     "edit_pmx_joints",
     "edit_pmx_materials",

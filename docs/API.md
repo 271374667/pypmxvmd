@@ -133,21 +133,20 @@ canonical semantic model; PMX 2.1 does not enter the incomplete native parser.
 This legacy-compatible
 helper is equivalent to `load_pmx(..., mode="partial")`. With
 `track_spans=True`, `field_spans` contains the registered fixed-width fields and
-`record_spans` contains exact existing Material, Bone, Rigid Body, and Joint
-record ranges.
+`record_spans` contains exact existing Vertex, Face, Material, Bone, Morph,
+Display Frame, Rigid Body, and Joint record ranges.
 
 ---
 
 #### `pypmxvmd.load_pmx_document(file_path, more_info=False, *, implementation="auto", track_spans=True) -> PmxDocument`
 
 Strict-load an immutable source snapshot, canonical model, parse report, section
-evidence, fixed-width field spans, and exact existing Material/Bone/Rigid Body/
-Joint record spans. The first
+evidence, fixed-width field spans, and exact existing Vertex/Face/Material/Bone/
+Morph/Display Frame/Rigid Body/Joint record spans. The first
 lossless stage registers selected directly mapped numeric, enum, index, flags, and
 vector fields in existing Material, Bone, Rigid Body, and Joint records. Their
-record spans additionally support the W11a-W11d transactions below. Other
-variable-length records, collection insertion/deletion, and global index
-renumbering are deliberately not registered.
+record spans support the W11a-W11d transactions; the additional record spans are
+used as W12 source evidence. Soft Body records are not registered for editing.
 
 ```python
 document = pypmxvmd.load_pmx_document("model.pmx")
@@ -307,6 +306,57 @@ and raise `PmxMaterialEditError` or a validation error.
 
 ---
 
+#### W12 collection editors: Vertex, Face, Morph, and Display Frame
+
+The following factories create isolated collection-level transactions:
+
+- `PmxDocument.edit_vertices()` / `pypmxvmd.edit_pmx_vertices(document)`
+- `PmxDocument.edit_faces()` / `pypmxvmd.edit_pmx_faces(document)`
+- `PmxDocument.edit_morphs()` / `pypmxvmd.edit_pmx_morphs(document)`
+- `PmxDocument.edit_frames()` / `pypmxvmd.edit_pmx_frames(document)`
+
+`PmxVertexEditor` edits geometry, Additional UV values, BDEF1/BDEF2/BDEF4/SDEF/
+QDEF weights, SDEF vectors, edge scale, and Bone weight indices. Vertex insert,
+delete, and reorder operations remap Face, Vertex/UV Morph, and Soft Body
+Anchor/Pin references; deletion also removes dependent faces/items and updates
+Material face counts.
+
+`PmxFaceEditor` edits, inserts, deletes, and reorders triangles. Insert/delete
+operations keep contiguous Material face ranges and `face_count` values in sync;
+`remap_vertex_indices()` applies an explicit Vertex mapping. Reordering that
+would interleave Material ranges is rejected.
+
+`PmxMorphEditor` edits names, panels, and item collections for all PMX 2.0 Morph
+types plus PMX 2.1 Flip/Impulse. Morph insert/delete/reorder remaps Group/Flip and
+Display Frame references and removes references to an explicitly deleted Morph.
+
+`PmxFrameEditor` edits names, item collections, and frame collections. Bone/Morph
+items are validated after every transaction; no newly special frame may appear
+after the first two positions.
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+
+vertices = document.edit_vertices()
+vertices.set_edge_scale(0, 1.5)
+vertices.write_file("vertex-edited.pmx")
+
+faces = document.edit_faces()
+faces.append_face([0, 2, 3], material_index=0)
+faces.write_file("face-edited.pmx")
+```
+
+`encode()` returns the corresponding `Pmx*EditResult`; `write_file()` validates,
+strict-reparses, semantically compares, and atomically replaces the target. A
+no-op returns the exact source bytes. A changed W12 transaction uses canonical
+whole-model encoding so index widths can grow safely; it preserves semantics
+outside the declared edit, but does not promise source-byte or source-layout
+equality. Invalid scope, reference, ordering, or field changes raise the matching
+`PmxVertexEditError`, `PmxFaceEditError`, `PmxMorphEditError`, or
+`PmxFrameEditError`. Soft Body record editing remains unsupported.
+
+---
+
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
 
 Validate PMX semantics without relying on `assert`. The centralized validator
@@ -354,14 +404,15 @@ occur before replacing the target.
 |---|---|---|
 | Read `strict` | Yes | Complete PMX 2.0 `PmxModel` or fail closed |
 | Read `partial` | Yes | `PmxParseResult` with completeness report |
-| Read `document` / spans | Yes (PMX 2.0) | `PmxDocument` / `field_spans` / Material/Bone/Rigid Body/Joint `record_spans` |
-| Write `canonical` | Yes | Atomic semantic PMX 2.0 output |
+| Read `document` / spans | Yes (PMX 2.0/2.1) | `PmxDocument`, fixed fields, and eight record-span families |
+| Write `canonical` | Yes | Atomic semantic PMX 2.0/2.1 output |
 | Write fixed-field `lossless_patch` | Yes | Audited atomic source-byte patch |
 | Edit existing Bone records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Edit existing Rigid Body records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Edit existing Joint records | Yes (PMX 2.0 Spring 6DOF) | Transactional variable-record replacement |
 | Edit existing Material records | Yes (PMX 2.0) | Transactional variable-record replacement |
-| Write `preserve_layout` or other variable-length edits | No | Fail closed |
+| Edit Vertex/Face/Morph/Display Frame collections | Yes | Canonical W12 transaction with reference remapping |
+| Write `preserve_layout` | No | Fail closed |
 
 ---
 
@@ -1039,6 +1090,10 @@ PyPMXVMD uses standard Python exceptions:
 | `PmxValidationError` | A semantic model field failed validation; exposes `field`, `expected` and `actual` |
 | `PmxPatchError` | A lossless patch failed path/type/range/before/reparse/semantic checks |
 | `PmxBoneEditError` | A transactional Bone edit violated its field, layout, reference, or collection safety contract |
+| `PmxVertexEditError` | A Vertex transaction violated its field, reference-remapping, or scope contract |
+| `PmxFaceEditError` | A Face transaction violated topology or Material-range constraints |
+| `PmxMorphEditError` | A Morph transaction violated item, type, reference, or scope constraints |
+| `PmxFrameEditError` | A Display Frame transaction violated item references or special-frame constraints |
 | `UnsupportedPmxFeatureError` | A recognized PMX version/mode is not implemented; exposes `feature` and `available` |
 | `IOError` | I/O error |
 
