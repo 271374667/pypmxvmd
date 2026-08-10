@@ -387,6 +387,23 @@ Soft Body、Morph item 和 Display Frame 的索引映射；骨骼按日文/英�
 `include_frames=False`。版本不兼容、非法引用或无法安全合并的结构会抛出
 `PmxTransactionError`，不会静默丢弃数据。
 
+`remove_part()`/`remove_materials()` 删除按材质定义的一个或多个部件，
+`replace_part()`/`replace()` 则先删除再原子执行 `merge_part()`：
+
+```python
+with pypmxvmd.edit_pmx("body.pmx", output_path="result.pmx") as tx:
+    tx.replace_part(
+        "new_clothes.pmx",
+        material_names=["旧衣"],
+        compact_vertices=True,
+    )
+```
+
+PMX 没有显式的 Part 记录，因此边界采用每个 Material 连续的 face 范围。默认保留
+孤立顶点、骨骼和纹理；指定 `compact_vertices=True` 时，只删除完全由被删 face 使用的
+顶点并重编号受影响引用。如果 Morph 或 Soft Body 仍引用这些资源，会抛出
+`PmxTransactionError`，不会静默丢失数据。这些操作使用 canonical 全模型事务，不保证源字节或布局无损。
+
 ---
 
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
@@ -445,6 +462,7 @@ pypmxvmd.save_pmx(model, "output.pmx")
 | 编辑现有 Material record | 是（PMX 2.0） | 事务化变长 record 替换 |
 | 编辑 Vertex/Face/Morph/Display Frame 集合 | 是 | canonical W12 事务与引用重编号 |
 | 组合部件/骨骼/权重/Morph 编辑 | 是 | 模型级 `with` 事务与原子 canonical 提交 |
+| 删除/替换按材质定义的部件 | 是 | 按 face 范围删除，可选压缩独占顶点 |
 | 写入 `preserve_layout` | 否 | fail closed |
 
 ---

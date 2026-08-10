@@ -402,6 +402,25 @@ index mappings. Display Frames are included by default; pass `include_frames=Fal
 only when the part has no frames. Version upgrades, invalid references, or any
 unsafe structure fail with `PmxTransactionError` instead of dropping data.
 
+`remove_part()`/`remove_materials()` remove one or more material-defined parts, and
+`replace_part()`/`replace()` apply removal followed by an atomic `merge_part()`:
+
+```python
+with pypmxvmd.edit_pmx("body.pmx", output_path="result.pmx") as tx:
+    tx.replace_part(
+        "new_clothes.pmx",
+        material_names=["旧衣"],
+        compact_vertices=True,
+    )
+```
+
+PMX has no explicit part record, so the boundary is each Material's contiguous
+face range. By default orphan vertices, bones, and textures are retained. With
+`compact_vertices=True`, only vertices used exclusively by removed faces are
+deleted and all affected references are renumbered; live Morph or Soft Body
+references cause `PmxTransactionError` instead of being silently dropped. These
+operations are canonical whole-model transactions, not source-byte-preserving edits.
+
 ---
 
 #### `PmxModel.validate()` / `validate_pmx_model(model, *, limits=..., strict_eof=True)`
@@ -460,6 +479,7 @@ occur before replacing the target.
 | Edit existing Material records | Yes (PMX 2.0) | Transactional variable-record replacement |
 | Edit Vertex/Face/Morph/Display Frame collections | Yes | Canonical W12 transaction with reference remapping |
 | Compose part/Bone/weight/Morph edits | Yes | Model-level `with` transaction and atomic canonical commit |
+| Remove/replace material-defined parts | Yes | Face-range strategy with optional exclusive-vertex compaction |
 | Write `preserve_layout` | No | Fail closed |
 
 ---

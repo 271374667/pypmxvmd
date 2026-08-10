@@ -590,6 +590,221 @@ class PmxEditTransaction:
         )
         return self.add_morph(morph, display_frame_index=display_frame_index)
 
+    def remove_part(
+        self,
+        material_indices: Iterable[int] | None = None,
+        *,
+        material_names: Iterable[str] | None = None,
+        compact_vertices: bool = False,
+    ) -> dict[str, dict[int, int]]:
+        """Remove a material-defined part without silently dropping references.
+
+        PMX has no explicit part boundary, so this strategy uses contiguous
+        Material face ranges as the boundary.  By default orphan vertices,
+        bones, and textures are retained; ``compact_vertices=True`` removes only
+        vertices used exclusively by removed faces and rejects live Morph or Soft
+        Body references to them.
+        """
+        self._ensure_open()
+        baseline_model = deepcopy(self.model)
+        try:
+            return self._remove_part_impl(
+                material_indices,
+                material_names=material_names,
+                compact_vertices=compact_vertices,
+            )
+        except BaseException:
+            self.model = baseline_model
+            raise
+
+    remove_materials = remove_part
+
+    def _remove_part_impl(
+        self,
+        material_indices: Iterable[int] | None,
+        *,
+        material_names: Iterable[str] | None,
+        compact_vertices: bool,
+    ) -> dict[str, dict[int, int]]:
+        if material_indices is not None and material_names is not None:
+            raise PmxTransactionError(
+                "Pass either material_indices or material_names, not both"
+            )
+        validate_pmx_model(self.model, limits=self._limits)
+        if material_names is not None:
+            names = list(material_names)
+            if any(not isinstance(name, str) for name in names):
+                raise PmxTransactionError("material_names must contain strings")
+            selected = {
+                index
+                for index, material in enumerate(self.model.materials)
+                if material.name_jp in names or material.name_en in names
+            }
+            if not selected:
+                raise PmxTransactionError("No Material matched material_names")
+        elif material_indices is not None:
+            if isinstance(material_indices, (str, bytes)):
+                raise PmxTransactionError("material_indices must contain integers")
+            selected = {
+                _require_index(index, len(self.model.materials), "material_index")
+                for index in material_indices
+            }
+            if not selected:
+                raise PmxTransactionError("material_indices cannot be empty")
+        else:
+            raise PmxTransactionError(
+                "remove_part requires material_indices or material_names"
+            )
+
+        material_map = {
+            old_index: new_index
+            for new_index, old_index in enumerate(
+                index
+                for index in range(len(self.model.materials))
+                if index not in selected
+            )
+        }
+        face_materials: list[int] = []
+        for material_index, material in enumerate(self.model.materials):
+            face_materials.extend([material_index] * (material.face_count // 3))
+        retained_face_indices = [
+            face_index
+            for face_index, material_index in enumerate(face_materials)
+            if material_index not in selected
+        ]
+
+        for morph_index, morph in enumerate(self.model.morphs):
+            for item_index, item in enumerate(morph.items):
+                if isinstance(item, PmxMorphItemMaterial):
+                    if item.material_index in selected:
+                        raise PmxTransactionError(
+                            "Cannot remove a Material referenced by "
+                            f"morphs[{morph_index}].items[{item_index}]"
+                        )
+        for soft_body_index, soft_body in enumerate(self.model.softbodies):
+            if soft_body.material_index in selected:
+                raise PmxTransactionError(
+                    "Cannot remove Material referenced by "
+                    f"softbodies[{soft_body_index}].material_index"
+                )
+
+        retained_faces = [self.model.faces[index] for index in retained_face_indices]
+        retained_assignments = [
+            face_materials[index] for index in retained_face_indices
+        ]
+        new_materials = []
+        for old_index, material in enumerate(self.model.materials):
+            if old_index in selected:
+                continue
+            copied_material = deepcopy(material)
+            copied_material.face_count = retained_assignments.count(old_index) * 3
+            new_materials.append(copied_material)
+        for morph in self.model.morphs:
+            for item in morph.items:
+                if isinstance(item, PmxMorphItemMaterial) and item.material_index != -1:
+                    item.material_index = material_map[item.material_index]
+
+        vertex_map = {index: index for index in range(len(self.model.vertices))}
+        if compact_vertices:
+            removed_face_vertices = {
+                vertex_index
+                for face_index, face in enumerate(self.model.faces)
+                if face_index not in retained_face_indices
+                for vertex_index in face
+            }
+            retained_face_vertices = {
+                vertex_index for face in retained_faces for vertex_index in face
+            }
+            candidates = removed_face_vertices - retained_face_vertices
+            for morph_index, morph in enumerate(self.model.morphs):
+                if morph.morph_type in (
+                    MorphType.VERTEX,
+                    MorphType.UV,
+                    MorphType.EXTENDED_UV1,
+                    MorphType.EXTENDED_UV2,
+                    MorphType.EXTENDED_UV3,
+                    MorphType.EXTENDED_UV4,
+                ):
+                    if any(item.vertex_index in candidates for item in morph.items):
+                        raise PmxTransactionError(
+                            "Cannot compact vertices referenced by "
+                            f"morphs[{morph_index}]"
+                        )
+            for soft_body_index, soft_body in enumerate(self.model.softbodies):
+                if any(
+                    anchor.vertex_index in candidates for anchor in soft_body.anchors
+                ) or any(index in candidates for index in soft_body.pin_vertex_indices):
+                    raise PmxTransactionError(
+                        "Cannot compact vertices referenced by "
+                        f"softbodies[{soft_body_index}]"
+                    )
+            vertex_map = {}
+            compacted_vertices = []
+            for old_index, vertex in enumerate(self.model.vertices):
+                if old_index in candidates:
+                    continue
+                vertex_map[old_index] = len(compacted_vertices)
+                compacted_vertices.append(vertex)
+            retained_faces = [
+                [vertex_map[index] for index in face] for face in retained_faces
+            ]
+            for morph in self.model.morphs:
+                if morph.morph_type in (
+                    MorphType.VERTEX,
+                    MorphType.UV,
+                    MorphType.EXTENDED_UV1,
+                    MorphType.EXTENDED_UV2,
+                    MorphType.EXTENDED_UV3,
+                    MorphType.EXTENDED_UV4,
+                ):
+                    for item in morph.items:
+                        item.vertex_index = vertex_map[item.vertex_index]
+            for soft_body in self.model.softbodies:
+                for anchor in soft_body.anchors:
+                    anchor.vertex_index = vertex_map[anchor.vertex_index]
+                soft_body.pin_vertex_indices = [
+                    vertex_map[index] for index in soft_body.pin_vertex_indices
+                ]
+            self.model.vertices = compacted_vertices
+
+        self.model.faces = retained_faces
+        self.model.materials = new_materials
+        return {
+            "materials": material_map,
+            "faces": {
+                old_index: new_index
+                for new_index, old_index in enumerate(retained_face_indices)
+            },
+            "vertices": vertex_map,
+            "removed_materials": {index: -1 for index in selected},
+        }
+
+    def replace_part(
+        self,
+        part: PmxModel | PmxDocument | str | Path,
+        *,
+        material_indices: Iterable[int] | None = None,
+        material_names: Iterable[str] | None = None,
+        include_frames: bool = True,
+        compact_vertices: bool = False,
+    ) -> dict[str, Any]:
+        """Remove a Material-defined part, then merge its replacement atomically."""
+        self._ensure_open()
+        baseline_model = deepcopy(self.model)
+        try:
+            removed = self.remove_part(
+                material_indices,
+                material_names=material_names,
+                compact_vertices=compact_vertices,
+            )
+            merged = self.merge_part(part, include_frames=include_frames)
+            return {"removed": removed, "merged": merged}
+        except BaseException:
+            self.model = baseline_model
+            raise
+
+    replace = replace_part
+
     def merge_part(
         self,
         part: PmxModel | PmxDocument | str | Path,

@@ -11,6 +11,7 @@ from pypmxvmd.common.models.pmx import (
     PmxMorph,
     PmxMorphItemGroup,
     PmxMorphItemImpulse,
+    PmxMorphItemMaterial,
     PmxMorphItemVertex,
     PmxRigidBody,
     PmxSoftBody,
@@ -38,6 +39,23 @@ def _model(name: str, offset: float = 0.0) -> PmxModel:
     model.faces = [[0, 1, 2]]
     model.materials = [PmxMaterial(name_jp=name, face_count=3)]
     model.frames = [PmxFrame(name_jp="表情", is_special=True)]
+    return model
+
+
+def _two_material_model() -> PmxModel:
+    model = _model("two-materials")
+    model.vertices.extend(
+        [
+            PmxVertex(position=[4.0, 0.0, 0.0], weight=[[0, 1.0]]),
+            PmxVertex(position=[5.0, 0.0, 0.0], weight=[[0, 1.0]]),
+            PmxVertex(position=[4.0, 1.0, 0.0], weight=[[0, 1.0]]),
+        ]
+    )
+    model.faces.append([3, 4, 5])
+    model.materials[0].face_count = 3
+    model.materials.append(
+        PmxMaterial(name_jp="旧衣", name_en="old clothes", face_count=3)
+    )
     return model
 
 
@@ -243,3 +261,58 @@ def test_caught_part_merge_failure_restores_transaction_model():
             pass
         assert len(transaction.model.vertices) == len(target.vertices)
         assert len(transaction.model.bones) == len(target.bones)
+
+
+def test_remove_part_by_material_name_compacts_exclusive_vertices():
+    model = _two_material_model()
+
+    with pypmxvmd.edit_pmx(model) as transaction:
+        mapping = transaction.remove_part(
+            material_names=["旧衣"], compact_vertices=True
+        )
+
+    assert transaction.result is not None
+    result = transaction.result.model
+    assert len(result.materials) == 1
+    assert len(result.faces) == 1
+    assert len(result.vertices) == 3
+    assert mapping["materials"] == {0: 0}
+    assert mapping["faces"] == {0: 0}
+    assert mapping["removed_materials"] == {1: -1}
+
+
+def test_remove_part_rejects_live_material_morph_reference_without_mutation():
+    model = _two_material_model()
+    model.morphs = [
+        PmxMorph(
+            name_jp="旧衣材质",
+            morph_type=MorphType.MATERIAL,
+            items=[PmxMorphItemMaterial(material_index=1)],
+        )
+    ]
+
+    with pypmxvmd.edit_pmx(model) as transaction:
+        with pytest.raises(pypmxvmd.PmxTransactionError, match="Material"):
+            transaction.remove_part([1])
+        assert len(transaction.model.materials) == 2
+        assert len(transaction.model.faces) == 2
+
+
+def test_replace_part_removes_selected_material_range_then_merges_replacement():
+    target = _two_material_model()
+    replacement = _model("replacement", 10.0)
+
+    with pypmxvmd.edit_pmx(target) as transaction:
+        result = transaction.replace_part(
+            replacement,
+            material_names=["旧衣"],
+            compact_vertices=True,
+        )
+
+    assert transaction.result is not None
+    merged = transaction.result.model
+    assert len(merged.materials) == 2
+    assert len(merged.faces) == 2
+    assert len(merged.vertices) == 6
+    assert result["removed"]["removed_materials"] == {1: -1}
+    assert result["merged"]["vertices"] == {0: 3, 1: 4, 2: 5}
