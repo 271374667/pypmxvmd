@@ -97,6 +97,34 @@ class PmxTransactionError(PmxPatchError):
     """A model-level PMX transaction could not be safely committed."""
 
 
+class PmxInspectionError(PmxError):
+    """The requested model could not be safely inspected."""
+
+
+class PmxQueryError(PmxError):
+    """A resource query is invalid or exceeds its limit."""
+
+
+class PmxCapabilityError(PmxError):
+    """The requested operation is not supported by the inspected model."""
+
+
+class PmxPlanError(PmxError):
+    """A dry-run plan is not executable without further decisions."""
+
+
+class PmxPlanStaleError(PmxError):
+    """An approved plan no longer describes the current input snapshot."""
+
+
+class PmxComparisonError(PmxError):
+    """Two PMX values cannot be compared under the requested mode."""
+
+
+class PmxWorkspaceError(PmxError):
+    """A workspace operation would escape its declared project boundary."""
+
+
 class UnsupportedPmxFeatureError(PmxError):
     """A recognized PMX mode or format feature is not implemented yet."""
 
