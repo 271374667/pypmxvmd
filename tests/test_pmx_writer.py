@@ -7,11 +7,7 @@ import pytest
 import pypmxvmd
 from pypmxvmd.common.models.pmx import PmxBone
 from pypmxvmd.common.parsers.pmx_parser import PmxParser
-from pypmxvmd.common.pmx import (
-    PmxParseReport,
-    PmxValidationError,
-    UnsupportedPmxFeatureError,
-)
+from pypmxvmd.common.pmx import PmxParseReport, PmxValidationError
 
 
 def test_pmx_writer_roundtrip(tmp_path, sample_pmx_model):
@@ -115,12 +111,15 @@ def test_public_writer_rejects_incomplete_parse_report_before_creating_target(
     assert list(tmp_path.glob(".incomplete.pmx.*.tmp")) == []
 
 
-def test_public_writer_rejects_pmx21_before_creating_target(tmp_path, sample_pmx_model):
-    path = tmp_path / "unsupported-21.pmx"
+def test_public_writer_saves_complete_pmx21_with_empty_soft_body_section(
+    tmp_path, sample_pmx_model
+):
+    path = tmp_path / "complete-21.pmx"
     sample_pmx_model.header.version = 2.1
 
-    with pytest.raises(UnsupportedPmxFeatureError) as caught:
-        pypmxvmd.save_pmx(sample_pmx_model, path)
+    pypmxvmd.save_pmx(sample_pmx_model, path)
+    loaded = pypmxvmd.load_pmx(path)
 
-    assert "PMX 2.1" in caught.value.feature
-    assert not path.exists()
+    assert loaded.header.version == pytest.approx(2.1)
+    assert loaded.softbodies == []
+    assert loaded.is_complete

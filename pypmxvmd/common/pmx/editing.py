@@ -576,9 +576,12 @@ class PmxJointEditor:
     def set_joint_type(
         self, joint_index: int, joint_type: JointType | int
     ) -> "PmxJointEditor":
-        self.joint(joint_index).joint_type = _enum_member(
+        selected = _enum_member(
             joint_type, JointType, "joint.joint_type", PmxJointEditError
         )
+        if self.model.header.version < 2.1 and selected != JointType.SPRING6DOF:
+            raise PmxJointEditError("joint.joint_type requires Spring 6DOF for PMX 2.0")
+        self.joint(joint_index).joint_type = selected
         return self
 
     def set_rigid_body_references(

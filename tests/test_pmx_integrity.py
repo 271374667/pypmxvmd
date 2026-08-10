@@ -5,13 +5,12 @@ import struct
 import pytest
 
 import pypmxvmd
-from pypmxvmd.common.pmx import (
-    IncompletePmxError,
-    PmxFormatError,
-    PmxLimits,
+from pypmxvmd.common.parsers.pmx_parser import _CYTHON_AVAILABLE, PmxParser
+from pypmxvmd.common.pmx import PmxFormatError, PmxLimits
+from pypmxvmd.common.pmx.report import (
+    PMX_20_REQUIRED_SECTIONS,
+    PMX_21_REQUIRED_SECTIONS,
 )
-from pypmxvmd.common.pmx.report import PMX_20_REQUIRED_SECTIONS
-from pypmxvmd.common.parsers.pmx_parser import PmxParser, _CYTHON_AVAILABLE
 
 
 def _pmx_string(value: str) -> bytes:
@@ -97,31 +96,32 @@ def test_complete_pmx20_read_succeeds(tmp_path):
     assert model.header.version == pytest.approx(2.0)
 
 
-def test_pmx21_read_fails_closed_at_soft_body_boundary(tmp_path):
+def test_complete_pmx21_read_consumes_empty_soft_body_section(tmp_path):
     path = tmp_path / "minimal-pmx21.pmx"
     path.write_bytes(_minimal_complete_pmx21_bytes())
 
-    with pytest.raises(IncompletePmxError) as caught:
-        PmxParser().parse_file(path)
+    model = PmxParser().parse_file(path)
 
-    report = caught.value.report
-    assert report.final_offset == report.file_size - 4
-    assert report.trailing_bytes == 4
-    assert report.missing_sections == ("soft_bodies",)
-    assert "offset=" in str(caught.value)
-    assert "missing_sections=" in str(caught.value)
+    report = model.parse_report
+    assert report is not None
+    assert report.final_offset == report.file_size
+    assert report.trailing_bytes == 0
+    assert report.missing_sections == ()
+    assert report.loaded_sections == frozenset(PMX_21_REQUIRED_SECTIONS)
+    assert model.softbodies == []
 
 
-def test_public_partial_api_exposes_pmx21_soft_body_boundary(tmp_path):
+def test_public_partial_api_exposes_complete_pmx21_soft_body_section(tmp_path):
     path = tmp_path / "minimal-pmx21.pmx"
     path.write_bytes(_minimal_complete_pmx21_bytes())
 
     result = pypmxvmd.load_pmx_partial(path, implementation="fast")
 
     assert result.model.header.name_en == "Minimal"
-    assert result.report.trailing_bytes == 4
-    assert result.report.missing_sections == ("soft_bodies",)
-    assert not result.report.is_complete
+    assert result.report.trailing_bytes == 0
+    assert result.report.missing_sections == ()
+    assert result.report.is_complete
+    assert result.report.sections[-1].name == "soft_bodies"
 
 
 def test_auto_uses_bounds_checked_cursor_implementation(tmp_path):

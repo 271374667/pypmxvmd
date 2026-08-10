@@ -123,8 +123,9 @@ pypmxvmd.save_vmd(motion, "output.vmd")
 返回带源字节和字段 span 的 `PmxDocument`；partial 模式会填充
 `PmxParseResult.field_spans`。
 
-PMX 2.0 会完整解析到 Spring 6DOF Joint。遇到尚未支持的 PMX 2.1 Flip/Impulse Morph、
-其他 Joint 类型或 Soft Body 时会抛出格式/完整性异常，不会静默丢弃。
+PMX 2.0 会完整解析到 Spring 6DOF Joint；PMX 2.1 进一步支持 QDEF、Flip/Impulse Morph、
+六种 Joint 和包含 Anchor/Pin 集合的完整 Soft Body record。未知枚举、非法计数/引用、
+截断和尾部字节均 fail closed。
 
 **参数**:
 - `file_path` (str | Path): PMX文件路径
@@ -148,10 +149,10 @@ document = pypmxvmd.load_pmx("character.pmx", mode="document")
 
 显式调用 `python`、`fast` 或 `cython` 读取能力。返回对象包含 `model` 和
 不可变的 `report`；报告记录已加载/缺失 section、各 section 字节范围、最终偏移、文件
-总长度和尾部未消费字节数。PMX 2.0 可返回 `is_complete=True`；PMX 2.1 当前会报告
-`soft_bodies` 缺失，或在更早的未支持 PMX 2.1 record 处明确失败。`auto` 使用带边界与
-资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 仍会执行原生探测，但返回
-Cursor 的 canonical 语义模型。该兼容入口等价于 `load_pmx(..., mode="partial")`。
+总长度和尾部未消费字节数。受支持的 PMX 2.0/2.1 均可返回 `is_complete=True`。`auto`
+使用带边界与资源上限检查的 Python Cursor。原生 ABI 补全前，显式 `cython` 返回 Cursor
+的 canonical 语义模型；PMX 2.1 不进入尚未完整的原生 parser。该兼容入口等价于
+`load_pmx(..., mode="partial")`。
 传入 `track_spans=True` 时，`field_spans` 保存已登记的定长字段，`record_spans`
 保存现有 Material、Bone、Rigid Body 和 Joint record 的精确字节范围。
 
@@ -321,15 +322,15 @@ validate_pmx_model(
 ```
 
 `strict_eof=False` 不会把 partial 结果标成完整，也不会丢弃 trailing bytes。PMX 2.1
-专属 Morph、Joint 和 Soft Body 仍不属于当前支持的语义契约。
+QDEF、Flip/Impulse Morph、全部 Joint 和 Soft Body 已纳入集中语义验证契约。
 
 ---
 
 #### `pypmxvmd.save_pmx(model_or_document, file_path, *, mode="canonical")`
 
-验证并原子保存 canonical PMX 2.0 文件。writer 覆盖 Header 至 Spring 6DOF Joint，
-自动选择可容纳模型的最小索引宽度，并保持模型中的纹理列表和索引顺序。无效、不完整、
-PMX 2.1、QDEF、未支持 Joint 或 Soft Body 输入会在替换目标文件前明确失败。
+验证并原子保存 canonical PMX 2.0/2.1 文件。writer 覆盖各版本要求的全部 section 至
+Joint/Soft Body，自动选择可容纳模型的最小索引宽度，并保持纹理列表和索引顺序。无效、
+不完整、未知 feature 或跨引用非法的输入会在替换目标文件前明确失败。
 
 canonical 输出保证语义 round-trip 稳定，不承诺与源文件逐字节或原布局相同。
 `PmxParser.write_file_partial()` 仍只是显式、有损的 fixture 工具，并拒绝它无法编码的集合。
@@ -624,8 +625,8 @@ PMX (Polygon Model eXtended) 用于存储3D模型数据。
 
 PMX模型主类。
 
-公共 PMX 2.0 reader 已填充到 Spring 6DOF Joint 的全部 section。必须通过
-`parse_report`/`is_complete` 区分完整 PMX 2.0 读取和显式 partial 的 PMX 2.1 诊断结果。
+公共 reader 已填充 PMX 2.0 至 Joint、PMX 2.1 至 Soft Body 的全部 section。必须通过
+`parse_report`/`is_complete` 区分完整读取和显式 partial 诊断结果。
 
 **属性**:
 
@@ -829,10 +830,11 @@ PMX变形数据。
 | `name_en` | `str` | 英文名称 |
 | `panel` | `MorphPanel` | 面板位置 |
 | `morph_type` | `MorphType` | 变形类型 |
-| `items` | `List` | PMX 2.0 Group/Vertex/Bone/UV/Material 类型化项目 |
+| `items` | `List` | Group/Vertex/Bone/UV/Material/Flip/Impulse 类型化项目 |
 
 Bone Morph 旋转以原始 `[x, y, z, w]` 四元数保存；Material Morph 保留乘算/加算操作以及
-扩散、反射、环境、边缘和三类纹理系数。PMX 2.1 Flip/Impulse Morph 尚未支持。
+扩散、反射、环境、边缘和三类纹理系数。Flip 保留 Morph 索引/权重；Impulse 保留刚体
+索引、local 标志、速度和扭矩。
 
 ---
 
@@ -887,6 +889,15 @@ PMX关节数据。
 | `rotation_max` | `List[float]` | 旋转最大值 |
 | `position_spring` | `List[float]` | 位置弹簧 |
 | `rotation_spring` | `List[float]` | 旋转弹簧 |
+
+---
+
+#### `PmxSoftBody`
+
+PMX 2.1 Soft Body 暴露名称、`shape`、材质引用、碰撞 group/mask、`flags`、B-link 距离、
+cluster 数、质量、碰撞 margin、空气动力模型，以及类型化 `config`、`cluster`、`iteration`、
+`material` 系数记录。`anchors` 保存 `PmxSoftBodyAnchor`，`pin_vertex_indices` 保存无符号
+顶点引用。所有嵌套计数、枚举/flags、有限 float32 和材质/刚体/顶点引用均集中验证。
 
 ---
 
@@ -1112,6 +1123,20 @@ parser.write_file(pose, "output.vpd")
 | 值 | 说明 |
 |----|------|
 | `SPRING6DOF` (0) | 6DOF弹簧关节 |
+| `SIX_DOF` (1) | 6DOF |
+| `POINT_TO_POINT` (2) | 点连接 |
+| `CONE_TWIST` (3) | 圆锥扭转 |
+| `SLIDER` (4) | 轴移动 |
+| `HINGE` (5) | 铰链 |
+
+---
+
+#### `SoftBodyShape`、`SoftBodyFlags`、`SoftBodyAeroModel`
+
+- 形状：`TRI_MESH` (0)、`ROPE` (1)。
+- Flags：`B_LINK` (1)、`CLUSTER` (2)、`LINK_CROSS` (4)，其他位拒绝。
+- 空气动力模型：`V_POINT` (0)、`V_TWO_SIDED` (1)、`V_ONE_SIDED` (2)、
+  `F_TWO_SIDED` (3)、`F_ONE_SIDED` (4)。
 
 ---
 

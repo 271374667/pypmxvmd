@@ -18,6 +18,9 @@ from pypmxvmd.common.pmx.types import (
     PmxTextEncoding,
     RigidBodyPhysMode,
     RigidBodyShape,
+    SoftBodyAeroModel,
+    SoftBodyFlags,
+    SoftBodyShape,
     SphMode,
     ToonSharing,
     WeightMode,
@@ -966,6 +969,78 @@ class PmxMorphItemGroup(PmxRecord):
         )
 
 
+class PmxMorphItemFlip(PmxRecord):
+    """PMX 2.1 Flip Morph reference and selection weight."""
+
+    def __init__(self, morph_index: int = 0, value: float = 0.0) -> None:
+        super().__init__()
+        self.morph_index = morph_index
+        self.value = value
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.morph_index, int)
+            and not isinstance(self.morph_index, bool),
+            "morph.flip.morph_index",
+            "int",
+            self.morph_index,
+        )
+        self._require(
+            isinstance(self.value, (int, float)) and not isinstance(self.value, bool),
+            "morph.flip.value",
+            "number",
+            self.value,
+        )
+
+
+class PmxMorphItemImpulse(PmxRecord):
+    """PMX 2.1 impulse applied to one rigid body."""
+
+    def __init__(
+        self,
+        rigidbody_index: int = 0,
+        is_local: bool = False,
+        velocity: Optional[List[float]] = None,
+        torque: Optional[List[float]] = None,
+    ) -> None:
+        super().__init__()
+        self.rigidbody_index = rigidbody_index
+        self.is_local = is_local
+        self.velocity = velocity or [0.0, 0.0, 0.0]
+        self.torque = torque or [0.0, 0.0, 0.0]
+
+    @property
+    def local_flag(self) -> bool:
+        return self.is_local
+
+    @local_flag.setter
+    def local_flag(self, value: bool) -> None:
+        self.is_local = value
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        self._require(
+            isinstance(self.rigidbody_index, int)
+            and not isinstance(self.rigidbody_index, bool),
+            "morph.impulse.rigidbody_index",
+            "int",
+            self.rigidbody_index,
+        )
+        self._require(
+            type(self.is_local) is bool,
+            "morph.impulse.is_local",
+            "bool",
+            self.is_local,
+        )
+        for name in ("velocity", "torque"):
+            value = getattr(self, name)
+            self._require(
+                is_valid_vector(3, value),
+                f"morph.impulse.{name}",
+                "vec3",
+                value,
+            )
+
+
 class PmxMorphItemVertex(PmxRecord):
     """PMX顶点变形项目"""
 
@@ -1186,12 +1261,14 @@ class PmxMorph(PmxRecord):
             MorphType.EXTENDED_UV3: PmxMorphItemUv,
             MorphType.EXTENDED_UV4: PmxMorphItemUv,
             MorphType.MATERIAL: PmxMorphItemMaterial,
+            MorphType.FLIP: PmxMorphItemFlip,
+            MorphType.IMPULSE: PmxMorphItemImpulse,
         }
         expected_type = expected_item_types.get(self.morph_type)
         self._require(
             expected_type is not None,
             "morph.morph_type",
-            "PMX 2.0 morph type",
+            "supported PMX morph type",
             self.morph_type,
         )
         for item in self.items:
@@ -1508,13 +1585,340 @@ class PmxJoint(PmxRecord):
             )
 
 
-class PmxSoftBody(PmxRecord):
-    """PMX软体"""
+class PmxSoftBodyConfig(PmxRecord):
+    """The twelve Bullet Soft Body configuration coefficients."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        velocity_correction: float = 0.0,
+        damping: float = 0.0,
+        drag: float = 0.0,
+        lift: float = 0.0,
+        pressure: float = 0.0,
+        volume_conservation: float = 0.0,
+        dynamic_friction: float = 0.0,
+        pose_matching: float = 0.0,
+        rigid_contact_hardness: float = 0.0,
+        kinetic_contact_hardness: float = 0.0,
+        soft_contact_hardness: float = 0.0,
+        anchor_hardness: float = 0.0,
+    ) -> None:
         super().__init__()
-        # 简化实现，PMX v2.1功能较少使用
-        pass
+        self.velocity_correction = velocity_correction
+        self.damping = damping
+        self.drag = drag
+        self.lift = lift
+        self.pressure = pressure
+        self.volume_conservation = volume_conservation
+        self.dynamic_friction = dynamic_friction
+        self.pose_matching = pose_matching
+        self.rigid_contact_hardness = rigid_contact_hardness
+        self.kinetic_contact_hardness = kinetic_contact_hardness
+        self.soft_contact_hardness = soft_contact_hardness
+        self.anchor_hardness = anchor_hardness
+
+    @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return (
+            "velocity_correction",
+            "damping",
+            "drag",
+            "lift",
+            "pressure",
+            "volume_conservation",
+            "dynamic_friction",
+            "pose_matching",
+            "rigid_contact_hardness",
+            "kinetic_contact_hardness",
+            "soft_contact_hardness",
+            "anchor_hardness",
+        )
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in self.field_names():
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, (int, float)) and not isinstance(value, bool),
+                f"soft_body.config.{name}",
+                "number",
+                value,
+            )
+
+
+class PmxSoftBodyCluster(PmxRecord):
+    """The six Soft Body cluster hardness and impulse-split coefficients."""
+
+    def __init__(
+        self,
+        soft_rigid_hardness: float = 0.0,
+        soft_kinetic_hardness: float = 0.0,
+        soft_soft_hardness: float = 0.0,
+        soft_rigid_impulse_split: float = 0.0,
+        soft_kinetic_impulse_split: float = 0.0,
+        soft_soft_impulse_split: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.soft_rigid_hardness = soft_rigid_hardness
+        self.soft_kinetic_hardness = soft_kinetic_hardness
+        self.soft_soft_hardness = soft_soft_hardness
+        self.soft_rigid_impulse_split = soft_rigid_impulse_split
+        self.soft_kinetic_impulse_split = soft_kinetic_impulse_split
+        self.soft_soft_impulse_split = soft_soft_impulse_split
+
+    @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return (
+            "soft_rigid_hardness",
+            "soft_kinetic_hardness",
+            "soft_soft_hardness",
+            "soft_rigid_impulse_split",
+            "soft_kinetic_impulse_split",
+            "soft_soft_impulse_split",
+        )
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in self.field_names():
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, (int, float)) and not isinstance(value, bool),
+                f"soft_body.cluster.{name}",
+                "number",
+                value,
+            )
+
+
+class PmxSoftBodyIteration(PmxRecord):
+    """Soft Body solver iteration counts."""
+
+    def __init__(
+        self,
+        velocity: int = 0,
+        position: int = 0,
+        drift: int = 0,
+        cluster: int = 0,
+    ) -> None:
+        super().__init__()
+        self.velocity = velocity
+        self.position = position
+        self.drift = drift
+        self.cluster = cluster
+
+    @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return ("velocity", "position", "drift", "cluster")
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in self.field_names():
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, int) and not isinstance(value, bool) and value >= 0,
+                f"soft_body.iteration.{name}",
+                "non-negative int",
+                value,
+            )
+
+
+class PmxSoftBodyMaterial(PmxRecord):
+    """Soft Body linear, angular and volume stiffness coefficients."""
+
+    def __init__(
+        self,
+        linear_stiffness: float = 0.0,
+        angular_stiffness: float = 0.0,
+        volume_stiffness: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.linear_stiffness = linear_stiffness
+        self.angular_stiffness = angular_stiffness
+        self.volume_stiffness = volume_stiffness
+
+    @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return ("linear_stiffness", "angular_stiffness", "volume_stiffness")
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in self.field_names():
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, (int, float)) and not isinstance(value, bool),
+                f"soft_body.material.{name}",
+                "number",
+                value,
+            )
+
+
+class PmxSoftBodyAnchor(PmxRecord):
+    """One rigid-body/vertex Soft Body anchor."""
+
+    def __init__(
+        self,
+        rigidbody_index: int = 0,
+        vertex_index: int = 0,
+        near_mode: bool = False,
+    ) -> None:
+        super().__init__()
+        self.rigidbody_index = rigidbody_index
+        self.vertex_index = vertex_index
+        self.near_mode = near_mode
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in ("rigidbody_index", "vertex_index"):
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, int) and not isinstance(value, bool),
+                f"soft_body.anchor.{name}",
+                "int",
+                value,
+            )
+        self._require(
+            type(self.near_mode) is bool,
+            "soft_body.anchor.near_mode",
+            "bool",
+            self.near_mode,
+        )
+
+
+class PmxSoftBody(PmxRecord):
+    """Complete PMX 2.1 Soft Body record."""
+
+    def __init__(
+        self,
+        name_jp: str = "",
+        name_en: str = "",
+        shape: SoftBodyShape = SoftBodyShape.TRI_MESH,
+        material_index: int = 0,
+        collision_group: int = 0,
+        collision_mask: int = 0xFFFF,
+        flags: SoftBodyFlags = SoftBodyFlags.NONE,
+        b_link_distance: int = 0,
+        cluster_count: int = 0,
+        total_mass: float = 0.0,
+        collision_margin: float = 0.0,
+        aero_model: SoftBodyAeroModel = SoftBodyAeroModel.V_POINT,
+        config: Optional[PmxSoftBodyConfig] = None,
+        cluster: Optional[PmxSoftBodyCluster] = None,
+        iteration: Optional[PmxSoftBodyIteration] = None,
+        material: Optional[PmxSoftBodyMaterial] = None,
+        anchors: Optional[List[PmxSoftBodyAnchor]] = None,
+        pin_vertex_indices: Optional[List[int]] = None,
+    ) -> None:
+        super().__init__()
+        self.name_jp = name_jp
+        self.name_en = name_en
+        self.shape = SoftBodyShape(shape)
+        self.material_index = material_index
+        self.collision_group = collision_group
+        self.collision_mask = collision_mask
+        self.flags = SoftBodyFlags(flags)
+        self.b_link_distance = b_link_distance
+        self.cluster_count = cluster_count
+        self.total_mass = total_mass
+        self.collision_margin = collision_margin
+        self.aero_model = SoftBodyAeroModel(aero_model)
+        self.config = config or PmxSoftBodyConfig()
+        self.cluster = cluster or PmxSoftBodyCluster()
+        self.iteration = iteration or PmxSoftBodyIteration()
+        self.material = material or PmxSoftBodyMaterial()
+        self.anchors = anchors or []
+        self.pin_vertex_indices = pin_vertex_indices or []
+
+    def _validate_data(self, parent_list: Optional[List] = None) -> None:
+        for name in ("name_jp", "name_en"):
+            value = getattr(self, name)
+            self._require(isinstance(value, str), f"soft_body.{name}", "str", value)
+        self._require(
+            isinstance(self.shape, SoftBodyShape),
+            "soft_body.shape",
+            "SoftBodyShape",
+            self.shape,
+        )
+        self._require(
+            isinstance(self.aero_model, SoftBodyAeroModel),
+            "soft_body.aero_model",
+            "SoftBodyAeroModel",
+            self.aero_model,
+        )
+        self._require(
+            isinstance(self.flags, SoftBodyFlags) and not int(self.flags) & ~0x07,
+            "soft_body.flags",
+            "SoftBodyFlags bits 0..2",
+            self.flags,
+        )
+        for name in (
+            "material_index",
+            "collision_group",
+            "collision_mask",
+            "b_link_distance",
+            "cluster_count",
+        ):
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, int) and not isinstance(value, bool),
+                f"soft_body.{name}",
+                "int",
+                value,
+            )
+        self._require(
+            0 <= self.collision_group <= 15,
+            "soft_body.collision_group",
+            "0..15",
+            self.collision_group,
+        )
+        self._require(
+            0 <= self.collision_mask <= 0xFFFF,
+            "soft_body.collision_mask",
+            "uint16",
+            self.collision_mask,
+        )
+        for name in ("b_link_distance", "cluster_count"):
+            value = getattr(self, name)
+            self._require(value >= 0, f"soft_body.{name}", "non-negative int", value)
+        for name in ("total_mass", "collision_margin"):
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, (int, float)) and not isinstance(value, bool),
+                f"soft_body.{name}",
+                "number",
+                value,
+            )
+        for name, expected in (
+            ("config", PmxSoftBodyConfig),
+            ("cluster", PmxSoftBodyCluster),
+            ("iteration", PmxSoftBodyIteration),
+            ("material", PmxSoftBodyMaterial),
+        ):
+            value = getattr(self, name)
+            self._require(
+                isinstance(value, expected),
+                f"soft_body.{name}",
+                expected.__name__,
+                value,
+            )
+            value.validate()
+        self._require(
+            isinstance(self.anchors, list),
+            "soft_body.anchors",
+            "list[PmxSoftBodyAnchor]",
+            self.anchors,
+        )
+        for anchor in self.anchors:
+            self._require(
+                isinstance(anchor, PmxSoftBodyAnchor),
+                "soft_body.anchors",
+                "PmxSoftBodyAnchor items",
+                anchor,
+            )
+            anchor.validate(self.anchors)
+        self._require(
+            isinstance(self.pin_vertex_indices, list)
+            and all(
+                isinstance(value, int) and not isinstance(value, bool)
+                for value in self.pin_vertex_indices
+            ),
+            "soft_body.pin_vertex_indices",
+            "list[int]",
+            self.pin_vertex_indices,
+        )
 
 
 class PmxModel(PmxRecord):

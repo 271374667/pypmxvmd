@@ -815,6 +815,11 @@ class TestPmxEnums:
     def test_joint_type_values(self):
         """Test JointType enum values."""
         assert JointType.SPRING6DOF == 0
+        assert JointType.SIX_DOF == 1
+        assert JointType.POINT_TO_POINT == 2
+        assert JointType.CONE_TWIST == 3
+        assert JointType.SLIDER == 4
+        assert JointType.HINGE == 5
 
 
 class TestPmxHeader:

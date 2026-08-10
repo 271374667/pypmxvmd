@@ -2,7 +2,7 @@
 PyPMXVMD PMX解析器
 
 负责解析和写入PMX格式文件。
-当前 binary reader 完整消费 PMX 2.0；PMX 2.1 Soft Body 仍 fail closed。
+当前 binary reader 完整消费受支持的 PMX 2.0/2.1 section。
 """
 
 import struct
@@ -27,14 +27,25 @@ from pypmxvmd.common.models.pmx import (
     PmxModel,
     PmxMorph,
     PmxMorphItemBone,
+    PmxMorphItemFlip,
     PmxMorphItemGroup,
+    PmxMorphItemImpulse,
     PmxMorphItemMaterial,
     PmxMorphItemUv,
     PmxMorphItemVertex,
     PmxRigidBody,
+    PmxSoftBody,
+    PmxSoftBodyAnchor,
+    PmxSoftBodyCluster,
+    PmxSoftBodyConfig,
+    PmxSoftBodyIteration,
+    PmxSoftBodyMaterial,
     PmxVertex,
     RigidBodyPhysMode,
     RigidBodyShape,
+    SoftBodyAeroModel,
+    SoftBodyFlags,
+    SoftBodyShape,
     SphMode,
     WeightMode,
 )
@@ -62,8 +73,8 @@ except ImportError:
 class PmxParser:
     """PMX文件解析器
 
-    当前提供 strict/partial 读取、完整性报告和 canonical PMX 2.0 写入。
-    PMX 2.1 Soft Body 仍 fail closed；PMX 2.0 可选字段级 source span。
+    当前提供 strict/partial 读取、完整性报告和 canonical PMX 2.0/2.1 写入。
+    PMX 2.x 可选字段级 source span。
     """
 
     def __init__(self, limits: PmxLimits = DEFAULT_PMX_LIMITS):
@@ -72,6 +83,7 @@ class PmxParser:
         self._limits = limits
         self._cursor: Optional[PmxCursor] = None
         self._use_utf8 = False  # 编码标志
+        self._version = 2.0
         self._progress_callback = None
         self._last_parse_report: Optional[PmxParseReport] = None
         self._last_field_spans: tuple[BinarySpan, ...] = ()
@@ -124,9 +136,8 @@ class PmxParser:
     ) -> PmxModel:
         """Parse a complete PMX file or fail closed.
 
-        PMX 2.0 is consumed through Joint and must end exactly at EOF.  PMX 2.1
-        remains incomplete until Soft Body is implemented; use
-        :meth:`parse_file_partial` when inspecting that boundary.
+        PMX 2.0 is consumed through Joint; PMX 2.1 additionally consumes the
+        Soft Body section. Both versions must end exactly at EOF.
 
         Args:
             file_path: PMX文件路径
@@ -214,7 +225,8 @@ class PmxParser:
             # still omits semantic fields such as additional UV/SDEF and all
             # post-Material sections, so correctness requires returning the
             # canonical Cursor model until W8 reaches full field parity.
-            parse_pmx_cython(file_path.read_bytes(), more_info)
+            if probe_model.header.version < 2.1:
+                parse_pmx_cython(file_path.read_bytes(), more_info)
             model = probe_model
 
             # The current Cython ABI returns only a model.  Reuse the safe
@@ -399,6 +411,19 @@ class PmxParser:
                 )
             )
 
+            if pmx_model.header.version >= 2.1:
+                current_section = "soft_bodies"
+                start = cursor.position
+                with cursor.span(current_section):
+                    pmx_model.softbodies = self._parse_soft_bodies_fast(more_info)
+                sections.append(
+                    PmxSectionReport(
+                        current_section,
+                        start,
+                        cursor.position,
+                        len(pmx_model.softbodies),
+                    )
+                )
             self._last_parse_report = PmxParseReport(
                 implementation=implementation,
                 version=pmx_model.header.version,
@@ -418,7 +443,8 @@ class PmxParser:
                     f"{len(pmx_model.bones)}个骨骼, "
                     f"{len(pmx_model.morphs)}个Morph, "
                     f"{len(pmx_model.rigidbodies)}个刚体, "
-                    f"{len(pmx_model.joints)}个Joint"
+                    f"{len(pmx_model.joints)}个Joint, "
+                    f"{len(pmx_model.softbodies)}个Soft Body"
                 )
             return pmx_model
         except Exception as exc:
@@ -608,6 +634,7 @@ class PmxParser:
                 section=cursor.section,
                 offset=4,
             )
+        self._version = version
 
         global_flag_count = int(cursor.unpack("<B")[0])
         if global_flag_count != 8:
@@ -730,8 +757,22 @@ class PmxParser:
             ]
 
             # 权重模式
+            weight_mode_offset = cursor.position
             weight_mode_value = int(cursor.unpack("<B")[0])
-            weight_mode = WeightMode(weight_mode_value)
+            try:
+                weight_mode = WeightMode(weight_mode_value)
+            except ValueError as exc:
+                raise PmxFormatError(
+                    f"Invalid PMX vertex weight mode {weight_mode_value}",
+                    section=cursor.section,
+                    offset=weight_mode_offset,
+                ) from exc
+            if weight_mode == WeightMode.QDEF and self._version < 2.1:
+                raise PmxFormatError(
+                    "QDEF requires PMX 2.1",
+                    section=cursor.section,
+                    offset=weight_mode_offset,
+                )
 
             # 权重数据
             weight_data = []
@@ -1120,7 +1161,7 @@ class PmxParser:
         return bones
 
     def _parse_morphs_fast(self, more_info: bool) -> List[PmxMorph]:
-        """Parse all PMX 2.0 morph types without lossy conversions."""
+        """Parse every version-appropriate PMX morph without lossy conversion."""
         cursor = self._require_cursor()
         encoding = "utf-8" if self._use_utf8 else "utf-16le"
         morph_count = cursor.read_count("morph count")
@@ -1155,9 +1196,12 @@ class PmxParser:
                     section=cursor.section,
                     offset=type_offset,
                 ) from exc
-            if morph_type in (MorphType.FLIP, MorphType.IMPULSE):
+            if self._version < 2.1 and morph_type in (
+                MorphType.FLIP,
+                MorphType.IMPULSE,
+            ):
                 raise PmxFormatError(
-                    f"Unsupported PMX 2.1 morph type {morph_type.name}",
+                    f"PMX 2.1 morph type {morph_type.name} in PMX 2.0",
                     section=cursor.section,
                     offset=type_offset,
                 )
@@ -1230,6 +1274,31 @@ class PmxParser:
                             texture_tint=list(cursor.unpack("<4f")),
                             sphere_tint=list(cursor.unpack("<4f")),
                             toon_tint=list(cursor.unpack("<4f")),
+                        )
+                    )
+                elif morph_type == MorphType.FLIP:
+                    items.append(
+                        PmxMorphItemFlip(
+                            morph_index=cursor.read_index(self._morph_index_size),
+                            value=float(cursor.unpack("<f")[0]),
+                        )
+                    )
+                elif morph_type == MorphType.IMPULSE:
+                    rigidbody_index = cursor.read_index(self._rigidbody_index_size)
+                    local_offset = cursor.position
+                    local_value = int(cursor.unpack("<B")[0])
+                    if local_value not in (0, 1):
+                        raise PmxFormatError(
+                            f"Invalid PMX impulse local flag {local_value}",
+                            section=cursor.section,
+                            offset=local_offset,
+                        )
+                    items.append(
+                        PmxMorphItemImpulse(
+                            rigidbody_index=rigidbody_index,
+                            is_local=bool(local_value),
+                            velocity=list(cursor.unpack("<3f")),
+                            torque=list(cursor.unpack("<3f")),
                         )
                     )
                 else:  # pragma: no cover - enum cases above are exhaustive
@@ -1402,7 +1471,7 @@ class PmxParser:
         return rigid_bodies
 
     def _parse_joints_fast(self, more_info: bool) -> List[PmxJoint]:
-        """Parse PMX 2.0 Spring 6DOF joints in original radians."""
+        """Parse the six PMX Joint types in their shared raw layout."""
         cursor = self._require_cursor()
         encoding = "utf-8" if self._use_utf8 else "utf-16le"
         joint_count = cursor.read_count("joint count")
@@ -1425,11 +1494,17 @@ class PmxParser:
                 joint_type = JointType(joint_type_value)
             except ValueError as exc:
                 raise PmxFormatError(
+                    f"Unsupported PMX joint type {joint_type_value}",
+                    section=cursor.section,
+                    offset=type_offset,
+                ) from exc
+            if self._version < 2.1 and joint_type != JointType.SPRING6DOF:
+                raise PmxFormatError(
                     "Unsupported PMX joint type "
                     f"{joint_type_value}; PMX 2.0 requires Spring 6DOF (0)",
                     section=cursor.section,
                     offset=type_offset,
-                ) from exc
+                )
 
             rigid_body_a_index = cursor.read_index_field(
                 f"{prefix}.rigidbody1_index", self._rigidbody_index_size
@@ -1486,6 +1561,185 @@ class PmxParser:
 
         self._report_progress(joint_count, joint_count)
         return joints
+
+    def _parse_soft_bodies_fast(self, more_info: bool) -> List[PmxSoftBody]:
+        """Parse complete PMX 2.1 Soft Body records."""
+        cursor = self._require_cursor()
+        encoding = "utf-8" if self._use_utf8 else "utf-16le"
+        soft_body_count = cursor.read_count("soft-body count")
+        soft_bodies: List[PmxSoftBody] = []
+
+        if more_info:
+            print(f"解析 {soft_body_count} 个Soft Body...")
+
+        config_fields = PmxSoftBodyConfig.field_names()
+        cluster_fields = PmxSoftBodyCluster.field_names()
+        iteration_fields = PmxSoftBodyIteration.field_names()
+        material_fields = PmxSoftBodyMaterial.field_names()
+
+        for index in range(soft_body_count):
+            self._report_progress(index, soft_body_count)
+            prefix = f"softbodies[{index}]"
+            record_start = cursor.position
+            name_jp = cursor.read_string(encoding)
+            name_en = cursor.read_string(encoding)
+
+            shape_offset = cursor.position
+            shape_value = int(cursor.unpack_field(f"{prefix}.shape", "<B", "enum")[0])
+            try:
+                shape = SoftBodyShape(shape_value)
+            except ValueError as exc:
+                raise PmxFormatError(
+                    f"Invalid PMX soft-body shape {shape_value}",
+                    section=cursor.section,
+                    offset=shape_offset,
+                ) from exc
+
+            material_index = cursor.read_index_field(
+                f"{prefix}.material_index", self._material_index_size
+            )
+            group_offset = cursor.position
+            collision_group = int(
+                cursor.unpack_field(f"{prefix}.collision_group", "<B", "int")[0]
+            )
+            if collision_group > 15:
+                raise PmxFormatError(
+                    f"Invalid PMX soft-body collision group {collision_group}",
+                    section=cursor.section,
+                    offset=group_offset,
+                )
+            collision_mask = int(
+                cursor.unpack_field(f"{prefix}.collision_mask", "<H", "int")[0]
+            )
+
+            flags_offset = cursor.position
+            flags_value = int(cursor.unpack_field(f"{prefix}.flags", "<B", "flags")[0])
+            if flags_value & ~0x07:
+                raise PmxFormatError(
+                    f"Invalid PMX soft-body flags 0x{flags_value:02x}",
+                    section=cursor.section,
+                    offset=flags_offset,
+                )
+
+            b_link_distance = cursor.read_count_field(
+                f"{prefix}.b_link_distance", "soft-body B-link distance"
+            )
+            cluster_count = cursor.read_count_field(
+                f"{prefix}.cluster_count", "soft-body cluster count"
+            )
+            total_mass = float(
+                cursor.unpack_field(f"{prefix}.total_mass", "<f", "float")[0]
+            )
+            collision_margin = float(
+                cursor.unpack_field(f"{prefix}.collision_margin", "<f", "float")[0]
+            )
+
+            aero_offset = cursor.position
+            aero_value = int(
+                cursor.unpack_field(f"{prefix}.aero_model", "<i", "enum")[0]
+            )
+            try:
+                aero_model = SoftBodyAeroModel(aero_value)
+            except ValueError as exc:
+                raise PmxFormatError(
+                    f"Invalid PMX soft-body aerodynamics model {aero_value}",
+                    section=cursor.section,
+                    offset=aero_offset,
+                ) from exc
+
+            config_values = [
+                float(cursor.unpack_field(f"{prefix}.config.{name}", "<f", "float")[0])
+                for name in config_fields
+            ]
+            cluster_values = [
+                float(cursor.unpack_field(f"{prefix}.cluster.{name}", "<f", "float")[0])
+                for name in cluster_fields
+            ]
+            iteration_values = [
+                cursor.read_count_field(
+                    f"{prefix}.iteration.{name}",
+                    f"soft-body {name} iteration count",
+                )
+                for name in iteration_fields
+            ]
+            material_values = [
+                float(
+                    cursor.unpack_field(f"{prefix}.material.{name}", "<f", "float")[0]
+                )
+                for name in material_fields
+            ]
+
+            anchor_count = cursor.read_count_field(
+                f"{prefix}.anchor_count", "soft-body anchor count"
+            )
+            anchors: List[PmxSoftBodyAnchor] = []
+            for anchor_index in range(anchor_count):
+                anchor_prefix = f"{prefix}.anchors[{anchor_index}]"
+                rigidbody_index = cursor.read_index_field(
+                    f"{anchor_prefix}.rigidbody_index",
+                    self._rigidbody_index_size,
+                )
+                vertex_index = cursor.read_index_field(
+                    f"{anchor_prefix}.vertex_index",
+                    self._vertex_index_size,
+                    signed=False,
+                )
+                near_offset = cursor.position
+                near_value = int(
+                    cursor.unpack_field(f"{anchor_prefix}.near_mode", "<B", "bool")[0]
+                )
+                if near_value not in (0, 1):
+                    raise PmxFormatError(
+                        f"Invalid PMX soft-body anchor near mode {near_value}",
+                        section=cursor.section,
+                        offset=near_offset,
+                    )
+                anchors.append(
+                    PmxSoftBodyAnchor(
+                        rigidbody_index=rigidbody_index,
+                        vertex_index=vertex_index,
+                        near_mode=bool(near_value),
+                    )
+                )
+
+            pin_count = cursor.read_count_field(
+                f"{prefix}.pin_count", "soft-body pin count"
+            )
+            pin_vertex_indices = [
+                cursor.read_index_field(
+                    f"{prefix}.pin_vertex_indices[{pin_index}]",
+                    self._vertex_index_size,
+                    signed=False,
+                )
+                for pin_index in range(pin_count)
+            ]
+
+            soft_bodies.append(
+                PmxSoftBody(
+                    name_jp=name_jp,
+                    name_en=name_en,
+                    shape=shape,
+                    material_index=material_index,
+                    collision_group=collision_group,
+                    collision_mask=collision_mask,
+                    flags=SoftBodyFlags(flags_value),
+                    b_link_distance=b_link_distance,
+                    cluster_count=cluster_count,
+                    total_mass=total_mass,
+                    collision_margin=collision_margin,
+                    aero_model=aero_model,
+                    config=PmxSoftBodyConfig(*config_values),
+                    cluster=PmxSoftBodyCluster(*cluster_values),
+                    iteration=PmxSoftBodyIteration(*iteration_values),
+                    material=PmxSoftBodyMaterial(*material_values),
+                    anchors=anchors,
+                    pin_vertex_indices=pin_vertex_indices,
+                )
+            )
+            cursor.mark_record(prefix, record_start)
+
+        self._report_progress(soft_body_count, soft_body_count)
+        return soft_bodies
 
     def _parse_vertices(self, data: bytearray) -> List[PmxVertex]:
         """解析顶点数据
@@ -1754,7 +2008,7 @@ class PmxParser:
         if selected == "preserve_layout":
             raise UnsupportedPmxFeatureError(
                 f"write mode {selected}",
-                available="canonical PMX 2.0 or fixed-field lossless_patch",
+                available="canonical PMX 2.0/2.1 or fixed-field lossless_patch",
             )
         raise ValueError(
             f"Unknown PMX write mode: {mode!r}; expected canonical, "

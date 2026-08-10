@@ -9,7 +9,15 @@ from typing import TYPE_CHECKING, Any, Iterable, NoReturn, TypeGuard, cast
 from pypmxvmd.common.pmx.errors import PmxValidationError
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 from pypmxvmd.common.pmx.report import PmxParseReport
-from pypmxvmd.common.pmx.types import MorphType, ToonSharing, WeightMode
+from pypmxvmd.common.pmx.types import (
+    JointType,
+    MorphType,
+    SoftBodyAeroModel,
+    SoftBodyFlags,
+    SoftBodyShape,
+    ToonSharing,
+    WeightMode,
+)
 
 if TYPE_CHECKING:
     from pypmxvmd.common.models.pmx import PmxModel, PmxRecord
@@ -228,6 +236,22 @@ class PmxValidator:
                     if isinstance(getattr(frame, "items", None), list)
                 ),
             ),
+            (
+                "soft_bodies.anchors",
+                sum(
+                    len(soft_body.anchors)
+                    for soft_body in model.softbodies
+                    if isinstance(getattr(soft_body, "anchors", None), list)
+                ),
+            ),
+            (
+                "soft_bodies.pin_vertex_indices",
+                sum(
+                    len(soft_body.pin_vertex_indices)
+                    for soft_body in model.softbodies
+                    if isinstance(getattr(soft_body, "pin_vertex_indices", None), list)
+                ),
+            ),
         )
         for field, count in nested_counts:
             if count > self.limits.max_count:
@@ -260,6 +284,7 @@ class PmxValidator:
             ("display_frames", model.frames, ("name_jp", "name_en")),
             ("rigid_bodies", model.rigidbodies, ("name_jp", "name_en")),
             ("joints", model.joints, ("name_jp", "name_en")),
+            ("soft_bodies", model.softbodies, ("name_jp", "name_en")),
         ):
             values.extend(
                 (f"{section}[{index}].{name}", getattr(record, name))
@@ -600,7 +625,9 @@ class PmxValidator:
         from pypmxvmd.common.models.pmx import (
             PmxMorph,
             PmxMorphItemBone,
+            PmxMorphItemFlip,
             PmxMorphItemGroup,
+            PmxMorphItemImpulse,
             PmxMorphItemMaterial,
             PmxMorphItemUv,
             PmxMorphItemVertex,
@@ -616,6 +643,8 @@ class PmxValidator:
             MorphType.EXTENDED_UV3: (PmxMorphItemUv, "morph.uv"),
             MorphType.EXTENDED_UV4: (PmxMorphItemUv, "morph.uv"),
             MorphType.MATERIAL: (PmxMorphItemMaterial, "morph.material"),
+            MorphType.FLIP: (PmxMorphItemFlip, "morph.flip"),
+            MorphType.IMPULSE: (PmxMorphItemImpulse, "morph.impulse"),
         }
         for morph_index, morph in enumerate(model.morphs):
             path = f"morphs[{morph_index}]"
@@ -623,9 +652,22 @@ class PmxValidator:
                 _fail(path, "PmxMorph", morph)
             if not isinstance(morph.items, list):
                 _fail(f"{path}.items", "list", morph.items)
+            if model.header.version < 2.1 and morph.morph_type in (
+                MorphType.FLIP,
+                MorphType.IMPULSE,
+            ):
+                _fail(
+                    f"{path}.morph_type",
+                    "PMX 2.0 morph type",
+                    morph.morph_type,
+                )
             contract = item_contracts.get(morph.morph_type)
             if contract is None:
-                _fail(f"{path}.morph_type", "PMX 2.0 morph type", morph.morph_type)
+                _fail(
+                    f"{path}.morph_type",
+                    "supported PMX morph type",
+                    morph.morph_type,
+                )
 
             expected_type, record_root = contract
             for item_index, item in enumerate(morph.items):
@@ -688,6 +730,26 @@ class PmxValidator:
                         _finite_vector(getattr(item, name), f"{item_path}.{name}")
                     for name in ("specular_strength", "edge_size"):
                         _finite(getattr(item, name), f"{item_path}.{name}")
+                elif isinstance(item, PmxMorphItemFlip):
+                    _reference(
+                        item.morph_index,
+                        f"{item_path}.morph_index",
+                        len(model.morphs),
+                        allow_sentinel=False,
+                        self_index=morph_index,
+                    )
+                    _finite(item.value, f"{item_path}.value")
+                elif isinstance(item, PmxMorphItemImpulse):
+                    _reference(
+                        item.rigidbody_index,
+                        f"{item_path}.rigidbody_index",
+                        len(model.rigidbodies),
+                        allow_sentinel=False,
+                    )
+                    if type(item.is_local) is not bool:
+                        _fail(f"{item_path}.is_local", "bool", item.is_local)
+                    _finite_vector(item.velocity, f"{item_path}.velocity")
+                    _finite_vector(item.torque, f"{item_path}.torque")
 
     def _validate_frames(self, model: Any) -> None:
         from pypmxvmd.common.models.pmx import PmxFrame, PmxFrameItem
@@ -763,6 +825,12 @@ class PmxValidator:
             path = f"joints[{index}]"
             if not isinstance(joint, PmxJoint):
                 _fail(path, "PmxJoint", joint)
+            if model.header.version < 2.1 and joint.joint_type != JointType.SPRING6DOF:
+                _fail(
+                    f"{path}.joint_type",
+                    "Spring 6DOF (0) for PMX 2.0",
+                    joint.joint_type,
+                )
             _validate_record(joint, path, "joint")
             for name in ("rigidbody1_index", "rigidbody2_index"):
                 _reference(
@@ -775,13 +843,123 @@ class PmxValidator:
                 _finite_vector(getattr(joint, name), f"{path}.{name}")
 
     def _validate_soft_bodies(self, model: Any) -> None:
-        if model.softbodies:
-            expected = (
-                "empty for PMX 2.0"
-                if model.header.version == 2.0
-                else "empty until PMX 2.1 Soft Body support is implemented"
+        from pypmxvmd.common.models.pmx import (
+            PmxSoftBody,
+            PmxSoftBodyAnchor,
+            PmxSoftBodyCluster,
+            PmxSoftBodyConfig,
+            PmxSoftBodyIteration,
+            PmxSoftBodyMaterial,
+        )
+
+        if model.header.version < 2.1 and model.softbodies:
+            _fail("soft_bodies", "empty for PMX 2.0", len(model.softbodies))
+
+        for index, soft_body in enumerate(model.softbodies):
+            path = f"soft_bodies[{index}]"
+            if not isinstance(soft_body, PmxSoftBody):
+                _fail(path, "PmxSoftBody", soft_body)
+            _validate_record(soft_body, path, "soft_body")
+
+            if not isinstance(soft_body.shape, SoftBodyShape):
+                _fail(f"{path}.shape", "SoftBodyShape", soft_body.shape)
+            if not isinstance(soft_body.aero_model, SoftBodyAeroModel):
+                _fail(
+                    f"{path}.aero_model",
+                    "SoftBodyAeroModel",
+                    soft_body.aero_model,
+                )
+            if (
+                not isinstance(soft_body.flags, SoftBodyFlags)
+                or int(soft_body.flags) & ~0x07
+            ):
+                _fail(f"{path}.flags", "SoftBodyFlags bits 0..2", soft_body.flags)
+
+            _reference(
+                soft_body.material_index,
+                f"{path}.material_index",
+                len(model.materials),
+                allow_sentinel=False,
             )
-            _fail("soft_bodies", expected, len(model.softbodies))
+            _int32(
+                soft_body.b_link_distance,
+                f"{path}.b_link_distance",
+                non_negative=True,
+            )
+            _int32(
+                soft_body.cluster_count,
+                f"{path}.cluster_count",
+                non_negative=True,
+            )
+            for name in ("total_mass", "collision_margin"):
+                value = getattr(soft_body, name)
+                _finite(value, f"{path}.{name}")
+                if float(value) < 0.0:
+                    _fail(f"{path}.{name}", "non-negative", value)
+
+            coefficient_groups = (
+                ("config", PmxSoftBodyConfig),
+                ("cluster", PmxSoftBodyCluster),
+                ("material", PmxSoftBodyMaterial),
+            )
+            for group_name, expected_type in coefficient_groups:
+                group = getattr(soft_body, group_name)
+                if not isinstance(group, expected_type):
+                    _fail(f"{path}.{group_name}", expected_type.__name__, group)
+                for field_name in group.field_names():
+                    _finite(
+                        getattr(group, field_name),
+                        f"{path}.{group_name}.{field_name}",
+                    )
+
+            if not isinstance(soft_body.iteration, PmxSoftBodyIteration):
+                _fail(
+                    f"{path}.iteration",
+                    "PmxSoftBodyIteration",
+                    soft_body.iteration,
+                )
+            for field_name in soft_body.iteration.field_names():
+                _int32(
+                    getattr(soft_body.iteration, field_name),
+                    f"{path}.iteration.{field_name}",
+                    non_negative=True,
+                )
+
+            if not isinstance(soft_body.anchors, list):
+                _fail(f"{path}.anchors", "list", soft_body.anchors)
+            for anchor_index, anchor in enumerate(soft_body.anchors):
+                anchor_path = f"{path}.anchors[{anchor_index}]"
+                if not isinstance(anchor, PmxSoftBodyAnchor):
+                    _fail(anchor_path, "PmxSoftBodyAnchor", anchor)
+                _validate_record(anchor, anchor_path, "soft_body.anchor")
+                _reference(
+                    anchor.rigidbody_index,
+                    f"{anchor_path}.rigidbody_index",
+                    len(model.rigidbodies),
+                    allow_sentinel=False,
+                )
+                _reference(
+                    anchor.vertex_index,
+                    f"{anchor_path}.vertex_index",
+                    len(model.vertices),
+                    allow_sentinel=False,
+                )
+                if type(anchor.near_mode) is not bool:
+                    _fail(f"{anchor_path}.near_mode", "bool", anchor.near_mode)
+
+            if not isinstance(soft_body.pin_vertex_indices, list):
+                _fail(
+                    f"{path}.pin_vertex_indices",
+                    "list[int]",
+                    soft_body.pin_vertex_indices,
+                )
+            for pin_index, vertex_index in enumerate(soft_body.pin_vertex_indices):
+                _reference(
+                    vertex_index,
+                    f"{path}.pin_vertex_indices[{pin_index}]",
+                    len(model.vertices),
+                    allow_sentinel=False,
+                )
 
     def _validate_report(self, model: Any) -> None:
         report = model.parse_report

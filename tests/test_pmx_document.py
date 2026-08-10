@@ -79,12 +79,15 @@ def test_noop_lossless_writes_are_byte_identical(tmp_path):
     assert automatic.read_bytes() == source.read_bytes()
 
 
-def test_document_rejects_incomplete_pmx21_before_exposing_spans(tmp_path):
-    source = tmp_path / "unsupported-21.pmx"
+def test_document_supports_complete_pmx21_and_noop_lossless_bytes(tmp_path):
+    source = tmp_path / "complete-21.pmx"
     source.write_bytes(_minimal_complete_pmx21_bytes())
 
-    with pytest.raises(pypmxvmd.IncompletePmxError):
-        pypmxvmd.load_pmx_document(source)
+    document = pypmxvmd.load_pmx_document(source)
+
+    assert document.model.is_complete
+    assert document.model.softbodies == []
+    assert document.encode_lossless() == source.read_bytes()
 
 
 @pytest.mark.corpus

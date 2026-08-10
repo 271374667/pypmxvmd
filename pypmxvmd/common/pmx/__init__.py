@@ -16,7 +16,13 @@ from pypmxvmd.common.pmx.errors import (
     UnsupportedPmxFeatureError,
 )
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
-from pypmxvmd.common.pmx.report import PmxParseReport, PmxParseResult, PmxSectionReport
+from pypmxvmd.common.pmx.report import (
+    PMX_20_REQUIRED_SECTIONS,
+    PMX_21_REQUIRED_SECTIONS,
+    PmxParseReport,
+    PmxParseResult,
+    PmxSectionReport,
+)
 from pypmxvmd.common.pmx.types import (
     JointType,
     MorphMaterialOperation,
@@ -26,6 +32,9 @@ from pypmxvmd.common.pmx.types import (
     PmxTextEncoding,
     RigidBodyPhysMode,
     RigidBodyShape,
+    SoftBodyAeroModel,
+    SoftBodyFlags,
+    SoftBodyShape,
     SphMode,
     ToonSharing,
     WeightMode,
@@ -61,12 +70,17 @@ __all__ = [
     "PmxTextEncoding",
     "RigidBodyPhysMode",
     "RigidBodyShape",
+    "SoftBodyAeroModel",
+    "SoftBodyFlags",
+    "SoftBodyShape",
     "SphMode",
     "ToonSharing",
     "WeightMode",
     "PmxParseReport",
     "PmxParseResult",
     "PmxSectionReport",
+    "PMX_20_REQUIRED_SECTIONS",
+    "PMX_21_REQUIRED_SECTIONS",
     "PmxValidator",
     "validate_pmx_model",
     "PmxIndexLayout",

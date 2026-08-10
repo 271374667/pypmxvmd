@@ -261,8 +261,8 @@ def load_pmx_partial(
     """Load PMX with an explicit implementation and return completeness evidence.
 
     The result includes a :class:`PmxParseReport` describing loaded sections,
-    byte offsets and missing mandatory sections.  PMX 2.0 results can be
-    complete; unsupported PMX 2.1 content remains explicitly incomplete.
+    byte offsets and missing mandatory sections. Supported PMX 2.0/2.1 results
+    can be complete; malformed or unknown records remain explicitly incomplete.
     Incomplete models returned by this diagnostic API are rejected by the
     canonical writer and are not proof that high-level PMX editing is available.
     """
@@ -281,7 +281,7 @@ def load_pmx_document(
     implementation: str = "auto",
     track_spans: bool = True,
 ) -> PmxDocument:
-    """Load a complete PMX 2.0 snapshot with fixed-width source field spans."""
+    """Load a complete PMX 2.0/2.1 snapshot with source field spans."""
     if type(track_spans) is not bool:
         raise ValueError("track_spans must be a bool")
     if not track_spans:
@@ -310,7 +310,7 @@ def save_pmx(
     mode: str = "canonical",
 ) -> None:
     """
-    Validate and atomically save a canonical PMX 2.0 model.
+    Validate and atomically save a canonical PMX 2.0/2.1 model.
 
     Args:
         model: PmxModel object to save

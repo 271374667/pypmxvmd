@@ -1,4 +1,4 @@
-"""Canonical PMX 2.0 writer layout and safety tests."""
+"""Canonical PMX 2.0/2.1 writer layout and safety tests."""
 
 from pathlib import Path
 from types import SimpleNamespace

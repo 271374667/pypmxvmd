@@ -1,4 +1,4 @@
-"""Canonical, validating PMX 2.0 binary writer."""
+"""Canonical, validating PMX 2.0/2.1 binary writer."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ class PmxIndexLayout:
 
 
 class PmxWriter:
-    """Serialize a validated PMX 2.0 model without implicit semantic changes."""
+    """Serialize a validated PMX 2.0/2.1 model without semantic omission."""
 
     def __init__(self, *, limits: PmxLimits = DEFAULT_PMX_LIMITS) -> None:
         self.limits = limits
@@ -81,16 +81,12 @@ class PmxWriter:
         return PmxIndexLayout.from_model(model)
 
     def encode(self, model: "PmxModel") -> bytes:
-        """Validate and encode a complete PMX 2.0 model entirely in memory."""
+        """Validate and encode a complete PMX 2.0/2.1 model in memory."""
         validate_pmx_model(model, limits=self.limits, strict_eof=True)
-        if model.header.version != 2.0:
+        if model.header.version not in (2.0, 2.1):
             raise UnsupportedPmxFeatureError(
                 f"PMX {model.header.version} canonical writing",
-                available="PMX 2.0 Header through Spring 6DOF Joint",
-            )
-        if model.softbodies:
-            raise PmxValidationError(
-                "soft_bodies", "empty for canonical PMX 2.0 writer", model.softbodies
+                available="PMX 2.0/2.1 canonical writing",
             )
 
         layout = self.layout_for(model)
@@ -105,6 +101,8 @@ class PmxWriter:
         data.extend(self._encode_display_frames(model, layout))
         data.extend(self._encode_rigid_bodies(model, layout))
         data.extend(self._encode_joints(model, layout))
+        if model.header.version >= 2.1:
+            data.extend(self._encode_soft_bodies(model, layout))
         if len(data) > self.limits.max_source_bytes:
             raise PmxValidationError(
                 "encoded_size",
@@ -196,13 +194,13 @@ class PmxWriter:
                     data.extend(self._floats(cast(Iterable[float], vertex.sdef_c)))
                     data.extend(self._floats(cast(Iterable[float], vertex.sdef_r0)))
                     data.extend(self._floats(cast(Iterable[float], vertex.sdef_r1)))
-            elif vertex.weight_mode == WeightMode.BDEF4:
+            elif vertex.weight_mode in (WeightMode.BDEF4, WeightMode.QDEF):
                 for bone_index, _ in vertex.weight:
                     data.extend(self._index(cast(int, bone_index), layout.bone))
                 data.extend(
                     self._floats(cast(float, weight) for _, weight in vertex.weight)
                 )
-            else:  # QDEF is rejected by PMX 2.0 validation.
+            else:  # pragma: no cover - validator exhausts WeightMode.
                 raise PmxValidationError(
                     "vertex.weight_mode", "PMX 2.0 weight mode", vertex.weight_mode
                 )
@@ -338,9 +336,17 @@ class PmxWriter:
             data.extend(self._floats(item.texture_tint))
             data.extend(self._floats(item.sphere_tint))
             data.extend(self._floats(item.toon_tint))
+        elif morph_type == MorphType.FLIP:
+            data.extend(self._index(item.morph_index, layout.morph))
+            data.extend(struct.pack("<f", item.value))
+        elif morph_type == MorphType.IMPULSE:
+            data.extend(self._index(item.rigidbody_index, layout.rigid_body))
+            data.extend(struct.pack("<B", int(item.is_local)))
+            data.extend(self._floats(item.velocity))
+            data.extend(self._floats(item.torque))
         else:
             raise PmxValidationError(
-                "morph.morph_type", "PMX 2.0 morph type", morph_type
+                "morph.morph_type", "supported PMX morph type", morph_type
             )
         return bytes(data)
 
@@ -406,6 +412,66 @@ class PmxWriter:
                 "rotation_spring",
             ):
                 data.extend(self._floats(getattr(joint, name)))
+        return bytes(data)
+
+    def _encode_soft_bodies(self, model: "PmxModel", layout: PmxIndexLayout) -> bytes:
+        data = bytearray(self._count(len(model.softbodies)))
+        encoding = model.header.text_encoding
+        for soft_body in model.softbodies:
+            data.extend(self._string(soft_body.name_jp, encoding))
+            data.extend(self._string(soft_body.name_en, encoding))
+            data.extend(struct.pack("<B", int(soft_body.shape)))
+            data.extend(self._index(soft_body.material_index, layout.material))
+            data.extend(
+                struct.pack(
+                    "<BHBii2fi",
+                    soft_body.collision_group,
+                    soft_body.collision_mask,
+                    int(soft_body.flags),
+                    soft_body.b_link_distance,
+                    soft_body.cluster_count,
+                    soft_body.total_mass,
+                    soft_body.collision_margin,
+                    int(soft_body.aero_model),
+                )
+            )
+            data.extend(
+                self._floats(
+                    getattr(soft_body.config, name)
+                    for name in soft_body.config.field_names()
+                )
+            )
+            data.extend(
+                self._floats(
+                    getattr(soft_body.cluster, name)
+                    for name in soft_body.cluster.field_names()
+                )
+            )
+            data.extend(
+                struct.pack(
+                    "<4i",
+                    *(
+                        getattr(soft_body.iteration, name)
+                        for name in soft_body.iteration.field_names()
+                    ),
+                )
+            )
+            data.extend(
+                self._floats(
+                    getattr(soft_body.material, name)
+                    for name in soft_body.material.field_names()
+                )
+            )
+            data.extend(self._count(len(soft_body.anchors)))
+            for anchor in soft_body.anchors:
+                data.extend(self._index(anchor.rigidbody_index, layout.rigid_body))
+                data.extend(
+                    self._index(anchor.vertex_index, layout.vertex, signed=False)
+                )
+                data.extend(struct.pack("<B", int(anchor.near_mode)))
+            data.extend(self._count(len(soft_body.pin_vertex_indices)))
+            for vertex_index in soft_body.pin_vertex_indices:
+                data.extend(self._index(vertex_index, layout.vertex, signed=False))
         return bytes(data)
 
 

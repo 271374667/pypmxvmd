@@ -108,9 +108,10 @@ wants a result object only when it is complete. `implementation` accepts `auto`,
 source-backed `PmxDocument`; partial span tracking populates
 `PmxParseResult.field_spans`.
 
-PMX 2.0 is parsed through Spring 6DOF Joint. Unsupported PMX 2.1 content
-(Flip/Impulse Morph, additional Joint types and Soft Body) raises a
-format/completeness error instead of being silently omitted.
+PMX 2.0 is parsed through Spring 6DOF Joint. PMX 2.1 additionally supports QDEF,
+Flip/Impulse Morph, all six Joint types, and the complete Soft Body record through
+Anchor and Pin collections. Unknown enum values, invalid counts/references,
+truncation, and trailing bytes fail closed.
 
 ```python
 model = pypmxvmd.load_pmx("model.pmx")
@@ -125,11 +126,11 @@ print(result.report.missing_sections)
 
 Explicitly load with `python`, `fast`, or `cython`. The result contains `model`
 and an immutable `report` with loaded and missing sections, section byte spans,
-final offset, file size and trailing byte count. A PMX 2.0 result can report
-`is_complete=True`; PMX 2.1 currently reports `soft_bodies` as missing or rejects
-an earlier unsupported PMX 2.1 record. `auto` uses the bounds-checked Python
-Cursor. Until the native ABI is completed, explicit `cython` still executes its
-probe but returns the Cursor's canonical semantic model. This legacy-compatible
+final offset, file size and trailing byte count. Supported PMX 2.0/2.1 files can
+both report `is_complete=True`. `auto` uses the bounds-checked Python Cursor.
+Until the native ABI is completed, explicit `cython` returns the Cursor's
+canonical semantic model; PMX 2.1 does not enter the incomplete native parser.
+This legacy-compatible
 helper is equivalent to `load_pmx(..., mode="partial")`. With
 `track_spans=True`, `field_spans` contains the registered fixed-width fields and
 `record_spans` contains exact existing Material, Bone, Rigid Body, and Joint
@@ -326,17 +327,18 @@ validate_pmx_model(
 ```
 
 `strict_eof=False` does not mark a partial parse complete and does not discard
-trailing bytes. PMX 2.1-only Morph, Joint and Soft Body records remain outside
-the currently supported semantic contract.
+trailing bytes. PMX 2.1 QDEF, Flip/Impulse Morph, all Joint types, and Soft Body
+records are included in the centralized semantic contract.
 
 ---
 
 #### `pypmxvmd.save_pmx(model_or_document, file_path, *, mode="canonical")`
 
-Validate and atomically save a canonical PMX 2.0 file. The writer covers Header
-through Spring 6DOF Joint, selects the smallest valid index widths, and preserves
-the model's texture list and index order. Invalid, incomplete, PMX 2.1, QDEF,
-unsupported Joint, or Soft Body input fails before the target is replaced.
+Validate and atomically save a canonical PMX 2.0/2.1 file. The writer covers all
+version-required sections through Joint/Soft Body, selects the smallest valid
+index widths, and preserves the model's texture list and index order. Invalid,
+incomplete, unknown-feature, or cross-reference-invalid input fails before the
+target is replaced.
 
 Canonical output guarantees semantic round-trip stability, not source-byte or
 source-layout equality. `PmxParser.write_file_partial()` remains an explicit,
@@ -538,9 +540,9 @@ VMD (Vocaloid Motion Data) stores motion and camera data.
 
 PMX (Polygon Model eXtended) stores 3D model data.
 
-The public PMX 2.0 reader populates every section through Spring 6DOF Joint.
-Use `parse_report`/`is_complete` to distinguish a complete PMX 2.0 load from an
-explicitly partial PMX 2.1 diagnostic result.
+The public reader populates every PMX 2.0 section through Joint and every PMX 2.1
+section through Soft Body. Use `parse_report`/`is_complete` to distinguish a
+complete load from an explicitly partial diagnostic result.
 
 #### `PmxModel`
 
@@ -676,11 +678,12 @@ the raw `value` for lossless semantic round-tripping.
 | `name_en` | `str` | English name |
 | `panel` | `MorphPanel` | Panel |
 | `morph_type` | `MorphType` | Morph type |
-| `items` | `List` | Typed PMX 2.0 Group/Vertex/Bone/UV/Material items |
+| `items` | `List` | Typed Group/Vertex/Bone/UV/Material/Flip/Impulse items |
 
 Bone Morph rotations are stored as raw `[x, y, z, w]` quaternions. Material
 Morph items retain multiply/add operation plus all diffuse, specular, ambient,
-edge and texture tint factors. PMX 2.1 Flip and Impulse Morphs remain unsupported.
+edge and texture tint factors. Flip items retain Morph index/weight; Impulse
+items retain Rigid Body index, local flag, velocity, and torque.
 
 ---
 
@@ -727,6 +730,17 @@ edge and texture tint factors. PMX 2.1 Flip and Impulse Morphs remain unsupporte
 | `rotation_max` | `List[float]` | Rotation max |
 | `position_spring` | `List[float]` | Position spring |
 | `rotation_spring` | `List[float]` | Rotation spring |
+
+---
+
+#### `PmxSoftBody`
+
+PMX 2.1 Soft Body records expose names, `shape`, Material reference, collision
+group/mask, `flags`, B-link distance, cluster count, mass, margin, aerodynamics
+model, and typed `config`, `cluster`, `iteration`, and `material` coefficient
+records. `anchors` contains `PmxSoftBodyAnchor` objects; `pin_vertex_indices`
+contains unsigned Vertex references. All nested counts, enum/flag values,
+finite float32 values, and Material/Rigid Body/Vertex references are validated.
 
 ---
 
@@ -893,6 +907,20 @@ parser.write_file(pose, "output.vpd")
 | Value | Description |
 |----|------|
 | `SPRING6DOF` (0) | 6DOF spring |
+| `SIX_DOF` (1) | 6DOF |
+| `POINT_TO_POINT` (2) | Point-to-point |
+| `CONE_TWIST` (3) | Cone twist |
+| `SLIDER` (4) | Slider |
+| `HINGE` (5) | Hinge |
+
+---
+
+#### `SoftBodyShape`, `SoftBodyFlags`, `SoftBodyAeroModel`
+
+- Shapes: `TRI_MESH` (0), `ROPE` (1).
+- Flags: `B_LINK` (1), `CLUSTER` (2), `LINK_CROSS` (4); other bits are rejected.
+- Aerodynamics: `V_POINT` (0), `V_TWO_SIDED` (1), `V_ONE_SIDED` (2),
+  `F_TWO_SIDED` (3), `F_ONE_SIDED` (4).
 
 ---
 

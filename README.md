@@ -19,7 +19,8 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 ## Features
 
 - Complete PMX 2.0 reading and canonical writing through Spring 6DOF Joint
-- Validating, atomic PMX 2.0 output with semantic round-trip coverage
+- PMX 2.1 QDEF, Flip/Impulse Morph, all six Joint types, and full Soft Body records
+- Validating, atomic PMX 2.0/2.1 output with semantic round-trip coverage
 - Conversion between binary and text formats
 - Object-oriented API design, easy to use
 - Complete type annotation support
@@ -95,13 +96,16 @@ pypmxvmd.save(model, "output.pmx")
 pypmxvmd.save(pose, "output.vpd")
 ```
 
-PMX 2.0 binary loading and canonical saving are complete through Spring 6DOF
-Joint. Saving validates the full model before atomically replacing the target;
+PMX 2.0/2.1 binary loading and canonical saving consume every version-required
+section through Joint/Soft Body. Saving validates the full model before
+atomically replacing the target;
 canonical output chooses deterministic index widths and is semantically stable,
-but is not promised to be byte-identical to the source. PMX 2.0 semantic
-validation is also available through `PmxModel.validate()`. PMX 2.1
-Flip/Impulse Morphs, additional Joint types and Soft Body are not yet supported
-and fail closed instead of being silently discarded.
+but is not promised to be byte-identical to the source. Semantic validation is
+available through `PmxModel.validate()`. PMX 2.1 support covers QDEF,
+Flip/Impulse Morphs, Spring 6DOF/6DOF/P2P/ConeTwist/Slider/Hinge Joint records,
+and all Soft Body Config/Cluster/Iteration/Material/Anchor/Pin fields. This
+evidence currently comes from independent synthetic fixed-byte fixtures; no
+redistributable real PMX 2.1 corpus is claimed.
 
 PMX binary modes are explicit and keyword-only, so existing positional calls
 remain compatible:
@@ -113,7 +117,7 @@ model = pypmxvmd.load_pmx("model.pmx", mode="strict")
 # Diagnostic model plus section/EOF evidence
 result = pypmxvmd.load_pmx("model.pmx", mode="partial")
 
-# Canonical PMX 2.0 output
+# Canonical PMX 2.0/2.1 output
 pypmxvmd.write_pmx(model, "output.pmx", mode="canonical")
 
 # Source-backed fixed-width editing
@@ -155,9 +159,9 @@ for selected directly mapped Material, Bone, Rigid Body, and Joint fields. Every
 range/before-byte checked, strict-reparsed, and compared against the edited model.
 The Bone, Rigid Body, Joint, and Material transactions below can rebuild their
 existing variable-length records. Other variable-length fields, record
-insertion/deletion, global index renumbering, PMX 2.1, and `preserve_layout`
-remain unsupported and fail closed. Lossless mode never silently falls back to
-canonical output.
+insertion/deletion, global index renumbering, and PMX 2.1-specific high-level
+editing remain unsupported; `preserve_layout` also remains unsupported.
+Lossless mode never silently falls back to canonical output.
 
 `PmxBoneEditor` additionally supports all PMX 2.0 fields of existing Bone
 records: variable-length names, position/parent/deform layer, basic flags, both

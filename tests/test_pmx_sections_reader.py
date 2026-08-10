@@ -16,9 +16,12 @@ from pypmxvmd.common.models.pmx import (
     RigidBodyPhysMode,
     RigidBodyShape,
 )
-from pypmxvmd.common.pmx import IncompletePmxError, PmxFormatError
-from pypmxvmd.common.pmx.report import PMX_20_REQUIRED_SECTIONS
-from pypmxvmd.common.parsers.pmx_parser import PmxParser, _CYTHON_AVAILABLE
+from pypmxvmd.common.parsers.pmx_parser import _CYTHON_AVAILABLE, PmxParser
+from pypmxvmd.common.pmx import PmxFormatError
+from pypmxvmd.common.pmx.report import (
+    PMX_20_REQUIRED_SECTIONS,
+    PMX_21_REQUIRED_SECTIONS,
+)
 
 
 def _pmx_string(value: str) -> bytes:
@@ -309,7 +312,7 @@ def test_truncated_joint_vector_reports_joint_section(tmp_path):
     assert caught.value.report.failed_section == "joints"
 
 
-def test_pmx21_stops_before_soft_body_and_complete_api_fails_closed(tmp_path):
+def test_pmx21_empty_soft_body_section_completes_public_parse(tmp_path):
     payload, _ = _pmx20_all_sections()
     source = bytearray(payload)
     source[4:8] = struct.pack("<f", 2.1)
@@ -319,12 +322,13 @@ def test_pmx21_stops_before_soft_body_and_complete_api_fails_closed(tmp_path):
 
     result = PmxParser().parse_file_partial(path)
 
-    assert result.report.loaded_sections == frozenset(PMX_20_REQUIRED_SECTIONS)
-    assert result.report.missing_sections == ("soft_bodies",)
-    assert result.report.trailing_bytes == 4
-    assert not result.report.is_complete
-    with pytest.raises(IncompletePmxError):
-        PmxParser().parse_file(path)
+    assert result.report.loaded_sections == frozenset(PMX_21_REQUIRED_SECTIONS)
+    assert result.report.missing_sections == ()
+    assert result.report.trailing_bytes == 0
+    assert result.report.is_complete
+    model = PmxParser().parse_file(path)
+    assert model.softbodies == []
+    assert model.validate()
 
 
 def test_public_load_pmx_returns_complete_valid_pmx20(tmp_path):
@@ -340,17 +344,14 @@ def test_public_load_pmx_returns_complete_valid_pmx20(tmp_path):
     assert model.validate()
 
 
-def test_pmx21_flip_morph_fails_closed_until_long_term_stage(tmp_path):
+def test_pmx21_flip_morph_is_rejected_when_declared_as_pmx20(tmp_path):
     payload, offsets = _pmx20_all_sections()
     source = bytearray(payload)
-    source[4:8] = struct.pack("<f", 2.1)
     source[offsets["group_morph_type"]] = int(MorphType.FLIP)
-    path = tmp_path / "unsupported-flip-morph.pmx"
+    path = tmp_path / "pmx20-flip-morph.pmx"
     path.write_bytes(source)
 
-    with pytest.raises(
-        PmxFormatError, match="Unsupported PMX 2.1 morph type FLIP"
-    ) as caught:
+    with pytest.raises(PmxFormatError, match="PMX 2.1 morph type FLIP") as caught:
         PmxParser().parse_file_partial(path)
 
     assert caught.value.section == "morphs"

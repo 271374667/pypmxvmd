@@ -77,16 +77,17 @@ def test_strict_mode_cannot_disable_eof_contract(tmp_path, sample_pmx_model):
         PmxParser().parse_file(path, strict_eof=False)
 
 
-def test_partial_mode_can_optionally_require_complete_eof(tmp_path):
+def test_partial_mode_can_require_complete_pmx21_eof(tmp_path):
     path = tmp_path / "minimal-21.pmx"
     path.write_bytes(_minimal_complete_pmx21_bytes())
 
     result = pypmxvmd.load_pmx(path, mode="partial")
     assert isinstance(result, PmxParseResult)
-    assert not result.report.is_complete
+    assert result.report.is_complete
 
-    with pytest.raises(pypmxvmd.IncompletePmxError):
-        pypmxvmd.load_pmx(path, mode="partial", strict_eof=True)
+    strict_result = pypmxvmd.load_pmx(path, mode="partial", strict_eof=True)
+    assert isinstance(strict_result, PmxParseResult)
+    assert strict_result.report.is_complete
 
 
 @pytest.mark.parametrize("mode", ["preserve_layout", "lossless_patch"])
