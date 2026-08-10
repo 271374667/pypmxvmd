@@ -7,11 +7,16 @@ import pytest
 import pypmxvmd
 from pypmxvmd.common.models.pmx import (
     PmxBone,
+    PmxFrame,
+    PmxFrameItem,
     PmxMaterial,
     PmxModel,
     PmxMorph,
+    PmxMorphItemBone,
     PmxMorphItemMaterial,
     PmxMorphItemVertex,
+    PmxSoftBody,
+    PmxSoftBodyAnchor,
     PmxVertex,
 )
 from pypmxvmd.common.pmx.outfit import (
@@ -27,6 +32,8 @@ from pypmxvmd.common.pmx.outfit import (
     who_references,
 )
 from pypmxvmd.common.pmx.types import MorphMaterialOperation, MorphType
+from tests.fixtures.pmx_builder import build_pmx21_fixture
+from tests.fixtures.pmx_outfit_builder import build_outfit_fixture
 
 
 def _model() -> PmxModel:
@@ -200,3 +207,204 @@ def test_variant_builder_isolates_variants_and_protects_inputs(tmp_path: Path):
             target=target_path,
             selection=PmxPartSelection(material_names=("上衣",)),
         ).add_variant("bad", output_path=source_path).build()
+
+
+@pytest.mark.parametrize("index_size", [1, 2, 4])
+def test_outfit_fixture_covers_all_pmx20_morphs_and_cross_section_remapping(
+    index_size: int,
+):
+    model = build_outfit_fixture(index_size=index_size)
+    analysis = analyze_part(
+        model,
+        selection=PmxPartSelection(
+            material_names=("配件", "服装"),
+            morph_indices=tuple(range(len(model.morphs))),
+            rigid_body_indices=(0, 1),
+            joint_indices=(0, 1),
+            include_display_frames=True,
+        ),
+    )
+    assert analysis.ready
+    extracted = pypmxvmd.extract_part(model, analysis=analysis)
+    assert extracted.report["strict_roundtrip"] is True
+    assert [m.morph_type for m in extracted.model.morphs] == [
+        MorphType.VERTEX,
+        MorphType.UV,
+        MorphType.EXTENDED_UV1,
+        MorphType.EXTENDED_UV2,
+        MorphType.EXTENDED_UV3,
+        MorphType.EXTENDED_UV4,
+        MorphType.MATERIAL,
+        MorphType.BONE,
+        MorphType.GROUP,
+    ]
+    assert [material.face_count for material in extracted.model.materials] == [3, 3]
+    assert extracted.model.faces == [[0, 1, 2], [3, 4, 5]]
+    assert len(extracted.model.frames) == 1
+    assert len(extracted.model.rigidbodies) == 2
+    assert len(extracted.model.joints) == 2
+    assert all(
+        0 <= int(weight[0]) < len(extracted.model.bones)
+        for vertex in extracted.model.vertices
+        for weight in vertex.weight
+        if weight and int(weight[0]) >= 0
+    )
+
+
+@pytest.mark.parametrize("index_size", [1, 2, 4])
+def test_outfit_api_fails_closed_for_pmx21_flip_impulse_and_soft_body(
+    tmp_path: Path, index_size: int
+):
+    payload, _ = build_pmx21_fixture(index_size=index_size)
+    path = tmp_path / f"pmx21-{index_size}.pmx"
+    path.write_bytes(payload)
+    model = pypmxvmd.load_pmx(path)
+    flip = analyze_part(model, selection=PmxPartSelection(morph_indices=(1,)))
+    assert any(item.code == "unsupported_high_level_pmx21" for item in flip.unresolved)
+    with pytest.raises(pypmxvmd.PmxQueryError, match="unresolved"):
+        pypmxvmd.extract_part(model, analysis=flip)
+    soft = analyze_part(model, selection=PmxPartSelection(soft_body_indices=(0,)))
+    assert any(
+        item.code == "unsupported_soft_body_extraction" for item in soft.unresolved
+    )
+    with pytest.raises(pypmxvmd.PmxQueryError, match="unresolved"):
+        pypmxvmd.extract_part(model, analysis=soft)
+
+
+def test_safe_removal_keeps_shared_bones_rigid_bodies_and_joints():
+    target = build_outfit_fixture(include_morphs=False, cloth_name="原服装")
+    source = build_outfit_fixture(include_morphs=False, include_physics=False)
+    part = pypmxvmd.extract_part(
+        source,
+        selection=PmxPartSelection(material_names=("服装",)),
+    )
+    result = pypmxvmd.assemble_part(
+        target,
+        part,
+        removal_policy=pypmxvmd.PmxRemovalPolicy(
+            target_materials=("原服装",),
+            orphan_vertices="compact_if_safe",
+        ),
+    )
+    assert result.report["removal_report"]["removed_bones"] == (1,)
+    assert result.report["removal_report"]["removed_rigid_bodies"] == (0,)
+    assert result.report["removal_report"]["removed_joints"] == (0,)
+    # The replacement part legitimately reintroduces its clothing bone; the
+    # removal report proves the target's exclusive bone was deleted first.
+    assert [bone.name_jp for bone in result.model.bones] == ["中心", "共享骨", "服装骨"]
+    assert [body.name_jp for body in result.model.rigidbodies] == ["共享刚体"]
+    assert [joint.name_jp for joint in result.model.joints] == ["共享关节"]
+    assert (
+        result.model.joints[0].rigidbody1_index,
+        result.model.joints[0].rigidbody2_index,
+    ) == (0, 0)
+    assert len(result.model.vertices) == 9
+
+
+def test_safe_removal_rejects_active_morph_and_display_frame_references():
+    target = build_outfit_fixture(cloth_name="原服装")
+    source = build_outfit_fixture(include_morphs=False, include_physics=False)
+    part = pypmxvmd.extract_part(
+        source,
+        selection=PmxPartSelection(material_names=("服装",)),
+    )
+    with pytest.raises(pypmxvmd.PmxTransactionError, match="Material referenced"):
+        pypmxvmd.assemble_part(
+            target,
+            part,
+            removal_policy=pypmxvmd.PmxRemovalPolicy(
+                target_materials=("原服装",),
+                orphan_vertices="compact_if_safe",
+            ),
+        )
+
+    target = build_outfit_fixture(include_morphs=False, cloth_name="原服装")
+    target.frames = [PmxFrame(items=[PmxFrameItem(False, 1)])]
+    target.validate()
+    with pytest.raises(
+        pypmxvmd.PmxAssemblyError, match="Bones referenced by a Display Frame"
+    ):
+        pypmxvmd.assemble_part(
+            target,
+            part,
+            removal_policy=pypmxvmd.PmxRemovalPolicy(
+                target_materials=("原服装",),
+                orphan_vertices="compact_if_safe",
+            ),
+        )
+
+
+def test_safe_removal_rejects_soft_body_references():
+    target = build_outfit_fixture(include_morphs=False, cloth_name="原服装")
+    target.header.version = 2.1
+    target.softbodies = [
+        PmxSoftBody(
+            name_jp="服装软体",
+            name_en="Cloth soft body",
+            material_index=1,
+            anchors=[PmxSoftBodyAnchor(0, 3)],
+            pin_vertex_indices=[3],
+        )
+    ]
+    target.validate()
+    source = build_outfit_fixture(include_morphs=False, include_physics=False)
+    part = pypmxvmd.extract_part(
+        source,
+        selection=PmxPartSelection(material_names=("服装",)),
+    )
+    with pytest.raises(pypmxvmd.PmxTransactionError, match="softbodies"):
+        pypmxvmd.assemble_part(
+            target,
+            part,
+            removal_policy=pypmxvmd.PmxRemovalPolicy(
+                target_materials=("原服装",),
+                orphan_vertices="compact_if_safe",
+            ),
+        )
+
+
+def test_variant_builder_failure_matrix_is_atomic(tmp_path: Path):
+    source = _model()
+    target = _model()
+    source_path = tmp_path / "source.pmx"
+    target_path = tmp_path / "target.pmx"
+    pypmxvmd.save_pmx(source, source_path)
+    pypmxvmd.save_pmx(target, target_path)
+
+    duplicate = tmp_path / "duplicate.pmx"
+    builder = pypmxvmd.PmxVariantBuilder(
+        source=source_path,
+        target=target_path,
+        selection=PmxPartSelection(material_names=("上衣",)),
+    )
+    builder.add_variant("a", output_path=duplicate)
+    builder.add_variant("b", output_path=duplicate)
+    with pytest.raises(pypmxvmd.PmxPlanError, match="duplicate variant output path"):
+        builder.build()
+    assert not duplicate.exists()
+
+    existing = tmp_path / "existing.pmx"
+    existing.write_bytes(b"keep me")
+    with pytest.raises(pypmxvmd.PmxPlanError, match="already exists"):
+        pypmxvmd.PmxVariantBuilder(
+            source=source_path,
+            target=target_path,
+            selection=PmxPartSelection(material_names=("上衣",)),
+        ).add_variant("existing", output_path=existing).build()
+    assert existing.read_bytes() == b"keep me"
+
+    first = tmp_path / "first.pmx"
+    failed = tmp_path / "failed.pmx"
+    builder = pypmxvmd.PmxVariantBuilder(
+        source=source_path,
+        target=target_path,
+        selection=PmxPartSelection(material_names=("上衣",)),
+    )
+    builder.add_variant("first", output_path=first)
+    builder.add_variant(
+        "failed", morph_state={"does-not-exist": 1.0}, output_path=failed
+    )
+    with pytest.raises(pypmxvmd.PmxQueryError, match="unknown morph"):
+        builder.build()
+    assert not first.exists()
+    assert not failed.exists()

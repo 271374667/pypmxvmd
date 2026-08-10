@@ -2790,6 +2790,9 @@ def _safe_remove_physics(
             for index, body in enumerate(model.rigidbodies)
             if index not in candidate_rigid
         ]
+        for joint in model.joints:
+            joint.rigidbody1_index = rigid_map.get(joint.rigidbody1_index, -1)
+            joint.rigidbody2_index = rigid_map.get(joint.rigidbody2_index, -1)
         for morph in model.morphs:
             morph.items = [
                 item
