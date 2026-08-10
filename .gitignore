@@ -38,6 +38,15 @@ Thumbs.db
 /tests/data/test_models/
 /tests/data/test_vmds/
 
+# Internal development Markdown requires explicit per-commit approval.
+/.agents/*.md
+/.agents/**/*.md
+/docs/*.md
+/docs/**/*.md
+!/docs/API.md
+!/docs/API_CN.md
+!/docs/index.md
+
 # Legacy tests that still use fixed output names
 /tests/api_output.*
 /tests/api_test.*

@@ -10,9 +10,4 @@ nav:
   - API:
       - English: API.md
       - 中文: API_CN.md
-  - Development:
-      - 项目持续开发恢复指南: 项目持续开发恢复指南.md
-      - PMX 支持改进计划: PMX支持改进计划.md
-      - PMX 完整支持重构执行计划: PMX完整支持重构执行计划.md
-      - PMXEditor 功能支持矩阵: PMXEditor功能支持调研与编辑优先级.md
 strict: true

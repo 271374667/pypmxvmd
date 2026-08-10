@@ -13,8 +13,6 @@ uv run python scripts/build_cython.py
 uv build
 ```
 
-See the [project recovery guide](项目持续开发恢复指南.md) for current status and
-the [PMX support plan](PMX支持改进计划.md) for known format limitations. Detailed
-execution and PMXEditor field priorities are recorded in the
-[PMX refactoring plan](PMX完整支持重构执行计划.md) and
-[PMXEditor support matrix](PMXEditor功能支持调研与编辑优先级.md).
+Public API details are available in the [English API](API.md) and
+[Chinese API](API_CN.md) references. Internal development plans and recovery
+records are intentionally not published with the user documentation.
