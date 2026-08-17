@@ -440,6 +440,33 @@ English-name, and alias matching plus `PmxCoordinateTransform`; unmatched source
 bones append by default, while missing explicit targets follow the `missing`
 policy and fail closed when configured as `error`.
 
+For a static garment that must cover the target body surface, call
+`fit_part_to_surface(part, target, config=...)` after Morph evaluation/baking.
+The function builds a normal-aware point cloud from the selected target-skin
+Material vertices and triangle centroids, then moves only vertices whose signed
+surface distance is below `clearance`. Garments that are already outside the
+body keep their loose silhouette. `PmxSurfaceFitConfig` controls neighbour
+count, smoothing passes, displacement limits, and optional name prefixes for
+moving garment rigid bodies and joints with the fitted geometry. The part is
+copied and the target is never mutated; the optional `scipy`/`numpy` dependencies
+are installed in the development environment with `uv sync --dev`.
+
+```python
+fitted = pypmxvmd.fit_part_to_surface(
+    baked.model,
+    target,
+    config=pypmxvmd.PmxSurfaceFitConfig(
+        target_material_names=("Body", "足1", "足2"),
+        clearance=0.035,
+        rigid_body_name_prefixes=("Shirt_", "P3-Tag"),
+    ),
+)
+```
+
+The report's `inside_surface_before/after` counts vertices actually inside the
+point-cloud surface. `below_clearance_before/after` also includes vertices
+that are outside but closer than the requested garment allowance.
+
 For isolated batch output use `PmxVariantBuilder`:
 
 ```python
@@ -447,6 +474,10 @@ builder = pypmxvmd.PmxVariantBuilder(
     target="body_target.pmx",
     source="clothing_source.pmx",
     selection=pypmxvmd.PmxPartSelection(material_names=("上衣",)),
+    surface_fit=pypmxvmd.PmxSurfaceFitConfig(
+        target_material_names=("Body", "足1", "足2"),
+        clearance=0.035,
+    ),
 )
 builder.add_variant("p1", morph_state={"上着P2": 0.0}, output_path="p1.pmx")
 result = builder.build()
@@ -457,6 +488,8 @@ and encoded before any output is atomically replaced; inputs cannot be
 overwritten and existing outputs are protected by default. High-level PMX 2.1
 Flip/Impulse Morph and Soft Body extraction/baking remain fail-closed even though
 canonical PMX 2.1 I/O is available.
+When `surface_fit` is supplied, each variant applies the static surface envelope
+after its Morph state is baked and includes the fit diagnostics in its report.
 
 ---
 

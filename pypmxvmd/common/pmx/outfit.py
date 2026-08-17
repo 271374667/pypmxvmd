@@ -515,6 +515,72 @@ class PmxCoordinateTransform:
 
 
 @dataclass(frozen=True, slots=True)
+class PmxSurfaceFitConfig:
+    """Point-cloud surface envelope settings for an independent PMX part.
+
+    The target cloud is built from the vertices of the explicitly selected
+    target materials.  A part vertex is only moved when its signed distance
+    along a nearby target surface normal is below ``clearance``; vertices
+    already outside the body are therefore not pulled inward.
+    """
+
+    target_material_indices: tuple[int, ...] = ()
+    target_material_names: tuple[str, ...] = ("Body", "足1", "足2")
+    clearance: float = 0.025
+    iterations: int = 3
+    neighbors: int = 16
+    normal_alignment: float = 0.05
+    smoothing: float = 0.25
+    max_displacement: float = 0.75
+    rigid_body_name_prefixes: tuple[str, ...] = ()
+    fit_joints: bool = True
+
+    def __post_init__(self) -> None:
+        for index in self.target_material_indices:
+            if isinstance(index, bool) or not isinstance(index, int):
+                raise ValueError("target_material_indices must contain integers")
+            if index < 0:
+                raise ValueError("target_material_indices cannot contain negatives")
+        if any(
+            not isinstance(name, str) or not name for name in self.target_material_names
+        ):
+            raise ValueError("target_material_names must contain non-empty strings")
+        for name in (
+            "clearance",
+            "normal_alignment",
+            "smoothing",
+            "max_displacement",
+        ):
+            value = float(getattr(self, name))
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+        if self.clearance < 0.0:
+            raise ValueError("clearance must be non-negative")
+        if isinstance(self.iterations, bool) or not isinstance(self.iterations, int):
+            raise ValueError("iterations must be an integer")
+        if not 1 <= self.iterations <= 12:
+            raise ValueError("iterations must be between 1 and 12")
+        if isinstance(self.neighbors, bool) or not isinstance(self.neighbors, int):
+            raise ValueError("neighbors must be an integer")
+        if not 4 <= self.neighbors <= 128:
+            raise ValueError("neighbors must be between 4 and 128")
+        if not -1.0 <= self.normal_alignment <= 1.0:
+            raise ValueError("normal_alignment must be between -1 and 1")
+        if not 0.0 <= self.smoothing <= 1.0:
+            raise ValueError("smoothing must be between 0 and 1")
+        if self.max_displacement <= 0.0:
+            raise ValueError("max_displacement must be positive")
+        if any(
+            not isinstance(item, str) or not item
+            for item in self.rigid_body_name_prefixes
+        ):
+            raise ValueError("rigid_body_name_prefixes must contain non-empty strings")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
 class PmxResourcePolicy:
     textures: str = "deduplicate_exact"
     texture_path_conflict: str = "rename_and_report"
@@ -565,6 +631,7 @@ class PmxVariantSpec:
     mode: str = "static"
     output_path: str | Path | None = None
     display_frames: str = "merge_named"
+    surface_fit: PmxSurfaceFitConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -640,6 +707,7 @@ class PmxVariantBuilder:
         transform: PmxCoordinateTransform | None = None,
         removal_policy: PmxRemovalPolicy | None = None,
         resource_policy: PmxResourcePolicy | None = None,
+        surface_fit: PmxSurfaceFitConfig | None = None,
         output_policy: str = "error_if_exists",
         max_variants: int = 10,
     ) -> None:
@@ -655,6 +723,7 @@ class PmxVariantBuilder:
         self.transform = transform
         self.removal_policy = removal_policy or PmxRemovalPolicy()
         self.resource_policy = resource_policy or PmxResourcePolicy()
+        self.surface_fit = surface_fit
         self.output_policy = output_policy
         self.max_variants = max_variants
         self._variants: list[PmxVariantSpec] = []
@@ -671,6 +740,7 @@ class PmxVariantBuilder:
         mode: str = "static",
         output_path: str | Path | None = None,
         display_frames: str | None = None,
+        surface_fit: PmxSurfaceFitConfig | None = None,
     ) -> "PmxVariantBuilder":
         if len(self._variants) >= self.max_variants:
             raise PmxCapabilityError(
@@ -685,6 +755,7 @@ class PmxVariantBuilder:
                 mode,
                 output_path,
                 display_frames or self.resource_policy.display_frames,
+                surface_fit,
             )
         )
         if any(item.name == spec.name for item in self._variants):
@@ -730,9 +801,19 @@ class PmxVariantBuilder:
                 mode=spec.mode,
                 unsupported="error",
             )
+            fitted = (
+                fit_part_to_surface(
+                    baked.model,
+                    target_model,
+                    config=spec.surface_fit or self.surface_fit,
+                )
+                if spec.surface_fit or self.surface_fit
+                else None
+            )
+            part_model = fitted.model if fitted is not None else baked.model
             assembled = assemble_part(
                 target_model,
-                baked.model,
+                part_model,
                 removal_policy=self.removal_policy,
                 resource_policy=self.resource_policy,
                 display_frame_policy=spec.display_frames,
@@ -768,6 +849,11 @@ class PmxVariantBuilder:
                             "source": source_snapshot.to_dict(),
                             "state": state.to_dict(),
                             "bake": baked.to_dict(),
+                            "surface_fit": (
+                                fitted.report.get("surface_fit", {})
+                                if fitted is not None
+                                else None
+                            ),
                             "assembly": assembled.to_dict(),
                             "strict_roundtrip": True,
                         }
@@ -959,12 +1045,59 @@ def _snapshot(
     model: PmxModel, path: Path | None, raw: bytes | None
 ) -> PmxInputSnapshot:
     if raw is None:
-        # In-memory callers still receive a stable source identifier.  It is
-        # derived from model content rather than ``id(model)`` so the same
-        # snapshot produces the same report across processes.
+        # In-memory callers still receive a stable source identifier.  Keep
+        # this fingerprint bounded: recursively hashing every vertex, face and
+        # Morph item makes high-level operations unusable on real models.  File
+        # backed callers continue to use the complete source-byte SHA-256.
+        bounded = {
+            "header": model.header.to_list(),
+            "counts": _counts(model),
+            "textures": tuple(model.textures),
+            "materials": tuple(
+                (
+                    item.name_jp,
+                    item.name_en,
+                    item.face_count,
+                    item.texture_path,
+                    item.sphere_path,
+                    item.toon_path,
+                )
+                for item in model.materials
+            ),
+            "bones": tuple(
+                (item.name_jp, item.name_en, item.parent_index, item.deform_layer)
+                for item in model.bones
+            ),
+            "morphs": tuple(
+                (item.name_jp, item.name_en, item.morph_type.name, len(item.items))
+                for item in model.morphs
+            ),
+            "frames": tuple(
+                (item.name_jp, item.name_en, item.is_special, len(item.items))
+                for item in model.frames
+            ),
+            "rigid_bodies": tuple(
+                (item.name_jp, item.name_en, item.bone_index)
+                for item in model.rigidbodies
+            ),
+            "joints": tuple(
+                (
+                    item.name_jp,
+                    item.name_en,
+                    item.joint_type.name,
+                    item.rigidbody1_index,
+                    item.rigidbody2_index,
+                )
+                for item in model.joints
+            ),
+            "soft_bodies": tuple(
+                (item.name_jp, item.name_en, item.material_index)
+                for item in model.softbodies
+            ),
+        }
         digest = hashlib.sha256(
             json.dumps(
-                _json(_semantic_value(model, set())),
+                _json(bounded),
                 ensure_ascii=False,
                 sort_keys=True,
                 default=str,
@@ -2200,13 +2333,22 @@ def extract_part(
         return -1
 
     for vertex_index, vertex in enumerate(result.vertices):
+        remapped_weights = []
         for weight in vertex.weight:
             if weight and int(weight[0]) >= 0:
-                weight[0] = remap(
-                    "bone",
-                    int(weight[0]),
-                    f"vertices[{selected['vertex'][vertex_index]}].weight",
+                remapped_weights.append(
+                    [
+                        remap(
+                            "bone",
+                            int(weight[0]),
+                            f"vertices[{selected['vertex'][vertex_index]}].weight",
+                        ),
+                        weight[1],
+                    ]
                 )
+            else:
+                remapped_weights.append(list(weight))
+        vertex.weight = remapped_weights
     for bone_index, bone in enumerate(result.bones):
         _remap_optional_bone(bone, maps["bone"])
     for morph_index, morph in enumerate(result.morphs):
@@ -2573,8 +2715,10 @@ def bind_part_to_target(
             bone for index, bone in enumerate(candidate.bones) if index not in dropped
         ]
         for vertex in candidate.vertices:
-            for weight in vertex.weight:
-                weight[0] = bone_local_map.get(int(weight[0]), -1)
+            vertex.weight = [
+                [bone_local_map.get(int(weight[0]), -1), weight[1]]
+                for weight in vertex.weight
+            ]
         for bone in candidate.bones:
             _remap_optional_bone(bone, bone_local_map)
         for morph in candidate.morphs:
@@ -2631,6 +2775,380 @@ def bind_part_to_target(
         {"bone": mapping},
         report,
     )
+
+
+def _surface_cloud(
+    model: PmxModel,
+    config: PmxSurfaceFitConfig,
+) -> tuple[Any, Any, tuple[int, ...]]:
+    """Build a target point cloud and outward normals from material faces."""
+    try:
+        import numpy as np
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised by environments without the extra
+        raise PmxCapabilityError(
+            "surface fitting requires the optional scipy/numpy dependencies"
+        ) from exc
+
+    selected = set(int(index) for index in config.target_material_indices)
+    if any(index < 0 or index >= len(model.materials) for index in selected):
+        raise PmxCapabilityError("target surface material index is out of range")
+    names = set(config.target_material_names)
+    for index, material in enumerate(model.materials):
+        if material.name_jp in names or material.name_en in names:
+            selected.add(index)
+    if not selected:
+        raise PmxCapabilityError(
+            "no target surface materials matched; provide target_material_indices or names"
+        )
+
+    vertex_indices: set[int] = set()
+    face_cursor = 0
+    for index, material in enumerate(model.materials):
+        faces = model.faces[face_cursor // 3 : (face_cursor + material.face_count) // 3]
+        face_cursor += material.face_count
+        if index in selected:
+            vertex_indices.update(vertex for face in faces for vertex in face)
+    if len(vertex_indices) < 4:
+        raise PmxCapabilityError(
+            "target surface cloud contains fewer than four vertices"
+        )
+
+    ordered = tuple(sorted(vertex_indices))
+    vertex_points = np.asarray(
+        [model.vertices[index].position for index in ordered], dtype=np.float64
+    )
+    vertex_normals = np.asarray(
+        [model.vertices[index].normal for index in ordered], dtype=np.float64
+    )
+    vertex_lengths = np.linalg.norm(vertex_normals, axis=1)
+    valid = np.isfinite(vertex_points).all(axis=1) & np.isfinite(vertex_normals).all(
+        axis=1
+    )
+    valid &= vertex_lengths > 1.0e-8
+    if int(valid.sum()) < 4:
+        raise PmxCapabilityError("target surface cloud has insufficient valid normals")
+    vertex_points = vertex_points[valid]
+    vertex_normals = vertex_normals[valid] / vertex_lengths[valid, None]
+
+    # PMX vertices can be relatively sparse on large triangles.  Add one
+    # centroid sample per selected face so the nearest-neighbour envelope also
+    # covers triangle interiors instead of leaving gaps between source points.
+    face_points: list[list[float]] = []
+    face_normals: list[list[float]] = []
+    face_cursor = 0
+    for index, material in enumerate(model.materials):
+        faces = model.faces[face_cursor // 3 : (face_cursor + material.face_count) // 3]
+        face_cursor += material.face_count
+        if index not in selected:
+            continue
+        for face in faces:
+            if len(face) != 3:
+                continue
+            vertices = [model.vertices[int(vertex)] for vertex in face]
+            point = np.mean(
+                np.asarray([vertex.position for vertex in vertices], dtype=np.float64),
+                axis=0,
+            )
+            normal = np.sum(
+                np.asarray([vertex.normal for vertex in vertices], dtype=np.float64),
+                axis=0,
+            )
+            length = float(np.linalg.norm(normal))
+            if (
+                not np.isfinite(point).all()
+                or not np.isfinite(normal).all()
+                or not math.isfinite(length)
+                or length <= 1.0e-8
+            ):
+                continue
+            face_points.append([float(value) for value in point])
+            face_normals.append([float(value) for value in normal / length])
+    if face_points:
+        points = np.vstack((vertex_points, np.asarray(face_points, dtype=np.float64)))
+        normals = np.vstack(
+            (vertex_normals, np.asarray(face_normals, dtype=np.float64))
+        )
+    else:
+        points = vertex_points
+        normals = vertex_normals
+    return points, normals, tuple(index for index, keep in zip(ordered, valid) if keep)
+
+
+def _surface_projection(
+    positions: Any,
+    vertex_normals: Any,
+    points: Any,
+    normals: Any,
+    tree: Any,
+    config: PmxSurfaceFitConfig,
+) -> tuple[Any, Any]:
+    """Return outward displacement and signed distance for each position."""
+    import numpy as np
+
+    count = len(positions)
+    if not count:
+        return np.empty((0, 3), dtype=np.float64), np.empty(0, dtype=np.float64)
+    query_count = min(int(config.neighbors), len(points))
+    distances, indexes = tree.query(positions, k=query_count, workers=-1)
+    if query_count == 1:
+        distances = distances[:, None]
+        indexes = indexes[:, None]
+    cloth_normals = np.asarray(vertex_normals, dtype=np.float64)
+    normal_lengths = np.linalg.norm(cloth_normals, axis=1)
+    cloth_normals = np.divide(
+        cloth_normals,
+        normal_lengths[:, None],
+        out=np.zeros_like(cloth_normals),
+        where=normal_lengths[:, None] > 1.0e-8,
+    )
+    neighbor_normals = normals[indexes]
+    alignment = np.einsum("ij,ikj->ik", cloth_normals, neighbor_normals)
+    acceptable = alignment >= float(config.normal_alignment)
+    # The first K neighbours are distance ordered.  Use a small weighted
+    # patch when normals agree, which makes sparse PMX vertices less noisy than
+    # a single nearest-vertex projection while retaining sharp boundaries.
+    patch_size = min(8, query_count)
+    point_rows = np.empty((count, 3), dtype=np.float64)
+    normal_rows = np.empty((count, 3), dtype=np.float64)
+    for row in range(count):
+        mask = acceptable[row, :patch_size]
+        if not bool(mask.any()):
+            mask = np.zeros(patch_size, dtype=bool)
+            mask[0] = True
+        local_distances = np.asarray(distances[row, :patch_size], dtype=np.float64)
+        local_indexes = np.asarray(indexes[row, :patch_size], dtype=np.int64)
+        weights = 1.0 / np.maximum(local_distances, 1.0e-5) ** 2
+        weights *= np.maximum(alignment[row, :patch_size], 0.1)
+        weights *= mask
+        total = float(weights.sum())
+        if total <= 0.0:
+            weights = np.zeros(patch_size, dtype=np.float64)
+            weights[0] = 1.0
+            total = 1.0
+        weights /= total
+        point_rows[row] = np.sum(points[local_indexes] * weights[:, None], axis=0)
+        averaged_normal = np.sum(normals[local_indexes] * weights[:, None], axis=0)
+        norm = float(np.linalg.norm(averaged_normal))
+        normal_rows[row] = (
+            averaged_normal / norm if norm > 1.0e-8 else normals[local_indexes[0]]
+        )
+    signed = np.einsum("ij,ij->i", positions - point_rows, normal_rows)
+    amount = np.clip(
+        float(config.clearance) - signed,
+        0.0,
+        float(config.max_displacement),
+    )
+    displacement = normal_rows * amount[:, None]
+    return displacement, signed
+
+
+def _part_vertex_adjacency(model: PmxModel) -> tuple[tuple[int, ...], ...]:
+    neighbors = [set() for _ in model.vertices]
+    for face in model.faces:
+        if len(face) != 3:
+            continue
+        first, second, third = (int(index) for index in face)
+        neighbors[first].update((second, third))
+        neighbors[second].update((first, third))
+        neighbors[third].update((first, second))
+    return tuple(tuple(sorted(items)) for items in neighbors)
+
+
+def fit_part_to_surface(
+    part: PmxPartResult | PmxModel | PmxDocument | str | Path,
+    target: PmxModel | PmxDocument | str | Path,
+    *,
+    config: PmxSurfaceFitConfig | None = None,
+) -> PmxPartResult:
+    """Push a clothing part to the target body's point-cloud surface.
+
+    This is a static rest-pose fit.  It does not weld topology or retarget
+    morphs; callers should evaluate/bake the desired Morph state before this
+    function.  Only inward signed distances are corrected, so loose garment
+    silhouettes remain intact.  A deep copy is always used and the target is
+    never mutated.
+    """
+    try:
+        import numpy as np
+        from scipy.spatial import cKDTree
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - exercised by environments without the extra
+        raise PmxCapabilityError(
+            "surface fitting requires the optional scipy/numpy dependencies"
+        ) from exc
+    settings = config or PmxSurfaceFitConfig()
+    source = part.model if isinstance(part, PmxPartResult) else _input_model(part)[0]
+    target_model, _target_snapshot = _input_model(target)
+    points, normals, cloud_indices = _surface_cloud(target_model, settings)
+    tree = cKDTree(points)
+    candidate = deepcopy(source)
+    positions = np.asarray(
+        [vertex.position for vertex in candidate.vertices], dtype=np.float64
+    )
+    original_positions = positions.copy()
+    vertex_normals = np.asarray(
+        [vertex.normal for vertex in candidate.vertices], dtype=np.float64
+    )
+    adjacency = _part_vertex_adjacency(candidate)
+    before_displacement, before_signed = _surface_projection(
+        positions, vertex_normals, points, normals, tree, settings
+    )
+    current_displacement = before_displacement
+    for _ in range(int(settings.iterations)):
+        if settings.smoothing > 0.0:
+            smoothed = current_displacement.copy()
+            for index, neighbors in enumerate(adjacency):
+                if (
+                    not neighbors
+                    or float(np.linalg.norm(current_displacement[index])) <= 0.0
+                ):
+                    continue
+                neighbor_values = current_displacement[list(neighbors)]
+                mean = np.mean(neighbor_values, axis=0)
+                smoothed[index] = (
+                    1.0 - float(settings.smoothing)
+                ) * current_displacement[index] + float(settings.smoothing) * mean
+            current_displacement = smoothed
+        lengths = np.linalg.norm(current_displacement, axis=1)
+        scale = np.minimum(
+            1.0,
+            float(settings.max_displacement) / np.maximum(lengths, 1.0e-12),
+        )
+        positions += current_displacement * scale[:, None]
+        current_displacement, _ = _surface_projection(
+            positions, vertex_normals, points, normals, tree, settings
+        )
+    # A few final unsmoothed projections are the hard collision guard after
+    # the optional Laplacian pass.  A weighted point-cloud plane can change
+    # its nearest patch after one move, so one pass alone is not sufficient at
+    # dense mesh boundaries.
+    final_signed = np.full(len(positions), -math.inf, dtype=np.float64)
+    for _ in range(4):
+        final_displacement, final_signed = _surface_projection(
+            positions, vertex_normals, points, normals, tree, settings
+        )
+        positions += final_displacement
+        if not len(final_displacement) or float(np.max(final_displacement)) <= 1.0e-6:
+            break
+    _, final_signed = _surface_projection(
+        positions, vertex_normals, points, normals, tree, settings
+    )
+    for vertex, position in zip(candidate.vertices, positions):
+        vertex.position = [float(value) for value in position]
+
+    rigid_deltas: dict[int, Any] = {}
+    prefixes = settings.rigid_body_name_prefixes
+    if prefixes:
+        for index, body in enumerate(candidate.rigidbodies):
+            body_name = body.name_jp or body.name_en or ""
+            if not body_name.startswith(prefixes):
+                continue
+            body_position = np.asarray(body.position, dtype=np.float64).reshape(1, 3)
+            body_normal = np.asarray([[0.0, 1.0, 0.0]], dtype=np.float64)
+            body_delta, _ = _surface_projection(
+                body_position, body_normal, points, normals, tree, settings
+            )
+            rigid_deltas[index] = body_delta[0]
+            body.position = [
+                float(value) for value in (body_position[0] + body_delta[0])
+            ]
+        if settings.fit_joints:
+            for joint in candidate.joints:
+                endpoint_deltas = [
+                    rigid_deltas[index]
+                    for index in (joint.rigidbody1_index, joint.rigidbody2_index)
+                    if index in rigid_deltas
+                ]
+                if endpoint_deltas:
+                    delta = np.mean(np.asarray(endpoint_deltas), axis=0)
+                    joint.position = [
+                        float(value) for value in (np.asarray(joint.position) + delta)
+                    ]
+
+    final_amount = np.maximum(
+        float(settings.clearance) - final_signed,
+        0.0,
+    )
+    moved = np.linalg.norm(positions - original_positions, axis=1)
+    material_stats: list[dict[str, Any]] = []
+    face_cursor = 0
+    for material_index, material in enumerate(candidate.materials):
+        faces = candidate.faces[
+            face_cursor // 3 : (face_cursor + material.face_count) // 3
+        ]
+        face_cursor += material.face_count
+        vertex_indices = sorted({vertex for face in faces for vertex in face})
+        if not vertex_indices:
+            continue
+        before_values = before_signed[vertex_indices]
+        after_values = final_signed[vertex_indices]
+        material_moved = moved[vertex_indices]
+        material_stats.append(
+            {
+                "index": material_index,
+                "name_jp": material.name_jp,
+                "name_en": material.name_en,
+                "vertex_count": len(vertex_indices),
+                "inside_surface_before": int(np.count_nonzero(before_values < 0.0)),
+                "inside_surface_after": int(np.count_nonzero(after_values < 0.0)),
+                "below_clearance_before": int(
+                    np.count_nonzero(before_values < settings.clearance)
+                ),
+                "below_clearance_after": int(
+                    np.count_nonzero(after_values < settings.clearance)
+                ),
+                "max_vertex_displacement": float(np.max(material_moved)),
+            }
+        )
+    report = dict(part.report if isinstance(part, PmxPartResult) else {})
+    report["surface_fit"] = {
+        "mode": "target_point_cloud_normal_envelope",
+        "target_material_indices": tuple(
+            index
+            for index in range(len(target_model.materials))
+            if index in set(settings.target_material_indices)
+            or target_model.materials[index].name_jp
+            in set(settings.target_material_names)
+            or target_model.materials[index].name_en
+            in set(settings.target_material_names)
+        ),
+        "target_point_count": len(points),
+        "target_source_vertex_count": len(cloud_indices),
+        "clearance": float(settings.clearance),
+        "iterations": int(settings.iterations),
+        "below_clearance_before": int(
+            np.count_nonzero(before_signed < settings.clearance)
+        ),
+        "below_clearance_after": int(
+            np.count_nonzero(final_signed < settings.clearance)
+        ),
+        "inside_surface_before": int(np.count_nonzero(before_signed < 0.0)),
+        "inside_surface_after": int(np.count_nonzero(final_signed < 0.0)),
+        "penetrating_before": int(np.count_nonzero(before_signed < settings.clearance)),
+        "penetrating_after": int(np.count_nonzero(final_signed < settings.clearance)),
+        "vertex_count": len(candidate.vertices),
+        "moved_vertex_count": int(np.count_nonzero(moved > 1.0e-7)),
+        "max_vertex_displacement": float(np.max(moved)) if len(moved) else 0.0,
+        "displacement_percentiles": (
+            tuple(float(value) for value in np.percentile(moved, [50, 90, 99, 100]))
+            if len(moved)
+            else ()
+        ),
+        "max_final_push": float(np.max(final_amount)) if len(final_amount) else 0.0,
+        "fitted_rigid_body_count": len(rigid_deltas),
+        "material_stats": tuple(material_stats),
+    }
+    try:
+        candidate = _strict_model_roundtrip(candidate)
+    except Exception as exc:
+        raise PmxCapabilityError(
+            f"surface-fitted part failed strict validation: {exc}"
+        ) from exc
+    mapping = dict(part.mapping) if isinstance(part, PmxPartResult) else {}
+    return PmxPartResult(candidate, mapping, report)
 
 
 def _bone_is_referenced(model: PmxModel, bone_index: int) -> bool:
@@ -2862,11 +3380,17 @@ def _safe_remove_physics(
             if index not in removed_only_bones
         ]
         for vertex in model.vertices:
-            for weight in vertex.weight:
-                if int(weight[0]) in removed_only_bones:
-                    weight[0] = -1
-                else:
-                    weight[0] = bone_map[int(weight[0])]
+            vertex.weight = [
+                [
+                    (
+                        -1
+                        if int(weight[0]) in removed_only_bones
+                        else bone_map[int(weight[0])]
+                    ),
+                    weight[1],
+                ]
+                for weight in vertex.weight
+            ]
         for bone in model.bones:
             _remap_optional_bone(bone, bone_map)
         for body in model.rigidbodies:
@@ -4235,6 +4759,7 @@ __all__ = [
     "PmxAssemblyResult",
     "PmxBoneBinding",
     "PmxCoordinateTransform",
+    "PmxSurfaceFitConfig",
     "PmxResourcePolicy",
     "PmxRemovalPolicy",
     "PmxVariantSpec",
@@ -4260,6 +4785,7 @@ __all__ = [
     "bake_morph_state",
     "bake_or_preserve",
     "bind_part_to_target",
+    "fit_part_to_surface",
     "assemble_part",
     "suggest_bone_bindings",
     "compare_pmx_models",

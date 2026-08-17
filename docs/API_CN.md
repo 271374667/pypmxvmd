@@ -419,6 +419,28 @@ Material/Face/Vertex/Bone/Morph/Display Frame/Rigid Body/Joint/Soft Body 的依�
 支持显式/日文名/英文名/alias 绑定和 `PmxCoordinateTransform`；未匹配源骨骼默认追加，
 缺失的显式目标按 `missing` 策略 fail-closed。
 
+静止姿态服装需要覆盖目标身体表面时，可在 Morph 求值/烘焙后调用
+`fit_part_to_surface(part, target, config=...)`。该函数从指定的目标皮肤 Material
+顶点和三角面重心建立带法线的点云，用局部有符号距离只把服装向外推出到
+`clearance` 余量；已经在身体外的宽松轮廓不会被拉回。`PmxSurfaceFitConfig` 还可设置
+邻域数、平滑迭代、最大推移，以及按名称前缀同步服装刚体和 Joint。函数始终复制服装
+Part，不修改 target；需要 `scipy`/`numpy`（开发环境执行 `uv sync --dev`）。
+
+```python
+fitted = pypmxvmd.fit_part_to_surface(
+    baked.model,
+    target,
+    config=pypmxvmd.PmxSurfaceFitConfig(
+        target_material_names=("Body", "足1", "足2"),
+        clearance=0.035,
+        rigid_body_name_prefixes=("Shirt_", "P3-Tag"),
+    ),
+)
+```
+
+报告中的 `inside_surface_before/after` 是实际点云表面内的顶点数量，
+`below_clearance_before/after` 则包含小于服装余量但不一定穿透的顶点；两者不要混用。
+
 批量输出使用 `PmxVariantBuilder`：
 
 ```python
@@ -426,6 +448,10 @@ builder = pypmxvmd.PmxVariantBuilder(
     target="body_target.pmx",
     source="clothing_source.pmx",
     selection=pypmxvmd.PmxPartSelection(material_names=("上衣",)),
+    surface_fit=pypmxvmd.PmxSurfaceFitConfig(
+        target_material_names=("Body", "足1", "足2"),
+        clearance=0.035,
+    ),
 )
 builder.add_variant("p1", morph_state={"上着P2": 0.0}, output_path="p1.pmx")
 result = builder.build()
@@ -433,7 +459,8 @@ result = builder.build()
 
 每个变体从同一个 target 快照开始，所有输出先预检、编码后再原子替换；输出路径不能覆盖
 输入文件，默认也不能覆盖已有输出。PMX 2.1 的 Flip/Impulse Morph 和 Soft Body 高层
-提取/烘焙语义尚未实现，相关请求会明确失败。
+提取/烘焙语义尚未实现，相关请求会明确失败。传入 `surface_fit` 时，每个变体在 Morph
+状态烘焙后执行静止姿态表面包络，拟合诊断会写入变体报告。
 
 ---
 

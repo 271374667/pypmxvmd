@@ -22,11 +22,13 @@ from pypmxvmd.common.models.pmx import (
 from pypmxvmd.common.pmx.outfit import (
     PmxPartSelection,
     PmxPlanError,
+    PmxSurfaceFitConfig,
     PmxWorkspace,
     PmxWorkspaceError,
     analyze_part,
     apply_plan,
     find_pmx_resources,
+    fit_part_to_surface,
     inspect_pmx,
     plan_pmx_operation,
     who_references,
@@ -177,6 +179,176 @@ def test_binding_alias_append_drop_and_transform_order():
     )
     assert bound.report["reused_bones"] == {0: 0}
     assert bound.model.vertices[1].position == [3.0, 0.0, 0.0]
+
+
+def test_part_extraction_remaps_tuple_weight_rows():
+    source = _model()
+    source.vertices[0].weight = [(0, 1.0)]
+    target = _model()
+    part = pypmxvmd.extract_part(
+        source,
+        selection=PmxPartSelection(material_names=("上衣",)),
+    )
+    assert part.model.vertices[0].weight == [[0, 1.0]]
+    bound = pypmxvmd.bind_part_to_target(part, target)
+    assert bound.model.vertices[0].weight == [[0, 1.0]]
+
+
+def test_named_binding_targets_dynamic_bone_after_part_reindex():
+    source = _model()
+    source.bones = [
+        PmxBone(name_jp="未选中"),
+        PmxBone(name_jp="中心"),
+        PmxBone(name_jp="Chest_L", parent_index=1, position=[0.5, 1.0, 0.0]),
+    ]
+    for vertex in source.vertices:
+        vertex.weight = [[2, 1.0]]
+
+    target = _model()
+    target.bones = [PmxBone(name_jp="中心")]
+    target.bones.append(
+        PmxBone(name_jp="左胸上2", parent_index=0, position=[0.6, 1.1, 0.0])
+    )
+    graph = analyze_part(
+        source,
+        selection=PmxPartSelection(material_names=("上衣",)),
+    )
+    part = pypmxvmd.extract_part(source, analysis=graph)
+    assert part.mapping["bone"][2] == 1
+
+    bound = pypmxvmd.bind_part_to_target(
+        part,
+        target,
+        bone_binding=pypmxvmd.PmxBoneBinding(
+            explicit={"Chest_L": "左胸上2"},
+            unmatched_source="append",
+            missing="error",
+        ),
+    )
+    assert bound.report["reused_bones"][1] == 1
+    assert 2 not in bound.report["reused_bones"]
+
+
+def test_surface_fit_pushes_inward_vertices_and_preserves_target():
+    target = PmxModel()
+    target.vertices = [
+        PmxVertex(position=[-1.0, 0.0, -1.0], normal=[0.0, 1.0, 0.0]),
+        PmxVertex(position=[1.0, 0.0, -1.0], normal=[0.0, 1.0, 0.0]),
+        PmxVertex(position=[1.0, 0.0, 1.0], normal=[0.0, 1.0, 0.0]),
+        PmxVertex(position=[-1.0, 0.0, 1.0], normal=[0.0, 1.0, 0.0]),
+    ]
+    target.faces = [[0, 1, 2], [0, 2, 3]]
+    target.materials = [PmxMaterial(name_jp="Body", face_count=6)]
+    target.bones = [PmxBone(name_jp="センター")]
+    source = PmxModel()
+    source.vertices = [
+        PmxVertex(
+            position=[-0.4, -0.25, -0.4],
+            normal=[0.0, 1.0, 0.0],
+            weight=[[0, 1.0]],
+        ),
+        PmxVertex(
+            position=[0.4, -0.25, -0.4],
+            normal=[0.0, 1.0, 0.0],
+            weight=[[0, 1.0]],
+        ),
+        PmxVertex(
+            position=[0.0, -0.25, 0.4],
+            normal=[0.0, 1.0, 0.0],
+            weight=[[0, 1.0]],
+        ),
+    ]
+    source.faces = [[0, 1, 2]]
+    source.materials = [PmxMaterial(name_jp="上衣", face_count=3)]
+    source.bones = [PmxBone(name_jp="服装")]
+    before = target.to_list()
+    result = fit_part_to_surface(
+        source,
+        target,
+        config=PmxSurfaceFitConfig(
+            target_material_names=("Body",),
+            clearance=0.1,
+            iterations=2,
+            smoothing=0.0,
+        ),
+    )
+    assert all(vertex.position[1] >= 0.099 for vertex in result.model.vertices)
+    assert result.report["surface_fit"]["inside_surface_before"] == 3
+    assert result.report["surface_fit"]["inside_surface_after"] == 0
+    assert target.to_list() == before
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"target_material_indices": (True,)},
+        {"target_material_indices": (-1,)},
+        {"target_material_names": ("",)},
+    ],
+)
+def test_surface_fit_config_rejects_invalid_material_selectors(kwargs):
+    with pytest.raises(ValueError):
+        PmxSurfaceFitConfig(**kwargs)
+
+
+def test_variant_builder_applies_surface_fit_after_each_bake(tmp_path: Path):
+    target = PmxModel()
+    target.vertices = [
+        PmxVertex(position=[-1.0, 0.0, -1.0], normal=[0.0, 1.0, 0.0]),
+        PmxVertex(position=[1.0, 0.0, -1.0], normal=[0.0, 1.0, 0.0]),
+        PmxVertex(position=[1.0, 0.0, 1.0], normal=[0.0, 1.0, 0.0]),
+        PmxVertex(position=[-1.0, 0.0, 1.0], normal=[0.0, 1.0, 0.0]),
+    ]
+    target.faces = [[0, 1, 2], [0, 2, 3]]
+    target.materials = [PmxMaterial(name_jp="Body", face_count=6)]
+    target.bones = [PmxBone(name_jp="中心")]
+    source = PmxModel()
+    source.vertices = [
+        PmxVertex(
+            position=[-0.4, -0.25, -0.4],
+            normal=[0.0, 1.0, 0.0],
+            weight=[[0, 1.0]],
+        ),
+        PmxVertex(
+            position=[0.4, -0.25, -0.4],
+            normal=[0.0, 1.0, 0.0],
+            weight=[[0, 1.0]],
+        ),
+        PmxVertex(
+            position=[0.0, -0.25, 0.4],
+            normal=[0.0, 1.0, 0.0],
+            weight=[[0, 1.0]],
+        ),
+    ]
+    source.faces = [[0, 1, 2]]
+    source.materials = [PmxMaterial(name_jp="Top", face_count=3)]
+    source.bones = [PmxBone(name_jp="服装")]
+    target_path = tmp_path / "target.pmx"
+    source_path = tmp_path / "source.pmx"
+    output_path = tmp_path / "fitted.pmx"
+    pypmxvmd.save_pmx(target, target_path)
+    pypmxvmd.save_pmx(source, source_path)
+    before = target.to_list()
+    result = (
+        pypmxvmd.PmxVariantBuilder(
+            target=target_path,
+            source=source_path,
+            selection=PmxPartSelection(material_names=("Top",)),
+            surface_fit=PmxSurfaceFitConfig(
+                target_material_names=("Body",),
+                clearance=0.1,
+                smoothing=0.0,
+            ),
+        )
+        .add_variant("fitted", output_path=output_path)
+        .build()
+    )
+    variant = result.variants[0]
+    assert variant.report["surface_fit"]["inside_surface_before"] == 3
+    assert variant.report["surface_fit"]["inside_surface_after"] == 0
+    assert all(vertex.position[1] >= 0.099 for vertex in variant.model.vertices[-3:])
+    assert output_path.is_file()
+    assert target.to_list() == before
 
 
 def test_variant_builder_isolates_variants_and_protects_inputs(tmp_path: Path):
