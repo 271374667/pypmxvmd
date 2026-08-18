@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import pypmxvmd
+import pypmxvmd.common.pmx.outfit as outfit_module
 from pypmxvmd.common.models.pmx import (
     PmxBone,
     PmxFrame,
@@ -33,7 +34,7 @@ from pypmxvmd.common.pmx.outfit import (
     plan_pmx_operation,
     who_references,
 )
-from pypmxvmd.common.pmx.types import MorphMaterialOperation, MorphType
+from pypmxvmd.common.pmx.types import MorphMaterialOperation, MorphType, WeightMode
 from tests.fixtures.pmx_builder import build_pmx21_fixture
 from tests.fixtures.pmx_outfit_builder import build_outfit_fixture
 
@@ -81,6 +82,25 @@ def test_inspection_and_search_are_read_only_and_stable():
     result = find_pmx_resources(model, query="P2", kinds=("morph",))
     assert result.candidates[0].ref.stable_key == "morph:0"
     assert model.to_list() == before
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda model: model.vertices[0].position.__setitem__(0, 0.25),
+        lambda model: model.faces[0].__setitem__(0, 1),
+        lambda model: model.vertices[0].weight.__setitem__(0, [0, 0.5]),
+        lambda model: model.morphs[0].items[0].offset.__setitem__(0, 0.25),
+    ],
+)
+def test_in_memory_snapshot_digest_tracks_geometry_topology_weights_and_morphs(
+    mutate,
+):
+    before = inspect_pmx(_model()).identity.sha256
+    changed = _model()
+    mutate(changed)
+
+    assert inspect_pmx(changed).identity.sha256 != before
 
 
 def test_duplicate_names_fail_closed():
@@ -181,6 +201,42 @@ def test_binding_alias_append_drop_and_transform_order():
     assert bound.model.vertices[1].position == [3.0, 0.0, 0.0]
 
 
+def test_binding_transform_updates_vertex_normals():
+    source = _model()
+    for vertex in source.vertices:
+        vertex.normal = [1.0, 0.0, 0.0]
+    bound = pypmxvmd.bind_part_to_target(
+        source,
+        _model(),
+        transform=pypmxvmd.PmxCoordinateTransform(
+            rotation=(0.0, 0.0, 1.0, 0.0),
+        ),
+    )
+    assert bound.model.vertices[0].normal == [-1.0, 0.0, 0.0]
+
+
+def test_binding_transform_updates_sdef_and_morph_vectors():
+    source = _model()
+    source.vertices[0].weight_mode = WeightMode.SDEF
+    source.vertices[0].weight = [[0, 0.5], [0, 0.5]]
+    source.vertices[0].sdef_c = [1.0, 0.0, 0.0]
+    source.vertices[0].sdef_r0 = [0.0, 1.0, 0.0]
+    source.vertices[0].sdef_r1 = [0.0, 0.0, 1.0]
+    source.morphs[0].items[0].offset = [1.0, 0.0, 0.0]
+    bound = pypmxvmd.bind_part_to_target(
+        source,
+        _model(),
+        transform=pypmxvmd.PmxCoordinateTransform(
+            scale=2.0,
+            translation=(1.0, 0.0, 0.0),
+        ),
+    )
+
+    assert bound.model.vertices[0].sdef_c == [3.0, 0.0, 0.0]
+    assert bound.model.vertices[0].sdef_r0 == [1.0, 2.0, 0.0]
+    assert bound.model.morphs[0].items[0].offset == [2.0, 0.0, 0.0]
+
+
 def test_part_extraction_remaps_tuple_weight_rows():
     source = _model()
     source.vertices[0].weight = [(0, 1.0)]
@@ -275,6 +331,8 @@ def test_surface_fit_pushes_inward_vertices_and_preserves_target():
     assert all(vertex.position[1] >= 0.099 for vertex in result.model.vertices)
     assert result.report["surface_fit"]["inside_surface_before"] == 3
     assert result.report["surface_fit"]["inside_surface_after"] == 0
+    assert result.report["surface_fit"]["penetrating_before"] == 3
+    assert result.report["surface_fit"]["penetrating_after"] == 0
     assert target.to_list() == before
 
 
@@ -284,11 +342,107 @@ def test_surface_fit_pushes_inward_vertices_and_preserves_target():
         {"target_material_indices": (True,)},
         {"target_material_indices": (-1,)},
         {"target_material_names": ("",)},
+        {"clearance": "0.1"},
     ],
 )
 def test_surface_fit_config_rejects_invalid_material_selectors(kwargs):
     with pytest.raises(ValueError):
         PmxSurfaceFitConfig(**kwargs)
+
+
+def test_surface_fit_rejects_empty_part():
+    target = build_outfit_fixture(include_morphs=False, include_physics=False)
+    with pytest.raises(pypmxvmd.PmxCapabilityError, match="at least one part vertex"):
+        fit_part_to_surface(
+            PmxModel(),
+            target,
+            config=PmxSurfaceFitConfig(target_material_names=("Body",)),
+        )
+
+
+def test_surface_fit_rejects_non_static_variant_mode(tmp_path: Path):
+    source = build_outfit_fixture(include_morphs=False, include_physics=False)
+    target = build_outfit_fixture(include_morphs=False, include_physics=False)
+    source_path = tmp_path / "source.pmx"
+    target_path = tmp_path / "target.pmx"
+    pypmxvmd.save_pmx(source, source_path)
+    pypmxvmd.save_pmx(target, target_path)
+    builder = pypmxvmd.PmxVariantBuilder(
+        target=target_path,
+        source=source_path,
+        selection=PmxPartSelection(material_names=("服装",)),
+        surface_fit=PmxSurfaceFitConfig(target_material_names=("Body",)),
+    )
+    builder.add_variant("controls", mode="preserve_controls")
+    with pytest.raises(pypmxvmd.PmxCapabilityError, match="mode='static'"):
+        builder.build()
+
+
+def test_variant_builder_rolls_back_replaced_outputs(tmp_path: Path, monkeypatch):
+    source = _model()
+    target = _model()
+    source_path = tmp_path / "source.pmx"
+    target_path = tmp_path / "target.pmx"
+    first = tmp_path / "first.pmx"
+    second = tmp_path / "second.pmx"
+    pypmxvmd.save_pmx(source, source_path)
+    pypmxvmd.save_pmx(target, target_path)
+    first.write_bytes(b"original first output")
+    builder = pypmxvmd.PmxVariantBuilder(
+        target=target_path,
+        source=source_path,
+        selection=PmxPartSelection(material_names=("上衣",)),
+        output_policy="overwrite",
+    )
+    builder.add_variant("first", output_path=first)
+    builder.add_variant("second", output_path=second)
+    original_replace = outfit_module.os.replace
+    calls = 0
+
+    def fail_on_second_replace(source_path, target_path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated replacement failure")
+        return original_replace(source_path, target_path)
+
+    monkeypatch.setattr(outfit_module.os, "replace", fail_on_second_replace)
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        builder.build()
+    assert first.read_bytes() == b"original first output"
+    assert not second.exists()
+
+
+def test_variant_builder_cleans_staging_file_when_output_write_fails(
+    tmp_path: Path, monkeypatch
+):
+    source = _model()
+    target = _model()
+    source_path = tmp_path / "source.pmx"
+    target_path = tmp_path / "target.pmx"
+    output = tmp_path / "failed.pmx"
+    pypmxvmd.save_pmx(source, source_path)
+    pypmxvmd.save_pmx(target, target_path)
+    builder = pypmxvmd.PmxVariantBuilder(
+        target=target_path,
+        source=source_path,
+        selection=PmxPartSelection(material_names=("上衣",)),
+    )
+    builder.add_variant("failed", output_path=output)
+
+    original_fdopen = outfit_module.os.fdopen
+
+    def fail_binary_open(fd, mode="r", *args, **kwargs):
+        if mode == "wb":
+            raise OSError("simulated staging open failure")
+        return original_fdopen(fd, mode, *args, **kwargs)
+
+    monkeypatch.setattr(outfit_module.os, "fdopen", fail_binary_open)
+    with pytest.raises(OSError, match="simulated staging open failure"):
+        builder.build()
+
+    assert not output.exists()
+    assert not tuple(tmp_path.glob(f".{output.name}.*.tmp"))
 
 
 def test_variant_builder_applies_surface_fit_after_each_bake(tmp_path: Path):

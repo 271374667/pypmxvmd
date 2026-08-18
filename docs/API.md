@@ -30,6 +30,12 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 ### Install
 
 ```bash
+# Core parser/writer only
+pip install pypmxvmd
+
+# Include surface fitting and other numeric features
+pip install "pypmxvmd[all]"
+
 uv add pypmxvmd
 ```
 
@@ -160,6 +166,32 @@ length, non-overlap and registered field type before writing. It then strict-
 reparses the patched bytes and compares the entire semantic model. A no-op write
 returns the exact original bytes. Unsupported edits raise `PmxPatchError` before
 the target is created or replaced.
+
+#### W10 legacy fixed-width patch bridge
+
+`LegacyPatchRecord` is a JSON-safe description of a same-length patch emitted
+by an older PMX tool. `adapt_legacy_patches()` maps records only to exact
+registered `PmxDocument` spans; the default allowlist is
+`bones[*].parent_index` for PMX 2.0, which covers the initial arm-IK parent
+compatibility migration. It does not import the legacy tool's runtime and
+rejects unknown offsets, mismatched `before` bytes, variable lengths, overlaps,
+non-allowlisted fields, and PMX 2.1 input.
+
+For a staged migration, edit the document model first, then compare both write
+paths:
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+document.model.bones[12].parent_index = 6
+legacy = pypmxvmd.make_legacy_bone_parent_patch(document, 12, 6)
+audit = pypmxvmd.dual_write_legacy_patches(document, [legacy])
+assert audit.outputs_match
+```
+
+`dual_write_legacy_patches()` returns patch metadata and source/output SHA-256
+digests. A mismatch between raw legacy patching and
+`PmxDocument.encode_lossless()` raises `PmxPatchError`; no target file is
+created by this in-memory comparison.
 
 ---
 
@@ -448,8 +480,9 @@ surface distance is below `clearance`. Garments that are already outside the
 body keep their loose silhouette. `PmxSurfaceFitConfig` controls neighbour
 count, smoothing passes, displacement limits, and optional name prefixes for
 moving garment rigid bodies and joints with the fitted geometry. The part is
-copied and the target is never mutated; the optional `scipy`/`numpy` dependencies
-are installed in the development environment with `uv sync --dev`.
+copied and the target is never mutated. Install the optional `all` extra
+(`pip install "pypmxvmd[all]"`) before calling this feature; it provides
+`numpy` and `scipy`.
 
 ```python
 fitted = pypmxvmd.fit_part_to_surface(

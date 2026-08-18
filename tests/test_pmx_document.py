@@ -5,7 +5,7 @@ import hashlib
 import pytest
 
 import pypmxvmd
-from pypmxvmd.common.pmx import PmxDocument
+from pypmxvmd.common.pmx import PmxDocument, PmxPatchError
 from tests.test_corpus_parsers import corpus_cases
 from tests.test_pmx_integrity import _minimal_complete_pmx21_bytes
 from tests.test_pmx_sections_reader import _pmx20_all_sections
@@ -77,6 +77,17 @@ def test_noop_lossless_writes_are_byte_identical(tmp_path):
 
     assert direct.read_bytes() == source.read_bytes()
     assert automatic.read_bytes() == source.read_bytes()
+
+
+def test_document_lossless_write_rejects_source_path(tmp_path):
+    source = _source_path(tmp_path)
+    before = source.read_bytes()
+    document = pypmxvmd.load_pmx_document(source)
+
+    with pytest.raises(PmxPatchError, match="cannot overwrite its source"):
+        pypmxvmd.save_pmx(document, source, mode="lossless_patch")
+
+    assert source.read_bytes() == before
 
 
 def test_document_supports_complete_pmx21_and_noop_lossless_bytes(tmp_path):

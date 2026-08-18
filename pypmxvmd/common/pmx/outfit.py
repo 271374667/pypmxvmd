@@ -19,6 +19,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from numbers import Real
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -472,22 +473,40 @@ class PmxCoordinateTransform:
     rotation: tuple[float, float, float, float] | None = None
 
     def __post_init__(self) -> None:
+        if isinstance(self.scale, bool) or not isinstance(self.scale, Real):
+            raise ValueError("scale must be a finite non-zero real number")
         if not math.isfinite(float(self.scale)) or self.scale == 0.0:
             raise ValueError("scale must be finite and non-zero")
         if len(self.translation) != 3 or not all(
-            math.isfinite(float(v)) for v in self.translation
+            not isinstance(v, bool) and isinstance(v, Real) and math.isfinite(float(v))
+            for v in self.translation
         ):
             raise ValueError("translation must be a finite vec3")
         if self.rotation is not None and (
             len(self.rotation) != 4
-            or not all(math.isfinite(float(v)) for v in self.rotation)
+            or not all(
+                not isinstance(v, bool)
+                and isinstance(v, Real)
+                and math.isfinite(float(v))
+                for v in self.rotation
+            )
         ):
             raise ValueError("rotation must be a finite quaternion")
 
     def apply(self, position: Sequence[float]) -> list[float]:
         if len(position) != 3:
             raise ValueError("position must be a vec3")
-        scaled = [float(value) * self.scale for value in position]
+        transformed = self.apply_vector(position)
+        return [
+            value + float(self.translation[index])
+            for index, value in enumerate(transformed)
+        ]
+
+    def apply_vector(self, vector: Sequence[float]) -> list[float]:
+        """Transform a model-space vector without applying translation."""
+        if len(vector) != 3:
+            raise ValueError("vector must be a vec3")
+        scaled = [float(value) * self.scale for value in vector]
         if self.rotation is not None:
             x, y, z, w = (float(value) for value in self.rotation)
             norm = math.sqrt(x * x + y * y + z * z + w * w)
@@ -506,9 +525,40 @@ class PmxCoordinateTransform:
                 + 2 * (y * z + x * w) * py
                 + (1 - 2 * (x * x + y * y)) * pz,
             ]
-        return [
-            value + float(self.translation[index]) for index, value in enumerate(scaled)
+        return scaled
+
+    def apply_direction(self, direction: Sequence[float]) -> list[float]:
+        """Transform and renormalize a direction such as a vertex normal."""
+        if len(direction) != 3:
+            raise ValueError("direction must be a vec3")
+        values = self.apply_vector(direction)
+        length = math.sqrt(sum(value * value for value in values))
+        if length <= 1.0e-12:
+            return [0.0, 0.0, 0.0]
+        return [value / length for value in values]
+
+    def apply_quaternion(self, quaternion: Sequence[float]) -> list[float]:
+        """Compose the transform rotation with an ``x, y, z, w`` quaternion."""
+        if len(quaternion) != 4:
+            raise ValueError("quaternion must be a vec4")
+        source = [float(value) for value in quaternion]
+        if self.rotation is None:
+            return source
+        transform = [float(value) for value in self.rotation]
+        source_norm = math.sqrt(sum(value * value for value in source))
+        transform_norm = math.sqrt(sum(value * value for value in transform))
+        if source_norm <= 1.0e-12 or transform_norm <= 1.0e-12:
+            raise ValueError("rotation quaternion cannot be zero")
+        sx, sy, sz, sw = (value / source_norm for value in source)
+        tx, ty, tz, tw = (value / transform_norm for value in transform)
+        result = [
+            tw * sx + tx * sw + ty * sz - tz * sy,
+            tw * sy - tx * sz + ty * sw + tz * sx,
+            tw * sz + tx * sy - ty * sx + tz * sw,
+            tw * sw - tx * sx - ty * sy - tz * sz,
         ]
+        result_norm = math.sqrt(sum(value * value for value in result))
+        return [value / result_norm for value in result]
 
     def to_dict(self) -> dict[str, Any]:
         return _json(asdict(self))
@@ -551,7 +601,10 @@ class PmxSurfaceFitConfig:
             "smoothing",
             "max_displacement",
         ):
-            value = float(getattr(self, name))
+            raw_value = getattr(self, name)
+            if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
+                raise ValueError(f"{name} must be a real number")
+            value = float(raw_value)
             if not math.isfinite(value):
                 raise ValueError(f"{name} must be finite")
         if self.clearance < 0.0:
@@ -575,6 +628,8 @@ class PmxSurfaceFitConfig:
             for item in self.rigid_body_name_prefixes
         ):
             raise ValueError("rigid_body_name_prefixes must contain non-empty strings")
+        if not isinstance(self.fit_joints, bool):
+            raise ValueError("fit_joints must be a boolean")
 
     def to_dict(self) -> dict[str, Any]:
         return _json(asdict(self))
@@ -801,13 +856,15 @@ class PmxVariantBuilder:
                 mode=spec.mode,
                 unsupported="error",
             )
-            fitted = (
-                fit_part_to_surface(
-                    baked.model,
-                    target_model,
-                    config=spec.surface_fit or self.surface_fit,
+            surface_fit = spec.surface_fit or self.surface_fit
+            if surface_fit is not None and spec.mode != "static":
+                raise PmxCapabilityError(
+                    "surface_fit requires mode='static'; retained Morph controls "
+                    "could reintroduce surface penetration"
                 )
-                if spec.surface_fit or self.surface_fit
+            fitted = (
+                fit_part_to_surface(baked.model, target_model, config=surface_fit)
+                if surface_fit is not None
                 else None
             )
             part_model = fitted.model if fitted is not None else baked.model
@@ -861,20 +918,65 @@ class PmxVariantBuilder:
                 )
             )
         temporary_paths: list[Path] = []
+        backup_paths: dict[Path, Path | None] = {}
+        replaced_outputs: list[Path] = []
+        preserve_backups: set[Path] = set()
         try:
             for output, payload in encoded:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 fd, name = tempfile.mkstemp(
                     prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
                 )
-                with os.fdopen(fd, "wb") as stream:
-                    stream.write(payload)
-                temporary_paths.append(Path(name))
+                temporary = Path(name)
+                # Register the path before opening the descriptor so failures
+                # during open/write still remove the private staging file.
+                temporary_paths.append(temporary)
+                try:
+                    with os.fdopen(fd, "wb") as stream:
+                        stream.write(payload)
+                except BaseException:
+                    # ``os.fdopen`` may fail before it takes ownership of the
+                    # descriptor; close it explicitly in that narrow case.
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                    raise
+            if self.output_policy == "overwrite":
+                for output, _ in encoded:
+                    if not output.exists():
+                        backup_paths[output] = None
+                        continue
+                    fd, name = tempfile.mkstemp(
+                        prefix=f".{output.name}.", suffix=".bak", dir=output.parent
+                    )
+                    os.close(fd)
+                    backup = Path(name)
+                    backup_paths[output] = backup
+                    shutil.copy2(output, backup)
             for temporary, (output, _) in zip(temporary_paths, encoded):
                 os.replace(temporary, output)
+                replaced_outputs.append(output)
+        except BaseException:
+            for output in reversed(replaced_outputs):
+                backup = backup_paths.get(output)
+                try:
+                    if backup is None:
+                        output.unlink(missing_ok=True)
+                    elif backup.exists():
+                        os.replace(backup, output)
+                except OSError:
+                    # Preserve the original failure while making a best effort
+                    # to restore the prior output set.
+                    if backup is not None:
+                        preserve_backups.add(backup)
+            raise
         finally:
             for temporary in temporary_paths:
                 temporary.unlink(missing_ok=True)
+            for backup in backup_paths.values():
+                if backup is not None and backup not in preserve_backups:
+                    backup.unlink(missing_ok=True)
         return PmxVariantBuildResult(
             tuple(variants),
             analysis,
@@ -1045,64 +1147,10 @@ def _snapshot(
     model: PmxModel, path: Path | None, raw: bytes | None
 ) -> PmxInputSnapshot:
     if raw is None:
-        # In-memory callers still receive a stable source identifier.  Keep
-        # this fingerprint bounded: recursively hashing every vertex, face and
-        # Morph item makes high-level operations unusable on real models.  File
-        # backed callers continue to use the complete source-byte SHA-256.
-        bounded = {
-            "header": model.header.to_list(),
-            "counts": _counts(model),
-            "textures": tuple(model.textures),
-            "materials": tuple(
-                (
-                    item.name_jp,
-                    item.name_en,
-                    item.face_count,
-                    item.texture_path,
-                    item.sphere_path,
-                    item.toon_path,
-                )
-                for item in model.materials
-            ),
-            "bones": tuple(
-                (item.name_jp, item.name_en, item.parent_index, item.deform_layer)
-                for item in model.bones
-            ),
-            "morphs": tuple(
-                (item.name_jp, item.name_en, item.morph_type.name, len(item.items))
-                for item in model.morphs
-            ),
-            "frames": tuple(
-                (item.name_jp, item.name_en, item.is_special, len(item.items))
-                for item in model.frames
-            ),
-            "rigid_bodies": tuple(
-                (item.name_jp, item.name_en, item.bone_index)
-                for item in model.rigidbodies
-            ),
-            "joints": tuple(
-                (
-                    item.name_jp,
-                    item.name_en,
-                    item.joint_type.name,
-                    item.rigidbody1_index,
-                    item.rigidbody2_index,
-                )
-                for item in model.joints
-            ),
-            "soft_bodies": tuple(
-                (item.name_jp, item.name_en, item.material_index)
-                for item in model.softbodies
-            ),
-        }
-        digest = hashlib.sha256(
-            json.dumps(
-                _json(bounded),
-                ensure_ascii=False,
-                sort_keys=True,
-                default=str,
-            ).encode()
-        ).hexdigest()
+        # In-memory callers have no source bytes, so include every semantic
+        # field.  A count/name-only digest lets geometry, weights, topology,
+        # and Morph edits masquerade as unchanged plan inputs.
+        digest = _semantic_model_sha256(model)
         size = 0
         mtime = None
         path_value = None
@@ -1126,6 +1174,86 @@ def _snapshot(
         counts=_counts(model),
         mtime_ns=mtime,
     )
+
+
+def _semantic_model_sha256(model: PmxModel) -> str:
+    """Hash an in-memory model without requiring a canonical writer round-trip."""
+    digest = hashlib.sha256()
+    _hash_semantic_value(digest, model, set())
+    return digest.hexdigest()
+
+
+def _hash_semantic_value(digest: Any, value: Any, active: set[int]) -> None:
+    """Feed deterministic type-tagged values into a digest incrementally."""
+    if value is None:
+        digest.update(b"N;")
+        return
+    if isinstance(value, bool):
+        digest.update(b"B1;" if value else b"B0;")
+        return
+    if isinstance(value, Enum):
+        digest.update(b"E:")
+        _hash_semantic_value(digest, type(value).__qualname__, active)
+        _hash_semantic_value(digest, value.value, active)
+        return
+    if isinstance(value, int):
+        digest.update(b"I:")
+        digest.update(str(value).encode("ascii"))
+        digest.update(b";")
+        return
+    if isinstance(value, float):
+        digest.update(b"F:")
+        digest.update(value.hex().encode("ascii"))
+        digest.update(b";")
+        return
+    if isinstance(value, str):
+        encoded = value.encode("utf-8")
+        digest.update(b"S:")
+        digest.update(str(len(encoded)).encode("ascii"))
+        digest.update(b":")
+        digest.update(encoded)
+        digest.update(b";")
+        return
+    if isinstance(value, bytes):
+        digest.update(b"Y:")
+        digest.update(str(len(value)).encode("ascii"))
+        digest.update(b":")
+        digest.update(value)
+        digest.update(b";")
+        return
+    if isinstance(value, Mapping):
+        digest.update(b"M[")
+        for key, item in sorted(value.items(), key=lambda entry: repr(entry[0])):
+            _hash_semantic_value(digest, key, active)
+            _hash_semantic_value(digest, item, active)
+        digest.update(b"]")
+        return
+    if isinstance(value, (list, tuple)):
+        digest.update(b"L[")
+        for item in value:
+            _hash_semantic_value(digest, item, active)
+        digest.update(b"]")
+        return
+    if hasattr(value, "__dict__"):
+        marker = id(value)
+        if marker in active:
+            digest.update(b"<cycle>")
+            return
+        active.add(marker)
+        digest.update(b"O:")
+        _hash_semantic_value(digest, type(value).__qualname__, active)
+        values = vars(value)
+        for name in sorted(values):
+            if name in {"_validated", "parse_report"}:
+                continue
+            _hash_semantic_value(digest, name, active)
+            _hash_semantic_value(digest, values[name], active)
+        digest.update(b";")
+        active.remove(marker)
+        return
+    digest.update(b"R:")
+    digest.update(repr(value).encode("utf-8"))
+    digest.update(b";")
 
 
 def _ref(
@@ -2747,10 +2875,32 @@ def bind_part_to_target(
     if transform is not None:
         for vertex in candidate.vertices:
             vertex.position = transform.apply(vertex.position)
+            vertex.normal = transform.apply_direction(vertex.normal)
+            for name in ("sdef_c", "sdef_r0", "sdef_r1"):
+                value = getattr(vertex, name)
+                if value is not None:
+                    setattr(vertex, name, transform.apply(value))
         for bone in candidate.bones:
             bone.position = transform.apply(bone.position)
+            if bone.tail_offset is not None:
+                bone.tail_offset = transform.apply_vector(bone.tail_offset)
+            for name in ("fixed_axis", "local_axis_x", "local_axis_z"):
+                value = getattr(bone, name)
+                if value is not None:
+                    setattr(bone, name, transform.apply_direction(value))
+        for morph in candidate.morphs:
+            for item in morph.items:
+                if isinstance(item, PmxMorphItemVertex):
+                    item.offset = transform.apply_vector(item.offset)
+                elif isinstance(item, PmxMorphItemBone):
+                    item.translation = transform.apply_vector(item.translation)
+                    item.rotation = transform.apply_quaternion(item.rotation)
+                elif isinstance(item, PmxMorphItemImpulse):
+                    item.velocity = transform.apply_vector(item.velocity)
+                    item.torque = transform.apply_vector(item.torque)
         for body in candidate.rigidbodies:
             body.position = transform.apply(body.position)
+            body.size = [abs(float(transform.scale)) * value for value in body.size]
         for joint in candidate.joints:
             joint.position = transform.apply(joint.position)
     try:
@@ -2786,9 +2936,9 @@ def _surface_cloud(
         import numpy as np
     except (
         ImportError
-    ) as exc:  # pragma: no cover - exercised by environments without the extra
+    ) as exc:  # pragma: no cover - exercised by incomplete runtime installs
         raise PmxCapabilityError(
-            "surface fitting requires the optional scipy/numpy dependencies"
+            "surface fitting requires the scipy/numpy runtime dependencies"
         ) from exc
 
     selected = set(int(index) for index in config.target_material_indices)
@@ -2975,12 +3125,14 @@ def fit_part_to_surface(
         from scipy.spatial import cKDTree
     except (
         ImportError
-    ) as exc:  # pragma: no cover - exercised by environments without the extra
+    ) as exc:  # pragma: no cover - exercised by incomplete runtime installs
         raise PmxCapabilityError(
-            "surface fitting requires the optional scipy/numpy dependencies"
+            "surface fitting requires the scipy/numpy runtime dependencies"
         ) from exc
     settings = config or PmxSurfaceFitConfig()
     source = part.model if isinstance(part, PmxPartResult) else _input_model(part)[0]
+    if not source.vertices:
+        raise PmxCapabilityError("surface fitting requires at least one part vertex")
     target_model, _target_snapshot = _input_model(target)
     points, normals, cloud_indices = _surface_cloud(target_model, settings)
     tree = cKDTree(points)
@@ -3127,8 +3279,8 @@ def fit_part_to_surface(
         ),
         "inside_surface_before": int(np.count_nonzero(before_signed < 0.0)),
         "inside_surface_after": int(np.count_nonzero(final_signed < 0.0)),
-        "penetrating_before": int(np.count_nonzero(before_signed < settings.clearance)),
-        "penetrating_after": int(np.count_nonzero(final_signed < settings.clearance)),
+        "penetrating_before": int(np.count_nonzero(before_signed < 0.0)),
+        "penetrating_after": int(np.count_nonzero(final_signed < 0.0)),
         "vertex_count": len(candidate.vertices),
         "moved_vertex_count": int(np.count_nonzero(moved > 1.0e-7)),
         "max_vertex_displacement": float(np.max(moved)) if len(moved) else 0.0,

@@ -25,12 +25,19 @@ PyPMXVMD is a Python library for parsing and modifying MikuMikuDance (MMD) files
 - Object-oriented API design, easy to use
 - Complete type annotation support
 - Optional Cython acceleration for core parsing and binary I/O; PMX currently uses the canonical Cursor model for complete public results
-- No external dependencies (core functionality)
+- PMX core parsing remains dependency-light; surface fitting is available with
+  the optional `all` extra (`numpy` and `scipy`)
 - Uses Python 3.11 as the supported development and release baseline
 
 ## Installation
 
 ```bash
+# Core parser/writer only
+pip install pypmxvmd
+
+# Include surface fitting and other numeric features
+pip install "pypmxvmd[all]"
+
 # Add the released package to a uv project
 uv add pypmxvmd
 
@@ -39,6 +46,10 @@ git clone https://github.com/271374667/pypmxvmd.git
 cd pypmxvmd
 uv sync --group dev --python 3.11.12
 ```
+
+The core package has no mandatory third-party runtime dependencies. Install the
+`all` extra when using `fit_part_to_surface()` or
+`PmxVariantBuilder(surface_fit=...)`.
 
 ### Optional: Build Cython Accelerators
 
@@ -293,6 +304,8 @@ class VpdPose:
 | `save_pmx(model, path)` | Save PMX file |
 | `write_pmx(model, path, mode="canonical")` | Canonical PMX writer |
 | `write_pmx(document, path, mode="lossless_patch")` | Audited fixed-field patch |
+| `adapt_legacy_patches(document, records)` | Map approved legacy fixed-width records |
+| `dual_write_legacy_patches(document, records)` | Compare legacy and lossless outputs |
 | `load_vpd(path)` | Load VPD file |
 | `save_vpd(pose, path)` | Save VPD file |
 | `load(path)` | Auto-detect and load |

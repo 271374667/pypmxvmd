@@ -27,6 +27,12 @@ PyPMXVMD 是一个用于解析和修改 MikuMikuDance (MMD) 文件的 Python 库
 ### 安装
 
 ```bash
+# 仅安装核心解析/写入功能
+pip install pypmxvmd
+
+# 使用表面拟合等高级数值功能
+pip install "pypmxvmd[all]"
+
 uv add pypmxvmd
 ```
 
@@ -179,6 +185,26 @@ pypmxvmd.save_pmx(document, "patched.pmx", mode="lossless_patch")
 lossless 写入会在落盘前验证模型、`before` 字节、边界、等长、不重叠和字段类型；随后严格
 重读 patch 结果并比较整个语义模型。no-op 原样返回源字节。任何未登记修改均抛出
 `PmxPatchError`，不会创建或替换目标文件。
+
+#### W10 legacy 定长补丁适配层
+
+`LegacyPatchRecord` 是旧 PMX 工具输出的定长补丁结构，可直接序列化为 JSON。
+`adapt_legacy_patches()` 只把记录映射到 `PmxDocument` 已登记且完全匹配的字段；默认白名单为
+PMX 2.0 的 `bones[*].parent_index`，用于首批腕 IK parent 兼容迁移。适配层不导入旧工具运行时，
+会拒绝未知偏移、`before` 不匹配、变长/重叠补丁、白名单外字段和 PMX 2.1 输入。
+
+迁移时先修改 document 模型，再执行双写比较：
+
+```python
+document = pypmxvmd.load_pmx_document("model.pmx")
+document.model.bones[12].parent_index = 6
+legacy = pypmxvmd.make_legacy_bone_parent_patch(document, 12, 6)
+audit = pypmxvmd.dual_write_legacy_patches(document, [legacy])
+assert audit.outputs_match
+```
+
+`dual_write_legacy_patches()` 返回补丁元数据及 source/output SHA-256。旧式原始补丁结果与
+`PmxDocument.encode_lossless()` 不一致时抛出 `PmxPatchError`；该内存比较函数不会创建目标文件。
 
 ---
 
@@ -424,7 +450,8 @@ Material/Face/Vertex/Bone/Morph/Display Frame/Rigid Body/Joint/Soft Body 的依�
 顶点和三角面重心建立带法线的点云，用局部有符号距离只把服装向外推出到
 `clearance` 余量；已经在身体外的宽松轮廓不会被拉回。`PmxSurfaceFitConfig` 还可设置
 邻域数、平滑迭代、最大推移，以及按名称前缀同步服装刚体和 Joint。函数始终复制服装
-Part，不修改 target；需要 `scipy`/`numpy`（开发环境执行 `uv sync --dev`）。
+Part，不修改 target。使用此功能前请安装可选的 `all` extra：
+`pip install "pypmxvmd[all]"`，其中包含 `numpy` 和 `scipy`。
 
 ```python
 fitted = pypmxvmd.fit_part_to_surface(

@@ -471,8 +471,13 @@ class PmxDocument:
         """Verify completely, then atomically replace the target with lossless bytes."""
         from pypmxvmd.common.pmx.writer import PmxWriter
 
+        target = Path(file_path).expanduser().resolve()
+        if self._source_path is not None and target == self._source_path:
+            raise PmxPatchError(
+                "A lossless PMX document write cannot overwrite its source asset"
+            )
         encoded = self.encode_lossless()
-        PmxWriter._atomic_write(Path(file_path), encoded)
+        PmxWriter._atomic_write(target, encoded)
 
     def _apply_and_reparse(
         self, patches: Sequence[BinaryPatch]

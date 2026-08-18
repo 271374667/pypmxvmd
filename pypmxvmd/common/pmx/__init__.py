@@ -28,6 +28,15 @@ from pypmxvmd.common.pmx.errors import (
     PmxWorkspaceError,
     UnsupportedPmxFeatureError,
 )
+from pypmxvmd.common.pmx.legacy_patch import (
+    DEFAULT_LEGACY_FIELD_PATTERNS,
+    LegacyPatchAudit,
+    LegacyPatchRecord,
+    PmxLegacyPatchAdapter,
+    adapt_legacy_patches,
+    dual_write_legacy_patches,
+    make_legacy_bone_parent_patch,
+)
 from pypmxvmd.common.pmx.limits import DEFAULT_PMX_LIMITS, PmxLimits
 from pypmxvmd.common.pmx.report import (
     PMX_20_REQUIRED_SECTIONS,
@@ -86,6 +95,13 @@ __all__ = [
     "BinarySpan",
     "FieldPath",
     "PmxDocument",
+    "DEFAULT_LEGACY_FIELD_PATTERNS",
+    "LegacyPatchAudit",
+    "LegacyPatchRecord",
+    "PmxLegacyPatchAdapter",
+    "adapt_legacy_patches",
+    "dual_write_legacy_patches",
+    "make_legacy_bone_parent_patch",
     "PmxLimits",
     "DEFAULT_PMX_LIMITS",
     "JointType",
